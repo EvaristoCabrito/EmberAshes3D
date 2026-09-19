@@ -15,7 +15,6 @@ log.txt
 /attachments/
 /artifacts/
 /screenshots/
-/.grok/
 /Titles/
 /Sound FX/
 .node_modules.lock
