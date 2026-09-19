@@ -85,7 +85,7 @@ export function portraitFor(sprite: SpriteId): { src: string; framed: boolean } 
 }
 
 const TILES = Object.keys(TILE_VARIANT_COUNT) as TerrainId[];
-const SPRITES: SpriteId[] = ["kael", "neera", "voss", "salazar", "aldric", "malrec", "defaultLancer", "soldier", "brigand", "captain", "sorcerer", "horror", "Asherah", "pikeman", "wardog", "troll", "morvenian-wolf", "punisher", "theButcher", "birolho", "birolho2", "birolho3", "familiar", "familiar2", "swamp-blue-calf", "ancient-golem", "lancer", "sandoval", "kaelFinal", "kaelEarly", "conjurer", "cultist-v2", "archerRecruit", "mageRecruit", "healerRecruit"];
+const SPRITES: SpriteId[] = ["kael", "neera", "voss", "salazar", "aldric", "malrec", "defaultLancer", "soldier", "brigand", "captain", "sorcerer", "horror", "Asherah", "pikeman", "wardog", "troll", "morvenian-wolf", "punisher", "theButcher", "birolho", "birolho2", "birolho3", "familiar", "familiar2", "familiar3", "swamp-blue-calf", "ancient-golem", "lancer", "sandoval", "kaelFinal", "kaelEarly", "conjurer", "cultist-v2", "archerRecruit", "mageRecruit", "healerRecruit"];
 
 const LOAD_POOL = 8;
 let loadActive = 0;
@@ -185,7 +185,7 @@ export async function loadGameArt(): Promise<GameArt> {
   const attacks: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
   await Promise.all(
     SPRITES.map(async (id) => {
-      const n = id === "conjurer" || id === "kaelFinal" || id === "aldric" || id === "cultist-v2" || id === "malrec" ? 36 : id === "sandoval" ? 8 : id === "birolho2" ? 18 : id === "birolho3" ? 12 : HERO_IDLE.has(id) ? 12 : 4;
+      const n = id === "conjurer" || id === "kaelFinal" || id === "aldric" || id === "cultist-v2" || id === "malrec" || id === "familiar3" ? 36 : id === "sandoval" ? 8 : id === "birolho2" ? 18 : id === "birolho3" ? 12 : HERO_IDLE.has(id) ? 12 : 4;
       const cacheBust = id === "troll" ? "?v=11" : id === "Asherah" ? "?v=3" : id === "familiar" ? "?v=6" : id === "aldric" ? "?v=aldric-final-001" : id === "defaultLancer" ? "?v=sheet2" : id === "lancer" ? "?v=3" : id === "sandoval" ? "?v=sandoval-complete-001" : id === "kaelFinal" ? "?v=kael-final-002" : id === "kaelEarly" ? "?v=kael-early" : id === "kael" ? "?v=kael-v2" : id === "conjurer" ? "?v=conjurer-complete-003" : "";
       sprites[id] = await Promise.all(
         Array.from({ length: n }, (_, i) =>
@@ -234,6 +234,9 @@ export async function loadGameArt(): Promise<GameArt> {
     kaelFinal: { n: 36, bust: "?v=kael-final-002" },
     conjurer: { n: 36, bust: "?v=conjurer-complete-003" },
     "cultist-v2": { n: 36, bust: "" },
+    // Familiar 3's primary attack cut — see ATTACK2_FRAMES below for its alternate cut,
+    // which Unit.idleAlt alternates into turn to turn (same flip as Malrec's idles2).
+    familiar3: { n: 36, bust: "" },
   };
   await Promise.all(
     (Object.keys(ATTACK_FRAMES) as SpriteId[]).map(async (id) => {
@@ -259,7 +262,24 @@ export async function loadGameArt(): Promise<GameArt> {
     // Familiar 2's real rear-up/charge/beam-release windup — a distinct animation from its
     // ATT cut (the crouch/lunge), not a fallback.
     familiar2: { n: 24, bust: "" },
+    // Familiar 3's spellcasting windup (cast-*.png) — plays for its Fireball cast only
+    // (attackPose falls back to `attacks` for a plain melee swing); see ATTACK_FRAMES/
+    // ATTACK2_FRAMES above for its two melee attack cuts.
+    familiar3: { n: 36, bust: "" },
   };
+  // Familiar 3's second, distinct attack cut (atk2-*.png) — the first case of a class having
+  // more than one attack cut, same "second pool, same idleAlt flip" shape as Malrec's idles2
+  // but for the attack pool instead of idle (see GameArt.attacks2's doc comment).
+  const ATTACK2_FRAMES: Partial<Record<SpriteId, { n: number; bust: string }>> = {
+    familiar3: { n: 36, bust: "" },
+  };
+  const attacks2: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
+  await Promise.all(
+    (Object.keys(ATTACK2_FRAMES) as SpriteId[]).map(async (id) => {
+      const { n, bust } = ATTACK2_FRAMES[id]!;
+      attacks2[id] = await Promise.all(Array.from({ length: n }, (_, i) => loadImage(spriteFrameSrc(id, `atk2-${i + 1}`, bust))));
+    }),
+  );
   const casts: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
   await Promise.all(
     (Object.keys(CAST_FRAMES) as SpriteId[]).map(async (id) => {
@@ -324,6 +344,7 @@ export async function loadGameArt(): Promise<GameArt> {
     theButcher: { n: 36, bust: "?v=the-butcher-001" },
     // Right-facing cut; see the dedicated walksLeft["cultist-v2"] load below.
     "cultist-v2": { n: 36, bust: "" },
+    familiar3: { n: 36, bust: "" },
   };
   const walks: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
   await Promise.all(
@@ -427,5 +448,5 @@ export async function loadGameArt(): Promise<GameArt> {
     // priority over them while moving (see the render loop's img lookup), leaving that
     // animation dead code.
   };
-  return { tiles, decorations, sprites, attacks, attacksLeft, casts, castsLeft, counters, countersLeft, walks, walksLeft, idles, idles2, walkDirs, impact, fireballCore, causticVenomCore, arrowCore, lightningCores, backdrops };
+  return { tiles, decorations, sprites, attacks, attacks2, attacksLeft, casts, castsLeft, counters, countersLeft, walks, walksLeft, idles, idles2, walkDirs, impact, fireballCore, causticVenomCore, arrowCore, lightningCores, backdrops };
 }

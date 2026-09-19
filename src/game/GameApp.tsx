@@ -9,7 +9,7 @@ import { InnScreen } from "./InnScreen";
 import { PartyInventoryOverlay, ItemTip } from "./InventoryScreens";
 import { DialogOverlay } from "./DialogOverlay";
 import { DialogEditor } from "./DialogEditor";
-import { BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, FIREBALL, formatSpellUseGains, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, SUMMON_FAMILIAR2, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, decorationImage, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, type SpellTier } from "./data";
+import { BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, FIREBALL, formatSpellUseGains, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, SUMMON_FAMILIAR2, SUMMON_FAMILIAR3, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, decorationImage, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, type SpellTier } from "./data";
 import { BattleEngine } from "./engine";
 import { MapPreviewCanvas, type PreviewUnitSelection } from "./MapPreviewCanvas";
 import { WorldMapScreen } from "./WorldMapScreen";
@@ -384,7 +384,10 @@ function classSpells(classId: ClassId): SpellKind[] {
         // SPELL_TIER for the intended tier assignment. summonFamiliar2 (Familiar Maior) is
         // the first case of a class having more than one spell at the same tier (both tier
         // 2, sharing that tier's pool of uses with webOfDreams).
-        return ["summonFamiliar", "webOfDreams", "summonFamiliar2"];
+        return ["summonFamiliar", "webOfDreams", "summonFamiliar2", "summonFamiliar3"];
+      case "familiar3":
+        // The Big Guy's own hotbar, once summoned — its only action beyond a plain attack.
+        return ["fireball"];
       case "archer":
         return ["longShot", "piercing", "multiShot"];
       case "healer":
@@ -463,8 +466,10 @@ function slotIcon(action: SlotAction): string {
       return spellIcon("trip");
     case "summonFamiliar":
       return spellIcon("summon-familiar");
-    // No dedicated art yet for the tier-2 summon — reuses the same familiar icon.
+    // No dedicated art yet for the tier-2/3 summons — each reuses the same familiar icon.
     case "summonFamiliar2":
+      return spellIcon("summon-familiar");
+    case "summonFamiliar3":
       return spellIcon("summon-familiar");
     case "webOfDreams":
       return spellIcon("web-of-dreams");
@@ -528,6 +533,8 @@ function slotLabel(action: SlotAction): string {
       return SUMMON_FAMILIAR.name;
     case "summonFamiliar2":
       return SUMMON_FAMILIAR2.name;
+    case "summonFamiliar3":
+      return SUMMON_FAMILIAR3.name;
     case "webOfDreams":
       return WEB_OF_DREAMS.name;
     case "multiShot":
@@ -2209,6 +2216,7 @@ const SKILL_CLASS: Partial<Record<SpellKind, ClassId>> = {
   causticVenom: "mage",
   summonFamiliar: "conjurer",
   summonFamiliar2: "conjurer",
+  summonFamiliar3: "conjurer",
   webOfDreams: "conjurer",
   longShot: "archer",
   piercing: "archer",
@@ -2250,6 +2258,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
   { name: PIERCING_THRUST.name, cls: SKILL_CLASS.piercingThrust!, tier: spellTier("piercingThrust")!, formula: `dano de arma, −${Math.round(PIERCING_THRUST.armorIgnore * 100)}% armadura`, note: "Acerta em linha; o segundo alvo recebe metade." },
   { name: SUMMON_FAMILIAR.name, cls: SKILL_CLASS.summonFamiliar!, tier: spellTier("summonFamiliar")!, formula: "—", note: `Invoca aliado com ${Math.round(SUMMON_FAMILIAR.statScale * 100)}% dos atributos atuais.` },
   { name: SUMMON_FAMILIAR2.name, cls: SKILL_CLASS.summonFamiliar2!, tier: spellTier("summonFamiliar2")!, formula: "—", note: `Invoca aliado maior, com ${Math.round(SUMMON_FAMILIAR2.statScale * 100)}% dos atributos atuais.` },
+  { name: SUMMON_FAMILIAR3.name, cls: SKILL_CLASS.summonFamiliar3!, tier: spellTier("summonFamiliar3")!, formula: "—", note: `Invoca aliado com ${Math.round(SUMMON_FAMILIAR3.statScale * 100)}% dos atributos atuais — pode lançar Bola de Fogo por conta própria.` },
   {
     name: LIGHTNING.name,
     cls: SKILL_CLASS.lightning!,
@@ -3999,6 +4008,11 @@ function MapEditorScreen({
   const heroNameByClassId: Partial<Record<ClassId, string>> = Object.fromEntries(
     [...EDITOR_HEROES, ...NAMED_NON_HERO_CLASS_IDS].map((h) => [h.classId, h.name]),
   );
+  // The six names HERO_SPRITE_BY_NAME (engine.ts) pins a sprite to regardless of classId —
+  // same cast as EDITOR_HEROES, by construction. Only a player-side spawn carrying one of
+  // these names has any use for the Spawn.useClassSprite toggle below; every other spawn's
+  // sprite already just follows its classId, so the toggle would be a no-op there.
+  const spritePinnedHeroNames = new Set(EDITOR_HEROES.map((h) => h.name));
   // One entry per distinct sprite (several classes share art — a promoted class, an
   // alternate skin), labeled by whichever class name reaches it first. Named heroes go
   // first so each of them claims their own sprite's slot under their own name — the
@@ -5030,6 +5044,20 @@ function MapEditorScreen({
                     {s.dialog ? "Diálogo" : "+ Diálogo"}
                   </button>
                 )}
+                {side === "playerSpawns" && spritePinnedHeroNames.has(s.name) && (
+                  <button
+                    type="button"
+                    onClick={() => updateSpawn(side, i, { useClassSprite: !s.useClassSprite })}
+                    className={`text-xs px-1.5 border border-border rounded-md shrink-0 ${s.useClassSprite ? "text-accent" : "text-muted hover:text-fg"}`}
+                    title={
+                      s.useClassSprite
+                        ? "Renderizando com o sprite da classe escolhida (teste) — clique para voltar ao sprite fixo do herói"
+                        : `${s.name} sempre usa o sprite dele, não importa a classe — clique para testar com o sprite da classe escolhida em vez disso`
+                    }
+                  >
+                    {s.useClassSprite ? "Sprite: Classe" : "Sprite: Herói"}
+                  </button>
+                )}
                 <button type="button" onClick={() => removeSpawn(side, i)} className="text-danger px-1.5" aria-label="Remover">
                   <X className="size-3.5" />
                 </button>
@@ -5914,6 +5942,9 @@ function BattleScreen({
       case "summonFamiliar2":
         engine.startSummonFamiliar2();
         break;
+      case "summonFamiliar3":
+        engine.startSummonFamiliar3();
+        break;
       case "webOfDreams":
         engine.startWebOfDreams();
         break;
@@ -6786,6 +6817,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
   const archer = base === "archer";
   const swordsman = base === "swordsman";
   const lancer = base === "lancer" || base === "aldric";
+  const familiar3 = unit.classId === "familiar3";
   const condition = characterCondition(unit);
 
   return (
@@ -6957,7 +6989,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
           ))}
         </div>
 
-        {unit.side === "player" && (swordsman || mage || conjurer || archer || healer || lancer) && (
+        {unit.side === "player" && (swordsman || mage || conjurer || archer || healer || lancer || familiar3) && (
           <>
             <p className="text-xs uppercase tracking-[0.18em] text-muted mb-2">Magias e habilidades</p>
             <div className="grid grid-cols-1 gap-1.5">
@@ -7044,7 +7076,22 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                           {SUMMON_FAMILIAR2.name} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("summonFamiliar2")!)]}</span>
                         </p>
                       </div>
+                      <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
+                        <img src={spellIcon("summon-familiar")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                        <p className="text-xs truncate">
+                          {SUMMON_FAMILIAR3.name} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("summonFamiliar3")!)]}</span>
+                        </p>
+                      </div>
                     </>
+                  )}
+                  {familiar3 && (
+                    <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
+                      <img src={spellIcon("fireball")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                      <p className="text-xs leading-snug">
+                        Fogo {damageFormula(unit.mag, FIREBALL.mul, FIREBALL.dice, FIREBALL.faces, FIREBALL.bonus)}{" "}
+                        <span className="tabular-nums text-muted">×{unit.fireballCharges ?? 0}</span>
+                      </p>
+                    </div>
                   )}
                   {archer && (
                     <>

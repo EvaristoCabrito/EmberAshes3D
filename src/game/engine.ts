@@ -1,4 +1,4 @@
-import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expForHit, FIREBALL, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, SUMMON_FAMILIAR2, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, weightedWeaponPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize } from "./data";
+import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expForHit, FIREBALL, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, SUMMON_FAMILIAR2, SUMMON_FAMILIAR3, familiarFireballCharges, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, weightedWeaponPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance } from "./data";
 import type { SpellTier } from "./data";
 import { canCounter, makeForecast, mulberry32, powerOf, protOf, rollDamage, rollDamageCustom } from "./combat";
 import {
@@ -508,6 +508,7 @@ function pub(u: Unit, restrained: boolean, movLeft: number): UnitPublic {
     fullness: u.fullness,
     offHandId: u.offHandId,
     summoned: u.summoned,
+    fireballCharges: u.fireballCharges,
     asleep: u.asleep,
     restrained,
     gear: { ...u.gear },
@@ -608,6 +609,15 @@ const HERO_SPRITE_BY_NAME: Partial<Record<string, SpriteId>> = {
   Malrec: "malrec",
 };
 
+/** The name-pin above, with the mission editor's per-spawn escape hatch (Spawn.useClassSprite
+ * — see its doc comment in types.ts) applied first: set, it renders with classId's own class
+ * sprite instead, so any enemy/creature classId dropped into a hero-named slot actually shows
+ * up as itself rather than snapping back to that hero's pinned look. */
+function resolveHeroSprite(name: string, classSprite: SpriteId, useClassSprite?: boolean): SpriteId {
+  if (useClassSprite) return classSprite;
+  return HERO_SPRITE_BY_NAME[name] ?? classSprite;
+}
+
 function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i: number, roster?: Roster, enemyLevel = 1): Unit {
   const requestedClassId = (side === "player" ? roster?.promotions?.[spawn.name] : undefined) ?? spawn.classId;
   // Kael's early/final entries are visual variants, never gameplay jobs. Every unit named
@@ -675,7 +685,8 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
     className: cls.name,
     role: cls.role,
     side,
-    sprite: HERO_SPRITE_BY_NAME[spawn.name] ?? cls.sprite,
+    sprite: resolveHeroSprite(spawn.name, cls.sprite, spawn.useClassSprite),
+    useClassSprite: spawn.useClassSprite,
     x: spawn.x,
     y: spawn.y,
     hp,
@@ -789,7 +800,8 @@ function unitFromSnap(snap: BattleUnitSnap): Unit {
     className: cls?.name ?? classId,
     role: cls?.role ?? "",
     side: snap.side,
-    sprite: HERO_SPRITE_BY_NAME[snap.name] ?? cls?.sprite ?? "soldier",
+    sprite: resolveHeroSprite(snap.name, cls?.sprite ?? "soldier", snap.useClassSprite),
+    useClassSprite: snap.useClassSprite,
     x: snap.x,
     y: snap.y,
     hp: snap.hp,
@@ -906,8 +918,13 @@ export class BattleEngine {
   reach: Map<string, ReachCell> = new Map();
   attackFrom: Map<string, Point> = new Map();
   /** Active Web of Dreams patches (Conjurer tier 2) — cast, not terrain, so they live here
-   * rather than on the map. Ticks down by one every startNewRound and is dropped at 0. */
-  webZones: { cells: Set<string>; roundsLeft: number; createdAt?: number }[] = [];
+   * rather than on the map. Ticks down by one every startNewRound and is dropped at 0.
+   * center/radius (the cast cell and hexAreaTiles' own radius) are the zone's hex-cluster
+   * shape, kept alongside `cells` so BattleCanvas can size ONE WebGL "web" effect over the
+   * whole zone (see webZoneRadiusTiles) instead of stamping a separate copy per hex — that
+   * per-hex stamping used to be the only option and is what used to clash into a snowflake
+   * cluster on anything bigger than a single hex. */
+  webZones: { cells: Set<string>; roundsLeft: number; createdAt?: number; center?: Point; radius?: number; sleepChance?: number }[] = [];
   /** One-shot WebGL elemental FX spawn requests queued by a landed spell hit (see
    * SPELL_ELEMENT_FX/queueElementalFx) — BattleCanvas's render loop drains this every frame
    * and calls EffectsRenderer.spawnEffect for each, since `fx` itself only exists over there.
@@ -1322,7 +1339,7 @@ export class BattleEngine {
                   kind: "webOfDreams" as const,
                   roundsLeft: hoveredWeb.roundsLeft,
                   movementCap: 1,
-                  sleepChance: WEB_OF_DREAMS.sleepChance,
+                  sleepChance: hoveredWeb.sleepChance ?? WEB_OF_DREAMS.sleepChance,
                   sleepDice: diceFormula(WEB_OF_DREAMS.sleepDice, WEB_OF_DREAMS.sleepFaces, 0),
                 }
               : undefined,
@@ -1522,6 +1539,7 @@ export class BattleEngine {
         guaranteedDrop: u.guaranteedDrop,
         dialog: u.dialog,
         moveBudgetUsed: u.moveBudgetUsed,
+        useClassSprite: u.useClassSprite,
       };
       return snap;
     });
@@ -1552,7 +1570,7 @@ export class BattleEngine {
       lootWeapons: [...this.lootWeapons],
       lootEquipment: [...this.lootEquipment],
       ownedWeapons: [...this.ownedWeapons],
-      webZones: this.webZones.map((z) => ({ cells: [...z.cells], roundsLeft: z.roundsLeft })),
+      webZones: this.webZones.map((z) => ({ cells: [...z.cells], roundsLeft: z.roundsLeft, center: z.center, radius: z.radius, sleepChance: z.sleepChance })),
       auraZones: this.auraZones.map((z) => ({
         cells: [...z.cells],
         roundsLeft: z.roundsLeft,
@@ -1599,7 +1617,7 @@ export class BattleEngine {
     this.lootWeapons = [...snap.lootWeapons];
     this.lootEquipment = [...snap.lootEquipment];
     this.ownedWeapons = new Set(snap.ownedWeapons);
-    this.webZones = snap.webZones.map((z) => ({ cells: new Set(z.cells), roundsLeft: z.roundsLeft }));
+    this.webZones = snap.webZones.map((z) => ({ cells: new Set(z.cells), roundsLeft: z.roundsLeft, center: z.center, radius: z.radius, sleepChance: z.sleepChance }));
     this.auraZones = snap.auraZones.map((z) => ({
       cells: new Set(z.cells),
       roundsLeft: z.roundsLeft,
@@ -3499,9 +3517,16 @@ export class BattleEngine {
     sfxPlay.ui();
   }
 
+  /** Fireball's remaining casts for `u` this battle: Familiar 3 ("the Big Guy") draws from
+   * its own fireballCharges (set at summon time, never a slot-table tier — see
+   * familiarFireballCharges), every other caster from the normal tier-3 slot pool. */
+  private fireballRemaining(u: Unit): number {
+    return u.classId === "familiar3" ? (u.fireballCharges ?? 0) : this.tierRemaining(u, "fireball");
+  }
+
   startFireball(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
-    if (!u || u.acted || this.tierRemaining(u, "fireball") <= 0) return;
+    if (!u || u.acted || this.fireballRemaining(u) <= 0) return;
     this.mode = "awaitSpell";
     this.spellKind = "fireball";
     this.spellArmed = false;
@@ -3693,6 +3718,18 @@ export class BattleEngine {
     sfxPlay.ui();
   }
 
+  startSummonFamiliar3(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    if (!u || u.acted || this.tierRemaining(u, "summonFamiliar3") <= 0) return;
+    this.mode = "awaitSpell";
+    this.spellKind = "summonFamiliar3";
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.hover = null;
+    this.tip = `${SUMMON_FAMILIAR3.name}: convoca um aliado com ${Math.round(SUMMON_FAMILIAR3.statScale * 100)}% dos seus atributos atuais, até ${SUMMON_FAMILIAR3.range} hexes. Pode lançar Bola de Fogo por conta própria. Toque num espaço livre.`;
+    sfxPlay.ui();
+  }
+
   startWebOfDreams(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || u.acted || this.tierRemaining(u, "webOfDreams") <= 0) return;
@@ -3701,7 +3738,7 @@ export class BattleEngine {
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${WEB_OF_DREAMS.name}: cria uma teia grudenta por ${WEB_OF_DREAMS.durationRounds} rodadas — quem estiver dentro fica com movimento reduzido a 1 hex, e testa ${Math.round(WEB_OF_DREAMS.sleepChance * 100)}% de chance de adormecer por ${diceFormula(WEB_OF_DREAMS.sleepDice, WEB_OF_DREAMS.sleepFaces, 0)} turnos a cada turno que permanecer lá dentro (cumulativo). Alcance ${WEB_OF_DREAMS.range}, raio ${webOfDreamsSize(u.level)}. Toque para mirar.`;
+    this.tip = `${WEB_OF_DREAMS.name}: cria uma teia grudenta por ${WEB_OF_DREAMS.durationRounds} rodadas — quem estiver dentro fica com movimento reduzido a 1 hex, e testa ${Math.round(webOfDreamsSleepChance(u.level) * 100)}% de chance de adormecer por ${diceFormula(WEB_OF_DREAMS.sleepDice, WEB_OF_DREAMS.sleepFaces, 0)} turnos a cada turno que permanecer lá dentro (cumulativo). Alcance ${WEB_OF_DREAMS.range}, raio ${webOfDreamsSize(u.level)}. Toque para mirar.`;
     sfxPlay.ui();
   }
 
@@ -3831,11 +3868,15 @@ export class BattleEngine {
       return;
     }
     if (this.spellKind === "summonFamiliar") {
-      this.castSummonFamiliar(u, cell, false);
+      this.castSummonFamiliar(u, cell, 1);
       return;
     }
     if (this.spellKind === "summonFamiliar2") {
-      this.castSummonFamiliar(u, cell, true);
+      this.castSummonFamiliar(u, cell, 2);
+      return;
+    }
+    if (this.spellKind === "summonFamiliar3") {
+      this.castSummonFamiliar(u, cell, 3);
       return;
     }
     if (this.spellKind === "webOfDreams") {
@@ -3946,6 +3987,16 @@ export class BattleEngine {
   /** True while (x,y) sits inside any still-active Web of Dreams patch. */
   private isWebCell(x: number, y: number): boolean {
     return this.webZones.some((z) => z.cells.has(key(x, y)));
+  }
+
+  /** The sleep chance of whichever Dreaming Web zone covers (x,y) — set once at cast time
+   * from the caster's level (see castWebOfDreams/webOfDreamsSleepChance) and carried on the
+   * zone itself, so a lingering roll always uses the level that created the zone rather than
+   * whatever level some other unit is at now. Falls back to the base chance for a zone
+   * restored from an older save that predates this field. */
+  private webCellSleepChance(x: number, y: number): number {
+    const zone = this.webZones.find((z) => z.cells.has(key(x, y)));
+    return zone?.sleepChance ?? WEB_OF_DREAMS.sleepChance;
   }
 
   /** Combined multiplier from every active Aura of Protection / Intimidating Presence zone
@@ -4253,8 +4304,8 @@ export class BattleEngine {
       if (!this.targetable(here) || manhattan(caster, cell) > MAGIC_MISSILE.range) return false;
       return clearShot(caster, cell, this.tiles, this.cols, "bolt", this.decorOverlay);
     }
-    if (this.spellKind === "summonFamiliar" || this.spellKind === "summonFamiliar2") {
-      const range = this.spellKind === "summonFamiliar2" ? SUMMON_FAMILIAR2.range : SUMMON_FAMILIAR.range;
+    if (this.spellKind === "summonFamiliar" || this.spellKind === "summonFamiliar2" || this.spellKind === "summonFamiliar3") {
+      const range = this.spellKind === "summonFamiliar3" ? SUMMON_FAMILIAR3.range : this.spellKind === "summonFamiliar2" ? SUMMON_FAMILIAR2.range : SUMMON_FAMILIAR.range;
       if (manhattan(caster, cell) > range) return false;
       if (!inBounds(cell.x, cell.y, this.cols, this.rows)) return false;
       if (!this.hexAt(cell.x, cell.y).passable) return false;
@@ -4706,22 +4757,26 @@ export class BattleEngine {
    * `this.units` — no queued animation step, it just appears. It has no slot in this round's
    * `turnOrder` (that's rebuilt from `this.units` fresh every round in startNewRound), so it
    * waits for the round after this one to act, same as any other reinforcement would. */
-  /** Summon Familiar / Summon Familiar 2 (Conjurer tiers 1 and 2): `evolved` selects which of
-   * the two — same spawn logic, just a stronger creature/class/tier and its own spell/slot for
-   * Familiar 2, not an automatic upgrade of the first. See SUMMON_FAMILIAR2's note. */
-  private castSummonFamiliar(unit: Unit, cell: Point, evolved: boolean): void {
+  /** Summon Familiar / Summon Familiar 2 / Summon Familiar 3 (Conjurer tiers 1-3): `tier`
+   * selects which of the three — same spawn logic, just a stronger creature/class/tier and
+   * its own spell/slot per tier, never an automatic upgrade of the one before it. See
+   * SUMMON_FAMILIAR2/SUMMON_FAMILIAR3's notes. */
+  private castSummonFamiliar(unit: Unit, cell: Point, tier: 1 | 2 | 3): void {
     if (!this.spellAimValid(unit, cell)) {
       this.tip = "Escolha um espaço livre ao alcance.";
       sfxPlay.ui();
       return;
     }
-    const cls = evolved ? CLASSES.familiar2! : CLASSES.familiar!;
-    const scale = evolved ? SUMMON_FAMILIAR2.statScale : SUMMON_FAMILIAR.statScale;
+    const cls = tier === 3 ? CLASSES.familiar3! : tier === 2 ? CLASSES.familiar2! : CLASSES.familiar!;
+    const scale = tier === 3 ? SUMMON_FAMILIAR3.statScale : tier === 2 ? SUMMON_FAMILIAR2.statScale : SUMMON_FAMILIAR.statScale;
+    const spellKind: SpellKind = tier === 3 ? "summonFamiliar3" : tier === 2 ? "summonFamiliar2" : "summonFamiliar";
+    const spellName = tier === 3 ? SUMMON_FAMILIAR3.name : tier === 2 ? SUMMON_FAMILIAR2.name : SUMMON_FAMILIAR.name;
+    const namePrefix = tier === 3 ? "Familiar Titã de" : tier === 2 ? "Familiar Maior de" : "Familiar de";
     const maxHp = Math.max(1, Math.round(unit.maxHp * scale));
     const familiarInitiativeRoll = 1 + Math.floor(this.rng() * 20);
     const familiar: Unit = {
       id: `player-familiar-${this.units.length}`,
-      name: evolved ? `Familiar Maior de ${unit.name}` : `Familiar de ${unit.name}`,
+      name: `${namePrefix} ${unit.name}`,
       classId: cls.id,
       className: cls.name,
       role: cls.role,
@@ -4770,6 +4825,7 @@ export class BattleEngine {
       footprintOffsets: cls.footprintOffsets,
       shock: null,
       shockCharges: 0,
+      fireballCharges: tier === 3 ? familiarFireballCharges(unit.level) : 0,
       diseased: false,
       diseaseBase: null,
       poisoned: false,
@@ -4788,7 +4844,7 @@ export class BattleEngine {
       moveBudgetUsed: 0,
     };
     this.units.push(familiar);
-    this.spendTier(unit, evolved ? "summonFamiliar2" : "summonFamiliar");
+    this.spendTier(unit, spellKind);
     this.spellKind = null;
     this.missileTargets = [];
     this.emitPortalFx(cell.x, cell.y);
@@ -4802,8 +4858,8 @@ export class BattleEngine {
       att: unit.id,
       tiles: [cell],
       ids: [],
-      label: evolved ? SUMMON_FAMILIAR2.name : SUMMON_FAMILIAR.name,
-      spellKind: evolved ? "summonFamiliar2" : "summonFamiliar",
+      label: spellName,
+      spellKind,
     });
   }
 
@@ -4813,13 +4869,15 @@ export class BattleEngine {
       sfxPlay.ui();
       return;
     }
-    const cells = hexAreaTiles(click, webOfDreamsSize(unit.level), this.cols, this.rows);
+    const radius = webOfDreamsSize(unit.level);
+    const sleepChance = webOfDreamsSleepChance(unit.level);
+    const cells = hexAreaTiles(click, radius, this.cols, this.rows);
     const cellKeys = new Set(cells.map((p) => key(p.x, p.y)));
-    this.webZones.push({ cells: cellKeys, roundsLeft: WEB_OF_DREAMS.durationRounds, createdAt: this.time });
+    this.webZones.push({ cells: cellKeys, roundsLeft: WEB_OF_DREAMS.durationRounds, createdAt: this.time, center: { x: click.x, y: click.y }, radius, sleepChance });
     let asleepCount = 0;
     for (const u of this.units) {
       if (!u.alive || !cellKeys.has(key(u.x, u.y))) continue;
-      if (this.rng() < WEB_OF_DREAMS.sleepChance) {
+      if (this.rng() < sleepChance) {
         u.asleep = true;
         u.sleepTurns = rollDice(WEB_OF_DREAMS.sleepDice, WEB_OF_DREAMS.sleepFaces, 0, this.rng);
         asleepCount++;
@@ -5529,7 +5587,7 @@ export class BattleEngine {
       // sleepChance roll every turn you stay put, not just the one at cast — and a success
       // stacks another 1D4 onto whatever sleepTurns you're already carrying (even mid-nap)
       // rather than replacing it, so lingering in the web keeps digging the hole deeper.
-      if (this.isWebCell(u.x, u.y) && this.rng() < WEB_OF_DREAMS.sleepChance) {
+      if (this.isWebCell(u.x, u.y) && this.rng() < this.webCellSleepChance(u.x, u.y)) {
         const wasAsleep = u.asleep;
         const extra = rollDice(WEB_OF_DREAMS.sleepDice, WEB_OF_DREAMS.sleepFaces, 0, this.rng);
         u.asleep = true;
@@ -6244,7 +6302,8 @@ export class BattleEngine {
       const u = this.units.find((x) => x.alive && occupies(x, t.x, t.y));
       if (u && !ids.includes(u.id)) ids.push(u.id);
     }
-    this.spendTier(unit, "fireball");
+    if (unit.classId === "familiar3") unit.fireballCharges = Math.max(0, (unit.fireballCharges ?? 1) - 1);
+    else this.spendTier(unit, "fireball");
     this.spellKind = null;
     this.missileTargets = [];
     this.tip = null;
@@ -6320,6 +6379,18 @@ export class BattleEngine {
     const worldX = tile * sqrt3 * (col + 0.5 * (row & 1) + 0.5);
     const worldY = this.boardPad(tile) + tile * (1.5 * row + 1);
     return { x: cx, y: cy, tile, worldX, worldY };
+  }
+
+  /** Footprint (as a multiple of one hex's own tile size, the same unit SpawnOptions.radiusTiles
+   * already uses everywhere else) for ONE "web" WebGL effect drawn over an entire Dreaming Web
+   * zone — see BattleCanvas's zone sync. Neighboring hex centers on this grid sit sqrt(3) tiles
+   * apart (a regular hex grid — verified: dx=tile*sqrt3/2, dy=tile*1.5 gives the same
+   * hypot(dx,dy)=tile*sqrt3 to every one of the 6 neighbors, not just the horizontal pair), so a
+   * cube-distance-R hex disk's farthest cell sits R*sqrt(3) tiles out along its own spoke; + 1.0
+   * reaches that cell's own outer edge, matching DEFAULT_RADIUS_TILES.web's existing convention
+   * that 1.0 fills exactly one hex. */
+  webZoneRadiusTiles(radius: number): number {
+    return radius * Math.sqrt(3) + 1.0;
   }
 
   /** Live geometry for Dreaming Web's travelling WebGL shot — null whenever no such shot is
@@ -6822,10 +6893,14 @@ export class BattleEngine {
       const counter = a.stage.startsWith("counter");
       const actor = counter ? a.def : a.att;
       if (u.id !== actor) return null;
+      // Familiar 3's second, distinct attack cut (currently the only sprite with one) —
+      // Unit.idleAlt (the same once-per-turn flip Malrec's idles2 uses) alternates it in for
+      // its own attack stages, same idea as idles2 but for the swing instead of the stand.
+      const attackPool = u.idleAlt ? (this.art.attacks2[u.sprite] ?? this.art.attacks[u.sprite]) : this.art.attacks[u.sprite];
       // A dedicated counter pose (currently just theButcher's counter-*.png) for the
       // defender's stages only — falls back to the same attacks cut every sprite without
       // one already used for countering, same as before this existed.
-      const frames = (counter ? this.art.counters[u.sprite] : undefined) ?? this.art.attacks[u.sprite];
+      const frames = (counter ? this.art.counters[u.sprite] : undefined) ?? attackPool;
       if (!frames || frames.length < 4) return null;
       const n = frames.length;
       const long = n >= 12;
@@ -7183,6 +7258,10 @@ export class BattleEngine {
         overlay(this.healRangeTiles(selected, SUMMON_FAMILIAR2.range), "rgba(180,150,235,0.45)");
         const cell = this.hover ?? this.spellAim;
         if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(200,170,245,0.55)");
+      } else if (selected && this.spellKind === "summonFamiliar3") {
+        overlay(this.healRangeTiles(selected, SUMMON_FAMILIAR3.range), "rgba(180,150,235,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(200,170,245,0.55)");
       } else if (selected && this.spellKind === "webOfDreams") {
         overlay(this.healRangeTiles(selected, WEB_OF_DREAMS.range), "rgba(170,140,230,0.45)");
         const cell = this.hover ?? this.spellAim;
@@ -7388,7 +7467,10 @@ export class BattleEngine {
       // "backwards" complaint has a different cause: see dirActionWalk below.
       const useWalkLeft = u.sprite === "lancer" ? faceRight : !faceRight;
       const walkPool = useWalkLeft ? (this.art.walksLeft[u.sprite] ?? this.art.walks[u.sprite]) : this.art.walks[u.sprite];
-      const atkPool = faceRight ? this.art.attacks[u.sprite] : (this.art.attacksLeft[u.sprite] ?? this.art.attacks[u.sprite]);
+      // Same idleAlt alternation attackPose applies to pick its index (see that function's
+      // attackPool) — mirrored here so the frame actually drawn comes from the same array.
+      const atkBase = u.idleAlt ? (this.art.attacks2[u.sprite] ?? this.art.attacks[u.sprite]) : this.art.attacks[u.sprite];
+      const atkPool = faceRight ? atkBase : (this.art.attacksLeft[u.sprite] ?? atkBase);
       const walk = atk == null && moving ? walkPool : undefined;
       // attackPose computes its index against whichever pool it picked (casts for a spell/heal
       // cast, counters for the defender's own counter stages, attacks otherwise), so this has

@@ -91,8 +91,12 @@ export type ClassId =
   // Stronger evolution of the same summon, cast once the conjurer has promoted (level 15+,
   // sorcerer/necromancer) — see castSummonFamiliar. Same "stats computed live, this is only
   // a fallback" deal as "familiar" above.
-  | "familiar2";
-export type SpriteId = "kael" | "neera" | "voss" | "salazar" | "aldric" | "malrec" | "defaultLancer" | "soldier" | "brigand" | "captain" | "sorcerer" | "horror" | "Asherah" | "pikeman" | "wardog" | "troll" | "morvenian-wolf" | "punisher" | "theButcher" | "birolho" | "birolho2" | "birolho3" | "familiar" | "familiar2" | "swamp-blue-calf" | "ancient-golem" | "lancer" | "sandoval" | "kaelFinal" | "kaelEarly" | "conjurer" | "cultist-v2"
+  | "familiar2"
+  // Conjurer tier 3 (Summon Familiar Titã, "the Big Guy"): a full-strength summon (100% of
+  // the conjurer's current attributes, not a fraction like familiar/familiar2) that can also
+  // cast its own Fireball a few times a battle — see familiarFireballCharges/Unit.fireballCharges.
+  | "familiar3";
+export type SpriteId = "kael" | "neera" | "voss" | "salazar" | "aldric" | "malrec" | "defaultLancer" | "soldier" | "brigand" | "captain" | "sorcerer" | "horror" | "Asherah" | "pikeman" | "wardog" | "troll" | "morvenian-wolf" | "punisher" | "theButcher" | "birolho" | "birolho2" | "birolho3" | "familiar" | "familiar2" | "familiar3" | "swamp-blue-calf" | "ancient-golem" | "lancer" | "sandoval" | "kaelFinal" | "kaelEarly" | "conjurer" | "cultist-v2"
   // Generic-enemy "alter" sprites, split off so a plain Archer/Mage/Healer enemy (and their
   // own promotions) never renders as literally the same SpriteId as Neera/Voss/Salazar the
   // MCs — see HERO_SPRITE_BY_NAME/CLASSES in engine.ts/data.ts. Each starts as a straight
@@ -120,6 +124,7 @@ export type SpellKind =
   | "trip"
   | "summonFamiliar"
   | "summonFamiliar2"
+  | "summonFamiliar3"
   | "webOfDreams"
   | "multiShot"
   | "secondWind"
@@ -232,6 +237,14 @@ export interface Spawn {
    * Meant for neutral-side spawns — a neutral with no dialog stays the existing wild-beast
    * behavior, unchanged. */
   dialog?: DialogTree;
+  /** Editor/test escape hatch from HERO_SPRITE_BY_NAME (engine.ts): one of the six named
+   * heroes normally always renders with their own pinned sprite no matter what classId they
+   * carry, so a promoted hero never visually turns into the stock enemy art their new class
+   * shares with real enemies. Setting this on a player-side spawn bypasses that pin for this
+   * spawn only, rendering with classId's own class sprite instead — lets the mission editor
+   * drop any enemy/creature classId into a hero-named slot and actually see it, for testing.
+   * No effect on any other spawn (only the six HERO_SPRITE_BY_NAME names are ever pinned). */
+  useClassSprite?: boolean;
 }
 
 export type WinCondition = "rout" | "boss";
@@ -405,6 +418,11 @@ export interface Unit {
   role: string;
   side: Side;
   sprite: SpriteId;
+  /** Carries Spawn.useClassSprite through so a resumed battle re-derives the same sprite
+   * choice on load (see HERO_SPRITE_BY_NAME/resolveHeroSprite in engine.ts) instead of
+   * silently reverting to the name-pinned one. Irrelevant for any unit whose name isn't one
+   * of the six pinned hero names. */
+  useClassSprite?: boolean;
   x: number;
   y: number;
   hp: number;
@@ -426,10 +444,11 @@ export interface Unit {
   acted: boolean;
   facing: 1 | -1;
   walkPose: "front" | "back" | "side";
-  /** Flips at the start of every one of this unit's own turns (see beginUnitTurn). Only
-   * consulted by sprites with a second idle loop (currently just Malrec, see idles2 in
-   * GameArt) to alternate between their two standing animations turn to turn; everyone
-   * else's render code ignores it. */
+  /** Flips at the start of every one of this unit's own turns (see beginUnitTurn). Consulted
+   * by sprites with a second idle loop (currently just Malrec, see idles2 in GameArt) to
+   * alternate between their two standing animations, and separately by sprites with a second
+   * attack cut (currently just Familiar 3, see attacks2 in GameArt) to alternate their swing —
+   * everyone else's render code ignores it. */
   idleAlt: boolean;
   alive: boolean;
   drawX: number;
@@ -464,6 +483,10 @@ export interface Unit {
   /** Enemy-only Choque charges (weaker Relâmpago). Not a player tier — see shockChargesFor.
    * Distinct from `shock` above, which is Relâmpago's echo DoT. */
   shockCharges: number;
+  /** Familiar 3 ("the Big Guy") only: remaining Fireball casts this battle — set at summon
+   * time from familiarFireballCharges(conjurer's level), spent by castFireball, never
+   * refilled mid-battle. Undefined/0 for every other unit. */
+  fireballCharges?: number;
   diseased: boolean;
   diseaseBase: { atk: number; mag: number; def: number; res: number; mov: number } | null;
   /** Caustic Venom residue: 1D4 damage at the start of every one of this unit's own turns
@@ -567,6 +590,8 @@ export interface UnitPublic {
   crippled: boolean;
   offHandId: string | null;
   summoned: boolean;
+  /** Familiar 3 ("the Big Guy") only — see the matching field on Unit. */
+  fireballCharges?: number;
   asleep: boolean;
   /** True while this unit's current cell sits inside an active Web of Dreams zone — purely a
    * display flag; the movement penalty it implies is computed live off the zone, not stored. */
@@ -745,6 +770,10 @@ export interface GameArt {
   decorations: Record<string, HTMLImageElement>;
   sprites: Record<SpriteId, HTMLImageElement[]>;
   attacks: Partial<Record<SpriteId, HTMLImageElement[]>>;
+  /** A second, distinct attack cut for the few sprites that have one (currently just Familiar
+   * 3) — Unit.idleAlt (the same flip Malrec's idles2 uses, see its doc comment) picks between
+   * this and the sprite's regular `attacks` pool, alternating turn to turn. */
+  attacks2: Partial<Record<SpriteId, HTMLImageElement[]>>;
   /** A distinct pose for casting a spell, for the few sprites that have one cut — falls back
    * to `attacks` (the melee swing) for every sprite without one, same as it always did. */
   casts: Partial<Record<SpriteId, HTMLImageElement[]>>;
@@ -838,6 +867,9 @@ export interface BattleUnitSnap {
   sleepTurns: number;
   guaranteedDrop: boolean;
   dialog: DialogTree | null;
+  /** Carries Spawn.useClassSprite through a save/resume round-trip — see its doc comment.
+   * Optional for compatibility with battle saves made before this existed. */
+  useClassSprite?: boolean;
   moveBudgetUsed: number;
 }
 
@@ -857,7 +889,12 @@ export interface BattleSnapshot {
   lootWeapons: string[];
   lootEquipment: string[];
   ownedWeapons: string[];
-  webZones: { cells: string[]; roundsLeft: number }[];
+  /** center/radius optional for compatibility with battle saves made before Dreaming Web's
+   * floor patch became one zone-wide WebGL effect instead of a per-hex stamp — a zone
+   * resumed from an older save without them just renders no web patch until it's re-cast
+   * (see BattleCanvas), same graceful-degradation approach as every other optional field
+   * here. */
+  webZones: { cells: string[]; roundsLeft: number; center?: Point; radius?: number; sleepChance?: number }[];
   auraZones: { cells: string[]; roundsLeft: number; kind: "protection" | "intimidation"; side: Side; pct: number }[];
   log: string[];
   winAvailable: boolean;

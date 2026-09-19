@@ -1197,6 +1197,28 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     init: 6,
     summon: true,
   },
+  // Conjurer tier 3 (Summon Familiar Titã, "the Big Guy") — see castSummonFamiliar. Every
+  // combat stat here is a fallback only, same as familiar/familiar2 above: the real numbers
+  // are 100% of the conjurer's own current attributes (SUMMON_FAMILIAR3.statScale), computed
+  // live at cast time. Also the only familiar tier that can cast a spell of its own — see
+  // Unit.fireballCharges/familiarFireballCharges.
+  familiar3: {
+    id: "familiar3",
+    name: "Familiar Titã",
+    role: "Invocação",
+    hp: 22,
+    atk: 8,
+    mag: 8,
+    def: 4,
+    res: 4,
+    mov: 5,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "familiar3",
+    size: 1,
+    init: 6,
+    summon: true,
+  },
   paladin: {
     id: "paladin",
     name: "Paladino",
@@ -1438,6 +1460,7 @@ export const GROWTH: Record<ClassId, { hp: number; atk: number; mag: number; def
   // every ClassId.
   familiar: { hp: 0, atk: 0, mag: 0, def: 0, res: 0 },
   familiar2: { hp: 0, atk: 0, mag: 0, def: 0, res: 0 },
+  familiar3: { hp: 0, atk: 0, mag: 0, def: 0, res: 0 },
   paladin: { hp: 5, atk: 1, mag: 1, def: 3, res: 2 },
   heavyKnight: { hp: 5, atk: 1, mag: 0, def: 3, res: 1 },
   // Provisório — copiado da classe base (ver nota em CLASSES acima).
@@ -2967,6 +2990,27 @@ export const SUMMON_FAMILIAR2 = {
   statScale: 0.75,
 };
 
+/** Conjurer tier 3: "the Big Guy" — same summon shape as tiers 1-2, its own spell/slot, but
+ * at 100% of the conjurer's current attributes (not a fraction) and the only familiar that
+ * can cast a spell of its own once summoned (Fireball — see familiarFireballCharges). */
+export const SUMMON_FAMILIAR3 = {
+  name: "Invocar Familiar Titã",
+  range: 7,
+  statScale: 1,
+};
+
+/** Familiar 3's own Fireball charges for the battle — set once at summon time from the
+ * conjurer's level (the familiar's own `level` is copied from its summoner in
+ * castSummonFamiliar, so passing either one in works out the same). Once per combat at
+ * unlock, then +1 at each of these levels — validated by hand like every other level×count
+ * breakpoint table in this file, not a formula. */
+export function familiarFireballCharges(level: number): number {
+  if (level >= 28) return 4;
+  if (level >= 21) return 3;
+  if (level >= 16) return 2;
+  return 1;
+}
+
 /** Conjurer tier 2: drops a sticky patch of webbing centered on the target cell. Every unit
  * (either side) standing in it at cast time rolls sleepChance to fall asleep for 1D4 of its
  * own turns (early wake + sleepBonusDamage on the hit that wakes it). While the zone lasts,
@@ -2989,6 +3033,19 @@ export function webOfDreamsSize(level: number): number {
   if (level >= 12) return WEB_OF_DREAMS.size + 2;
   if (level >= 7) return WEB_OF_DREAMS.size + 1;
   return WEB_OF_DREAMS.size;
+}
+
+/** Web of Dreams' sleep chance scales with the caster's level instead of staying flat at the
+ * base WEB_OF_DREAMS.sleepChance (25%) forever: linear from that base at level 3 (when
+ * Conjurer first unlocks the tier-2 spell — see FULL_TABLE/tierUses) up to 85% at level 30.
+ * Baked into the zone at cast time (see castWebOfDreams), not re-read live, so a zone always
+ * rolls at the level that actually created it. */
+export function webOfDreamsSleepChance(level: number): number {
+  const unlockLevel = 3;
+  const maxLevel = 30;
+  const maxChance = 0.85;
+  const t = Math.max(0, Math.min(1, (level - unlockLevel) / (maxLevel - unlockLevel)));
+  return WEB_OF_DREAMS.sleepChance + (maxChance - WEB_OF_DREAMS.sleepChance) * t;
 }
 
 export const LIGHTNING = {
@@ -3349,6 +3406,7 @@ export const SPELL_TIER: Partial<Record<SpellKind, SpellTier>> = {
   trip: 3,
   summonFamiliar: 1,
   summonFamiliar2: 2,
+  summonFamiliar3: 3,
   webOfDreams: 2,
   fireball: 3,
   lightningTier3: 5,
