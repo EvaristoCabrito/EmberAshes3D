@@ -5,18 +5,21 @@
     "aldeia",
     "thebridge"
   ],
+  "estalagem": [
+    "estalagem"
+  ],
   "ruins": [
     "muralha",
     "fortaleza",
     "templo",
     "cripta"
   ],
-  "estalagem": [
-    "estalagem"
-  ],
   "dungeon": [
     "colina",
     "passagem",
     "profundezas"
+  ],
+  "wisp-forest": [
+    "wisp-forest-mu97323l"
   ]
 }

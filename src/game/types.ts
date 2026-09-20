@@ -96,7 +96,7 @@ export type ClassId =
   // the conjurer's current attributes, not a fraction like familiar/familiar2) that can also
   // cast its own Fireball a few times a battle — see familiarSpellCharges/Unit.spellCharges.
   | "familiar3";
-export type SpriteId = "kael" | "neera" | "voss" | "salazar" | "aldric" | "malrec" | "defaultLancer" | "soldier" | "brigand" | "captain" | "sorcerer" | "horror" | "Asherah" | "pikeman" | "wardog" | "troll" | "morvenian-wolf" | "punisher" | "theButcher" | "birolho" | "birolho2" | "birolho3" | "familiar" | "familiar2" | "familiar3" | "swamp-blue-calf" | "ancient-golem" | "lancer" | "sandoval" | "kaelFinal" | "kaelEarly" | "conjurer" | "cultist-v2"
+export type SpriteId = "defaultWarrior" | "neera" | "voss" | "salazar" | "aldric" | "malrec" | "defaultLancer" | "soldier" | "brigand" | "captain" | "sorcerer" | "horror" | "Asherah" | "pikeman" | "wardog" | "troll" | "morvenian-wolf" | "punisher" | "theButcher" | "birolho" | "birolho2" | "birolho3" | "familiar" | "familiar2" | "familiar3" | "swamp-blue-calf" | "ancient-golem" | "lancer" | "sandoval" | "kaelFinal" | "kaelEarly" | "conjurer" | "cultist-v2"
   // Generic-enemy "alter" sprites, split off so a plain Archer/Mage/Healer enemy (and their
   // own promotions) never renders as literally the same SpriteId as Neera/Voss/Salazar the
   // MCs — see HERO_SPRITE_BY_NAME/CLASSES in engine.ts/data.ts. Each starts as a straight
@@ -489,14 +489,14 @@ export interface Unit {
    * set at summon time from familiarSpellCharges(conjurer's level), spent by that spell's own
    * castX, never refilled mid-battle. Undefined/0 for every other unit. */
   spellCharges?: number;
-  /** Familiar Maior's (tier 2) own Toque Vampírico charges this battle — independent of
+  /** Familiar Maior's (tier 2) own Dreno de Vida charges this battle — independent of
    * spellCharges above, since tier 2 is the one familiar tier with two own spells (Magic
    * Missile via spellCharges, Life Drain via this) — set at summon time from
    * familiarLifeDrainCharges(conjurer's level), spent by castLifeDrain, never refilled
    * mid-battle. Undefined/0 for every other unit. */
   lifeDrainCharges?: number;
   /** A summoned familiar's own summoning conjurer, by id — set once at summon time. Consulted
-   * by Familiar Maior's Toque Vampírico to know who to heal (see the lifeDrain branch in
+   * by Familiar Maior's Dreno de Vida to know who to heal (see the lifeDrain branch in
    * BattleEngine.stepSpell); undefined for every non-familiar unit. */
   summonerId?: string;
   diseased: boolean;
@@ -604,7 +604,7 @@ export interface UnitPublic {
   summoned: boolean;
   /** A summoned familiar's own spell charges — see the matching field on Unit. */
   spellCharges?: number;
-  /** Familiar Maior's own Toque Vampírico charges — see the matching field on Unit. */
+  /** Familiar Maior's own Dreno de Vida charges — see the matching field on Unit. */
   lifeDrainCharges?: number;
   asleep: boolean;
   /** True while this unit's current cell sits inside an active Web of Dreams zone — purely a
@@ -826,6 +826,11 @@ export interface GameArt {
   arrowCore: HTMLCanvasElement;
   /** Photoreal Relâmpago cores (flicker set). Additive-blend on black. */
   lightningCores: HTMLImageElement[];
+  /** Real alpha-cutout spiderweb photo, stamped once per hex a live Web of Dreams zone
+   * covers (see renderGround's web-zone loop) — replaces the old procedural WebGL "web"
+   * shader quad, which read as an odd glowing patch layered on top of the movement-range
+   * highlight instead of a physical web sitting on the ground. */
+  webfloor: HTMLImageElement;
   /** Optional full-canvas backdrop, keyed by mission id. */
   backdrops: Record<string, HTMLImageElement>;
 }

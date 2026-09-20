@@ -101,9 +101,10 @@ const ZOOM_RADII = [22, 34, 50, 72];
 const SPELL_ELEMENT_FX: Partial<Record<SpellKind, { kind: ElementKind; duration: number }>> = {
   fireball: { kind: "fire", duration: 0.9 },
   causticVenom: { kind: "acid", duration: 1.3 },
-  lightning: { kind: "lightning", duration: 0.45 },
-  lightningTier3: { kind: "lightning", duration: 0.55 },
-  shock: { kind: "lightning", duration: 0.4 },
+  // Lightning/Lightning Tier 3/Choque deliberately have NO entry here — per direct report,
+  // the newer WebGL shader burst this table drives read as an odd "3D" pop layered on top
+  // of the older, plain 2D bolt/spark cue (see emitLightningFx, still called separately for
+  // all three in stepSpell) — that older cue is the only lightning FX any of them get now.
   divineWrath: { kind: "holy", duration: 0.9 },
 };
 
@@ -509,6 +510,7 @@ function pub(u: Unit, restrained: boolean, movLeft: number): UnitPublic {
     offHandId: u.offHandId,
     summoned: u.summoned,
     spellCharges: u.spellCharges,
+    lifeDrainCharges: u.lifeDrainCharges,
     asleep: u.asleep,
     restrained,
     gear: { ...u.gear },
@@ -1825,10 +1827,28 @@ export class BattleEngine {
 
   /** Point a directional sprite (conjurer / lancer) at a column so walk and attack
    * play the matching left/right cut instead of a mirrored idle. Other sprites keep
-   * the historical "facing = 1 shows the sheet as drawn" convention. */
+   * the historical "facing = 1 shows the sheet as drawn" convention — EXCEPT familiar3,
+   * whose facing drives render()'s ordinary CSS mirror (dirAction is false for it, same as
+   * every other non-directional sprite) rather than an asset pick, but which was never in
+   * this update path at all: outside faceSpriteToward, u.facing only ever changes from
+   * actually walking (see the stepMove branch that sets it), so a familiar3 that attacked
+   * without moving, or moved one way and then got attacked from the other side, kept
+   * whatever stale facing its last step left behind instead of turning to face the fight —
+   * the "not facing the enemy" report, distinct from (and left uncaught by) the earlier
+   * mirrored-attack-frame fix above familiar3Scale. */
   private faceSpriteToward(id: string, x: number): void {
     const u = this.units.find((n) => n.id === id);
-    if (!u || (u.sprite !== "aldric" && u.sprite !== "defaultLancer" && u.sprite !== "lancer" && u.sprite !== "sandoval" && u.sprite !== "conjurer" && u.sprite !== "malrec")) return;
+    if (
+      !u ||
+      (u.sprite !== "aldric" &&
+        u.sprite !== "defaultLancer" &&
+        u.sprite !== "lancer" &&
+        u.sprite !== "sandoval" &&
+        u.sprite !== "conjurer" &&
+        u.sprite !== "malrec" &&
+        u.sprite !== "familiar3")
+    )
+      return;
     if (x > u.x) u.facing = 1;
     else if (x < u.x) u.facing = -1;
   }
@@ -2330,7 +2350,7 @@ export class BattleEngine {
         foe.flash = 1;
         this.provoke(foe, att);
         if (a.poison) foe.poisoned = true;
-        // Toque Vampírico: heals the familiar's own summoning conjurer for a share of the
+        // Dreno de Vida: heals the familiar's own summoning conjurer for a share of the
         // damage it just dealt (see lifeDrainHealMul) — off the real rolled damage, not a
         // separate estimate, same reasoning as every other on-hit effect in this loop.
         if (a.spellKind === "lifeDrain") {
@@ -3836,7 +3856,7 @@ export class BattleEngine {
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${SUMMON_FAMILIAR2.name}: convoca um aliado maior, com ${Math.round(SUMMON_FAMILIAR2.statScale * 100)}% dos seus atributos atuais, até ${SUMMON_FAMILIAR2.range} hexes. Pode lançar Míssil Mágico ou Toque Vampírico por conta própria. Toque num espaço livre.`;
+    this.tip = `${SUMMON_FAMILIAR2.name}: convoca um aliado maior, com ${Math.round(SUMMON_FAMILIAR2.statScale * 100)}% dos seus atributos atuais, até ${SUMMON_FAMILIAR2.range} hexes. Pode lançar Míssil Mágico ou Dreno de Vida por conta própria. Toque num espaço livre.`;
     sfxPlay.ui();
   }
 
@@ -4447,7 +4467,7 @@ export class BattleEngine {
     if (this.spellKind === "summonFamiliar" || this.spellKind === "summonFamiliar2" || this.spellKind === "summonFamiliar3") {
       const range = this.spellKind === "summonFamiliar3" ? SUMMON_FAMILIAR3.range : this.spellKind === "summonFamiliar2" ? SUMMON_FAMILIAR2.range : SUMMON_FAMILIAR.range;
       if (manhattan(caster, cell) > range) return false;
-      // Familiar 3 is a real multi-hex creature (FOOTPRINT_TYPE_5) — every cell of the shape
+      // Familiar 3 is a real multi-hex creature (FOOTPRINT_TYPE_6) — every cell of the shape
       // it would actually occupy has to be checked, not just the anchor tile, or it can be
       // summoned half-overlapping a wall/unit/off-map edge (same class of bug computeReachable
       // was fixed for — see footprintCost's comment in pathfinding.ts).
@@ -4902,7 +4922,7 @@ export class BattleEngine {
     });
   }
 
-  /** Familiar Maior's Toque Vampírico — routed through the same "spell" queue/stepSpell
+  /** Familiar Maior's Dreno de Vida — routed through the same "spell" queue/stepSpell
    * machinery as every other MAG-based cast (spellMul: 1, since its only power scaling is
    * the level-scaled die from lifeDrainDice, not a flat multiplier like Fireball/Lightning's
    * own). The heal-on-hit itself lands inside stepSpell's own lifeDrain branch, once the
@@ -7073,7 +7093,7 @@ export class BattleEngine {
     const base =
       u.classId === "horror" || u.classId === "asherah" || u.classId === "troll" || u.classId === "ancientGolem"
         ? 2.0
-        : u.sprite === "kael" || u.sprite === "kaelEarly" || u.classId === "mage" || u.classId === "cultist" || u.classId === "cultistV2" || u.classId === "healer"
+        : u.sprite === "defaultWarrior" || u.sprite === "kaelEarly" || u.classId === "mage" || u.classId === "cultist" || u.classId === "cultistV2" || u.classId === "healer"
           ? 1.7
           : isBossClass(u.classId)
             ? 1.75
@@ -7189,7 +7209,7 @@ export class BattleEngine {
       };
     }
     const heavy = u.size >= 4 ? 1.4 : u.size === 2 ? 1.12 : 1;
-    if (u.sprite === "kael" || u.sprite === "kaelEarly" || u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval" || u.sprite === "conjurer" || u.sprite === "malrec" || u.size >= 4) {
+    if (u.sprite === "defaultWarrior" || u.sprite === "kaelEarly" || u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval" || u.sprite === "conjurer" || u.sprite === "malrec" || u.size >= 4) {
       return { bob: 0, sway: 0, breath: 0 };
     }
     const bob = Math.sin(t * 1.55) * (1.15 * heavy);
@@ -7373,9 +7393,34 @@ export class BattleEngine {
       }
     }
 
-    // Dreaming Web's persistent floor patch is the WebGL "web" element (see BattleCanvas's
-    // live webZones sync), which sits on the ground layer between this canvas and the units
-    // canvas — no 2D drawing of it belongs here.
+    // Dreaming Web's persistent floor patch: a real alpha-cutout spiderweb photo (GameArt.
+    // webfloor) stamped on every hex a live zone covers — replaces the old procedural WebGL
+    // "web" shader quad, whose own glow doubled up with the movement-range highlight's glow
+    // right after casting it (see overlay()'s glow: false for web cells below) and read as an
+    // odd bright pop rather than something actually sitting on the ground. Gated per-hex, not
+    // per-zone: a real stamped image has nothing to gain from withholding the whole zone until
+    // every one of its cells is explored the way the old single full-footprint quad did — each
+    // hex reveals its own web the moment that hex itself is explored. Still withheld until
+    // WEB_SHOT_TRAVEL elapses since the zone's own createdAt, so it shows up exactly when the
+    // travelling shot (see BattleCanvas's webShot sync) actually lands rather than popping in
+    // the instant the spell is cast.
+    for (const zone of this.webZones) {
+      if (zone.createdAt != null && this.time < zone.createdAt + WEB_SHOT_TRAVEL) continue;
+      for (const k of zone.cells) {
+        const comma = k.indexOf(",");
+        const wx = Number(k.slice(0, comma));
+        const wy = Number(k.slice(comma + 1));
+        if (!Number.isFinite(wx) || !Number.isFinite(wy) || !this.explored(wx, wy)) continue;
+        const { cx, cy } = this.hexCenter(wx, wy);
+        if (cx < -tile * 2 || cy < -tile * 2 || cx > cssW + tile * 2 || cy > cssH + tile * 2) continue;
+        ctx.save();
+        this.hexPath(ctx, cx, cy, tile * 1.0);
+        ctx.clip();
+        if (!this.visible(wx, wy)) ctx.globalAlpha = 0.38;
+        ctx.drawImage(this.art.webfloor, cx - tile, cy - tile, tile * 2, tile * 2);
+        ctx.restore();
+      }
+    }
     // Ground/behind decorations are drawn in renderUnitsAndOverlays instead of here, so they
     // land on the units canvas — stacked above the WebGL elemental FX canvas sitting in
     // between this canvas and that one (see BattleCanvas) — rather than being hidden under it.
@@ -7472,7 +7517,7 @@ export class BattleEngine {
         const cell = this.hover ?? this.spellAim;
         const line = cell ? this.piercingThrustRay(selected, cell) : null;
         if (line) overlay(line, "rgba(235,175,90,0.55)");
-      } else if (selected && (this.spellKind === "doubleStrike" || this.spellKind === "trip")) {
+      } else if (selected && (this.spellKind === "doubleStrike" || this.spellKind === "trip" || this.spellKind === "lifeDrain")) {
         overlay(this.healRangeTiles(selected, selected.maxRange), "rgba(220,120,80,0.45)");
         const cell = this.hover ?? this.spellAim;
         if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(235,120,80,0.55)");
@@ -7492,7 +7537,7 @@ export class BattleEngine {
       } else if (selected && this.spellKind === "summonFamiliar3") {
         overlay(this.healRangeTiles(selected, SUMMON_FAMILIAR3.range), "rgba(180,150,235,0.45)");
         const cell = this.hover ?? this.spellAim;
-        // Preview the full 5-hex silhouette he'd actually land on, not just the anchor tile.
+        // Preview the full 6-hex silhouette he'd actually land on, not just the anchor tile.
         if (cell && this.spellAimValid(selected, cell)) overlay(footprint({ x: cell.x, y: cell.y, size: CLASSES.familiar3!.size, footprintOffsets: CLASSES.familiar3!.footprintOffsets }), "rgba(200,170,245,0.55)");
       } else if (selected && this.spellKind === "webOfDreams") {
         overlay(this.healRangeTiles(selected, WEB_OF_DREAMS.range), "rgba(170,140,230,0.45)");
@@ -7510,6 +7555,10 @@ export class BattleEngine {
         if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(180,235,255,0.65)");
       } else if (selected && this.spellKind === "magicMissile") {
         overlay(this.healRangeTiles(selected, MAGIC_MISSILE.range), "rgba(180,150,235,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(200,170,245,0.55)");
+      } else if (selected && this.spellKind === "phantasmalForce") {
+        overlay(this.healRangeTiles(selected, PHANTASMAL_FORCE.range), "rgba(180,150,235,0.45)");
         const cell = this.hover ?? this.spellAim;
         if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(200,170,245,0.55)");
       } else if (selected && this.isHeal(this.spellKind)) {
@@ -7729,9 +7778,9 @@ export class BattleEngine {
       // lancer under an older asset name, so it keeps the boost. Aldric moved to the
       // Aldric Final art (same full-body-on-canvas crop convention as Kael Final), so it
       // now renders at the same scale as every other human sprite instead of this boost.
-      // "kael" (Guerreiro) reads the same on-disk cut as kaelEarly, so it needs the same
-      // scale as kaelEarly, not kaelFinal's correction — only kaelFinal's own (larger,
-      // full-body-on-canvas) art needs the boost.
+      // defaultWarrior (Guerreiro, the generic/default look) reads the same on-disk cut as
+      // kaelEarly, so it needs the same scale as kaelEarly, not kaelFinal's correction —
+      // only kaelFinal's own (larger, full-body-on-canvas) art needs the boost.
       // Sandoval is a distinct boss cut, not this same asset, so it gets its own scale.
       const isLancer = u.classId === "lancer" || u.sprite === "lancer" || u.sprite === "defaultLancer";
       const isSandoval = u.classId === "sandoval" || u.sprite === "sandoval";
@@ -7746,17 +7795,26 @@ export class BattleEngine {
       // idle pose up with that same reference spread instead.
       const isCultistV2 = u.classId === "cultistV2" || u.sprite === "cultist-v2";
       const spriteScale = isLancer ? 1.4 : isSandoval ? 1.2 : isFamiliar ? 0.5 : isKaelFinal ? 0.9 : isCultistV2 ? 0.98 : 1;
-      // Familiar 2's own cut is a landscape 1400x704 canvas (the creature spans its arms wide,
-      // filling maybe half the canvas width but most of its height) — every other sprite's
-      // source is portrait-ish and roughly fills its own frame, which is what the shared
-      // w/h ratio below (1.11:1.42) assumes. Drawing this canvas through that same
-      // portrait-shaped box squeezes the wide source down hard, which is what was reading as
-      // both "too small" (the creature shrinks along with its own padding) and "pixelated"
-      // (a 1400px-wide source aggressively downscaled into a narrow box aliases badly).
-      // Widening just this sprite's box independently of spriteScale (which still scales height
-      // normally) fixes both without touching any other sprite's sizing. Verified against the
-      // real sprite file with a standalone render, not tuned blind.
-      const familiar2WidthMul = u.sprite === "familiar2" ? 1.9 : 1;
+      // Familiar 2's own cut is a landscape 1400x704 canvas (aspect 1.989:1) — every other
+      // sprite's source is portrait-ish and roughly matches the shared box's own 1.11:1.42
+      // (0.782:1) aspect, which is what let them share one w/h ratio in the first place.
+      // Drawing familiar2's much wider canvas through that same portrait-shaped box scales its
+      // two axes by different factors (box aspect ≠ canvas aspect), squashing the creature
+      // horizontally — the previous fix (a flat ×1.9) narrowed that gap but didn't close it
+      // (0.782×1.9 = 1.485, still well short of 1.989), so the art was still being squeezed,
+      // which is what was reading as "pixelated": a detailed 1400px-wide source compressed
+      // along one axis aliases badly. The only width multiplier that draws this canvas with
+      // zero distortion is the one that makes the box's own aspect ratio equal the canvas's
+      // (1.989 / 0.782 ≈ 2.544) — verified by alpha-bounding-box measurement across idle/atk/
+      // cast/move/move-left (all five share this same 1400x704 canvas), not tuned blind.
+      const familiar2WidthMul = u.sprite === "familiar2" ? 2.544 : 1;
+      // Idle/atk/cast all fill ~83-84% of that canvas's height, close enough to treat as one
+      // size — but the walk cut (move/move-left) fills noticeably more (~86-88%), which without
+      // correction reads as the creature growing a step bigger the instant it starts moving.
+      // Applied uniformly to both axes (not just height) since familiar2WidthMul above already
+      // locks the box to the canvas's own aspect ratio for every pose sharing that canvas — an
+      // axis-independent scale here would reintroduce the same distortion that fix just closed.
+      const familiar2WalkScale = u.sprite === "familiar2" && walk ? 0.97 : 1;
       // Cultist V2's cast-*.png cut is its own separate export from atk-*.png/idle, on a
       // taller canvas (358x640 vs 360x570/580) with the character cropped noticeably looser
       // inside it — measured directly off the files (bounding-box scan of the actual PNG
@@ -7837,7 +7895,8 @@ export class BattleEngine {
         malrecWalkHeightScale *
         malrecAtkScale *
         cultistV2WalkScale *
-        familiar3Scale;
+        familiar3Scale *
+        familiar2WalkScale;
       const w =
         cell *
         (s >= 4 ? 2.85 : s === 2 ? 1.85 : boss ? 1.12 : 1.11) *
@@ -7845,6 +7904,7 @@ export class BattleEngine {
         (isBigCreatureFootprint ? 0.75 : 1) *
         spriteScale *
         familiar2WidthMul *
+        familiar2WalkScale *
         cultistV2CastWidthMul *
         cultistV2AtkScale *
         malrecWalkWidthScale *
@@ -7887,9 +7947,19 @@ export class BattleEngine {
       // negating them while an actual melee swing (combat type) is playing (as this used to do)
       // made the swing face the opposite way from the target it was actually hitting, so the
       // attack cuts now use the same plain facing as everything else.
-      const facing = u.classId === "familiar" ? -u.facing : u.facing;
+      // defaultWarrior (the generic/default warrior look, CLASSES.swordsman's sprite —
+      // "Guerreiro") is its own mixed bag too, the opposite split from familiar3: its kael-v2
+      // stand cut (used for both idle AND walking, since this sprite has no dedicated
+      // move-*.png cut of its own — see WALK_FRAMES' comment in assets.ts) was shot facing
+      // left, but its separate atk-*.png cut was shot facing right (normal convention).
+      // Un-negated, that meant idle read fine (a standing pose reads the same either way) but
+      // walking — the one state that actually shows a clear left/right direction — visibly
+      // moved backwards, while attacks (atk != null, a different cut entirely) were already
+      // correct and must stay un-negated.
+      const defaultWarriorIdleOrWalkReversed = u.sprite === "defaultWarrior" && atk == null;
+      const facing = u.classId === "familiar" || defaultWarriorIdleOrWalkReversed ? -u.facing : u.facing;
       const flip = dirAction ? 1 : facing;
-      if (u.sprite === "kael" || u.sprite === "kaelEarly" || u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval" || u.sprite === "conjurer" || u.sprite === "malrec") ctx.scale(flip, 1);
+      if (u.sprite === "defaultWarrior" || u.sprite === "kaelEarly" || u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval" || u.sprite === "conjurer" || u.sprite === "malrec") ctx.scale(flip, 1);
       else ctx.scale(flip * (1 - breath * 0.22), 1 + breath);
       if (u.levelGlow > 0) {
         const pulse = 0.75 + Math.sin(this.time * 7) * 0.25;

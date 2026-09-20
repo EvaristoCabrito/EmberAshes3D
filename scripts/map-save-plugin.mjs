@@ -142,7 +142,15 @@ export function mapSavePlugin() {
         const isDelete = pathOnly === MAP_DELETE_ROUTE;
         const isList = pathOnly === MAP_LIST_ROUTE;
         const method = (req.method ?? "GET").toUpperCase();
-        if ((!isMap && !isSlots && !isOrder && !isLocationOrder && !isRandomEncounters && !isDelete && !isList) || (isList ? method !== "GET" : method !== "POST")) {
+        // A GET on one of the three config routes reads the file back as-is (matched below,
+        // before the isList branch) — see the isConfigRead block's own comment for why this
+        // exists: the Locais screen needs a way to refresh its state from disk before it can
+        // safely save, or a stale browser tab silently deletes whatever it doesn't know about.
+        const isConfigRead = (isOrder || isSlots || isLocationOrder) && method === "GET";
+        if (
+          (!isMap && !isSlots && !isOrder && !isLocationOrder && !isRandomEncounters && !isDelete && !isList) ||
+          (isList || isConfigRead ? method !== "GET" : method !== "POST")
+        ) {
           next();
           return;
         }
@@ -154,6 +162,20 @@ export function mapSavePlugin() {
           res.setHeader("content-length", String(body.byteLength));
           res.end(body);
         };
+        // Read one config file back exactly as saved — the Locais screen calls this right
+        // before it lets the author start editing, so its baseline can never be older than
+        // "when I opened this screen" instead of "whenever this browser tab first mounted",
+        // which is what let a stale save silently wipe out another location's real data (a
+        // save posts EVERY location's current array, including ones this tab never learned
+        // about; the isOrder/isSlots handlers below drop anything genuinely empty, so a
+        // location the client never heard of — sent as [] purely from being stale, not from
+        // the author actually clearing it — was indistinguishable from a real deletion).
+        if (isConfigRead) {
+          const path = isOrder ? orderPath : isSlots ? slotsPath : locationOrderPath;
+          const fallback = isLocationOrder ? [] : {};
+          reply(200, { ok: true, value: readBack(path) ?? fallback });
+          return;
+        }
         if (isList) {
           const id = new URL(req.url ?? "", "http://localhost").searchParams.get("id") ?? "";
           if (id && !isSafeMapId(id)) {

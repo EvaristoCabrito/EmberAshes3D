@@ -63,7 +63,7 @@ export function tileVariantSrc(id: TerrainId, variant: number): string {
 /** Framed portrait art for the sprites that have one; every other sprite falls back to its
  * own first battle-frame, unframed. */
 const HERO_PORTRAIT: Partial<Record<string, string>> = {
-  kael: "/game/portraits/kael.png?v=2",
+  defaultWarrior: "/game/portraits/kael.png?v=2",
   kaelFinal: "/game/portraits/kael-final-face-001.jpg?v=1",
   neera: "/game/portraits/neera.png",
   voss: "/game/portraits/voss.png",
@@ -85,7 +85,7 @@ export function portraitFor(sprite: SpriteId): { src: string; framed: boolean } 
 }
 
 const TILES = Object.keys(TILE_VARIANT_COUNT) as TerrainId[];
-const SPRITES: SpriteId[] = ["kael", "neera", "voss", "salazar", "aldric", "malrec", "defaultLancer", "soldier", "brigand", "captain", "sorcerer", "horror", "Asherah", "pikeman", "wardog", "troll", "morvenian-wolf", "punisher", "theButcher", "birolho", "birolho2", "birolho3", "familiar", "familiar2", "familiar3", "swamp-blue-calf", "ancient-golem", "lancer", "sandoval", "kaelFinal", "kaelEarly", "conjurer", "cultist-v2", "archerRecruit", "mageRecruit", "healerRecruit"];
+const SPRITES: SpriteId[] = ["defaultWarrior", "neera", "voss", "salazar", "aldric", "malrec", "defaultLancer", "soldier", "brigand", "captain", "sorcerer", "horror", "Asherah", "pikeman", "wardog", "troll", "morvenian-wolf", "punisher", "theButcher", "birolho", "birolho2", "birolho3", "familiar", "familiar2", "familiar3", "swamp-blue-calf", "ancient-golem", "lancer", "sandoval", "kaelFinal", "kaelEarly", "conjurer", "cultist-v2", "archerRecruit", "mageRecruit", "healerRecruit"];
 
 const LOAD_POOL = 8;
 let loadActive = 0;
@@ -110,7 +110,7 @@ function releaseLoad(): void {
 
 function spriteFrameSrc(id: SpriteId, frame: string, cacheBust = ""): string {
   // Conjurer's active art is kept as a complete, source-preserved serial. Talk drives idle; the former Idle sheet drives casting.
-  const directory = id === "conjurer" ? "conjurer/conjurer-complete-003" : id === "sandoval" ? "sandoval/sandoval-complete-001" : id === "kaelFinal" ? "Kael_Final/kael-final-002" : id === "kaelEarly" ? "kael" : id === "kael" ? "kael-v2" : id;
+  const directory = id === "conjurer" ? "conjurer/conjurer-complete-003" : id === "sandoval" ? "sandoval/sandoval-complete-001" : id === "kaelFinal" ? "Kael_Final/kael-final-002" : id === "kaelEarly" ? "kael" : id === "defaultWarrior" ? "kael-v2" : id;
   return `/game/sprites/${directory}/${frame}.png${cacheBust}`;
 }
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -145,7 +145,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 // big horrors, and the creatures cut from reference video (familiar, familiar2, ancient
 // golem). loadGameArt rejects on any missing file, so this set and what is on disk have to
 // move together.
-const HERO_IDLE = new Set<SpriteId>(["kael", "neera", "voss", "salazar", "aldric", "defaultLancer", "horror", "Asherah", "familiar", "familiar2", "ancient-golem", "lancer", "sandoval", "kaelFinal", "kaelEarly", "conjurer", "malrec", "archerRecruit", "mageRecruit", "healerRecruit"]);
+const HERO_IDLE = new Set<SpriteId>(["defaultWarrior", "neera", "voss", "salazar", "aldric", "defaultLancer", "horror", "Asherah", "familiar", "familiar2", "ancient-golem", "lancer", "sandoval", "kaelFinal", "kaelEarly", "conjurer", "malrec", "archerRecruit", "mageRecruit", "healerRecruit"]);
 
 /** arrow-002.png is a moody product photo shot on black with no alpha channel; it was
  * originally drawn with a screen/lighter blend to fake-hide that background, which only
@@ -186,7 +186,7 @@ export async function loadGameArt(): Promise<GameArt> {
   await Promise.all(
     SPRITES.map(async (id) => {
       const n = id === "conjurer" || id === "kaelFinal" || id === "aldric" || id === "cultist-v2" || id === "malrec" || id === "familiar3" ? 36 : id === "sandoval" ? 8 : id === "birolho2" ? 18 : id === "birolho3" ? 12 : HERO_IDLE.has(id) ? 12 : 4;
-      const cacheBust = id === "troll" ? "?v=11" : id === "Asherah" ? "?v=3" : id === "familiar" ? "?v=6" : id === "aldric" ? "?v=aldric-final-001" : id === "defaultLancer" ? "?v=sheet2" : id === "lancer" ? "?v=3" : id === "sandoval" ? "?v=sandoval-complete-001" : id === "kaelFinal" ? "?v=kael-final-002" : id === "kaelEarly" ? "?v=kael-early" : id === "kael" ? "?v=kael-v2" : id === "conjurer" ? "?v=conjurer-complete-003" : "";
+      const cacheBust = id === "troll" ? "?v=11" : id === "Asherah" ? "?v=3" : id === "familiar" ? "?v=6" : id === "aldric" ? "?v=aldric-final-001" : id === "defaultLancer" ? "?v=sheet2" : id === "lancer" ? "?v=3" : id === "sandoval" ? "?v=sandoval-complete-001" : id === "kaelFinal" ? "?v=kael-final-002" : id === "kaelEarly" ? "?v=kael-early" : id === "defaultWarrior" ? "?v=kael-v2" : id === "conjurer" ? "?v=conjurer-complete-003" : "";
       sprites[id] = await Promise.all(
         Array.from({ length: n }, (_, i) =>
           loadImage(spriteFrameSrc(id, id === "conjurer" ? `talk-${i + 1}` : `${i + 1}`, cacheBust)),
@@ -198,9 +198,10 @@ export async function loadGameArt(): Promise<GameArt> {
   // set was last republished under. attackPose spreads whatever count it finds across the
   // lunge/hit/recover stages, so a set only has to be listed here to animate.
   const ATTACK_FRAMES: Partial<Record<SpriteId, { n: number; bust: string }>> = {
-    // "kael" is the plain default-warrior look, its own distinct on-disk cut (kael-v2) —
-    // the MC himself plays as kaelFinal instead. See CLASSES.swordsman.
-    kael: { n: 12, bust: "?v=kael-v2" },
+    // The generic/default warrior look (CLASSES.swordsman's own sprite), its own distinct
+    // on-disk cut (kael-v2 — an old internal folder name, kept as-is on disk) — the MC
+    // himself is a different unit entirely and plays as kaelFinal instead.
+    defaultWarrior: { n: 12, bust: "?v=kael-v2" },
     kaelEarly: { n: 12, bust: "?v=kael-early" },
     neera: { n: 4, bust: "" },
     voss: { n: 4, bust: "" },
@@ -328,8 +329,8 @@ export async function loadGameArt(): Promise<GameArt> {
     lancer: { n: 6, bust: "?v=3" },
     sandoval: { n: 6, bust: "?v=sandoval-complete-001" },
     // One authored right-facing walk. The renderer mirrors it for left-facing movement.
-    // "kael" (the plain default-warrior look) has no move-*.png cut of its own — it falls
-    // back to its idle loop played faster, like every sprite absent from this table.
+    // defaultWarrior (the generic/default warrior look) has no move-*.png cut of its own —
+    // it falls back to its idle loop played faster, like every sprite absent from this table.
     kaelFinal: { n: 36, bust: "?v=kael-final-002" },
     conjurer: { n: 36, bust: "?v=conjurer-complete-003" },
     // Real authored Walk Right footage replaced the old cut here — bumped so browsers
@@ -401,14 +402,16 @@ export async function loadGameArt(): Promise<GameArt> {
     loadImage("/game/fx/lightning-core-v2.png?v=1"),
     loadImage("/game/fx/lightning-core-v3.png?v=1"),
   ]);
+  const webfloor = await loadImage("/game/fx/webfloor.png?v=1");
   const backdrops: Record<string, HTMLImageElement> = {
     profundezas: await loadImage("/game/assets/profundezas-bg.jpg?v=2"),
     thebridge: await loadImage("/game/assets/thebridge-bg.jpg?v=1"),
   };
   const idles: Partial<Record<SpriteId, HTMLImageElement[]>> = {
-    // "kael" (default-warrior) reads its own kael-v2 stand cut; kaelEarly keeps the
-    // original kael-folder 36-frame stand cut. See CLASSES.swordsman vs CLASSES.kaelEarly.
-    kael: await Promise.all(Array.from({ length: 12 }, (_, i) => loadImage(`/game/sprites/kael-v2/stand-${i + 1}.png?v=kael-v2`))),
+    // defaultWarrior (the generic/default warrior look) reads its own kael-v2 stand cut;
+    // kaelEarly keeps the original kael-folder 36-frame stand cut. See CLASSES.swordsman vs
+    // CLASSES.kaelEarly.
+    defaultWarrior: await Promise.all(Array.from({ length: 12 }, (_, i) => loadImage(`/game/sprites/kael-v2/stand-${i + 1}.png?v=kael-v2`))),
     kaelEarly: await Promise.all(Array.from({ length: 36 }, (_, i) => loadImage(`/game/sprites/kael/stand-${i + 1}.png?v=kael-early`))),
   };
   // Malrec's second idle loop: his original walk-right cut, kept on disk as idle2-*.png once
@@ -419,8 +422,8 @@ export async function loadGameArt(): Promise<GameArt> {
     malrec: await Promise.all(Array.from({ length: 36 }, (_, i) => loadImage(`/game/sprites/malrec/idle2-${i + 1}.png`))),
   };
   const walkDirs: GameArt["walkDirs"] = {
-    // kael-v2 has no walk-front/back/side cut, so "kael" has no walkDirs entry — it falls
-    // back to its idle loop while moving, like any sprite absent from this table.
+    // kael-v2 has no walk-front/back/side cut, so defaultWarrior has no walkDirs entry — it
+    // falls back to its idle loop while moving, like any sprite absent from this table.
     kaelEarly: {
       front: await loadImage("/game/sprites/kael/walk-front.png?v=kael-early"),
       back: await loadImage("/game/sprites/kael/walk-back.png?v=kael-early"),
@@ -448,5 +451,5 @@ export async function loadGameArt(): Promise<GameArt> {
     // priority over them while moving (see the render loop's img lookup), leaving that
     // animation dead code.
   };
-  return { tiles, decorations, sprites, attacks, attacks2, attacksLeft, casts, castsLeft, counters, countersLeft, walks, walksLeft, idles, idles2, walkDirs, impact, fireballCore, causticVenomCore, arrowCore, lightningCores, backdrops };
+  return { tiles, decorations, sprites, attacks, attacks2, attacksLeft, casts, castsLeft, counters, countersLeft, walks, walksLeft, idles, idles2, walkDirs, impact, fireballCore, causticVenomCore, arrowCore, lightningCores, webfloor, backdrops };
 }

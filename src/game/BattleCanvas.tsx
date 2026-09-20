@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { WEB_SHOT_TRAVEL, type BattleEngine } from "./engine";
+import type { BattleEngine } from "./engine";
 import { EffectsRenderer } from "./gfx/EffectsRenderer";
 import { WebGL2DRenderer } from "./gfx/WebGL2DRenderer";
 import type { HudSnapshot } from "./types";
@@ -71,14 +71,11 @@ export function BattleCanvas({
       }
     }
 
-    // Dreaming Web's WebGL floor patch + travelling shot, unlike every other elemental FX
-    // here, are spawned/despawned live as the spell itself plays out rather than once at
-    // mount from an editor-authored placements list — see the sync inside loop() below.
-    // The floor patch is ONE effect per live zone (keyed by the zone object itself — engine.ts
-    // only ever replaces this array via .filter(), never clones an individual zone, so a zone
-    // stays the same object reference for its whole life and is a valid, stable Map key with
-    // no separate id field needed), not one per hex the zone covers — see its sync below.
-    const webFloorIds = new Map<object, number>();
+    // Dreaming Web's travelling shot, unlike every other elemental FX here, is spawned/
+    // despawned live as the spell itself plays out rather than once at mount from an editor-
+    // authored placements list — see the sync inside loop() below. The zone's own persistent
+    // floor patch is a real alpha-photo image stamped per-hex in BattleEngine.renderGround now
+    // (GameArt.webfloor), not a WebGL effect this canvas owns.
     let webShotId: number | null = null;
 
     let raf = 0;
@@ -179,48 +176,6 @@ export function BattleCanvas({
       renderer.clear();
       engine.renderGround(renderer, wrap.clientWidth, wrap.clientHeight, dpr);
       if (fx) {
-        // Dreaming Web's floor patch: ONE "web" WebGL effect drawn over a live zone's whole
-        // footprint (see BattleEngine.webZoneRadiusTiles), added/removed to track
-        // engine.webZones exactly — the only elemental FX kind whose placements change
-        // mid-battle instead of being fixed at mount. A single quad can't be masked hex-by-hex
-        // the way the old per-hex stamp could, so a zone only shows once every one of its own
-        // cells is explored (seen at least once and remembered, not just currently in sight) —
-        // never partially, which would either paint over fogged ground or flicker piecemeal as
-        // cells individually reveal. The shot remains the cast tell regardless: a zone stays
-        // withheld until WEB_SHOT_TRAVEL has actually elapsed since it was cast (see webZones'
-        // createdAt), so the patch shows up exactly when the travelling shot lands rather than
-        // popping in the instant the spell is cast. A zone resumed from a save made before
-        // center/radius existed (see BattleSnap.webZones) has neither and is skipped until
-        // re-cast, same graceful-degradation approach as engine.ts's other optional fields.
-        const liveZones = new Set<object>();
-        for (const zone of engine.webZones) {
-          if (zone.createdAt != null && engine.time < zone.createdAt + WEB_SHOT_TRAVEL) continue;
-          if (!zone.center || zone.radius == null) continue;
-          let allExplored = true;
-          for (const k of zone.cells) {
-            const comma = k.indexOf(",");
-            const x = Number(k.slice(0, comma));
-            const y = Number(k.slice(comma + 1));
-            if (!Number.isFinite(x) || !Number.isFinite(y) || !engine.explored(x, y)) {
-              allExplored = false;
-              break;
-            }
-          }
-          if (!allExplored) continue;
-          liveZones.add(zone);
-          if (!webFloorIds.has(zone)) {
-            webFloorIds.set(
-              zone,
-              fx.spawnEffect("web", zone.center.x, zone.center.y, { radiusTiles: engine.webZoneRadiusTiles(zone.radius) }),
-            );
-          }
-        }
-        for (const [zone, id] of webFloorIds) {
-          if (!liveZones.has(zone)) {
-            fx.removeEffect(id);
-            webFloorIds.delete(zone);
-          }
-        }
         // Dreaming Web's shot: one "webShot" beam, repositioned every frame via updateOverride
         // to follow the travelling missile's own timing (see BattleEngine.webShotBeam) — it
         // can't use the fixed getAnchor(col,row) model every other effect here relies on.

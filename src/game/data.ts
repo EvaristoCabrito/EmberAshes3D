@@ -114,16 +114,32 @@ export const FOOTPRINT_TYPE_7 = [
   { dx: 1, dy: -2 },
 ];
 
-/** Tipo 5 — Familiar Titã ("the Big Guy"): a 3-hex front row (dy:0, closest to the player —
- * where its melee/attack range actually originates) plus a 2-hex row behind it (dy:-1), the
- * back row shifted one dx left of Type 7/8's own dy:-1 row (dx 0,1) so it sits centered over
- * the 3-wide front row instead of skewed to its right. */
+/** Tipo 5 — a 3-hex front row (dy:0, closest to the player — where its melee/attack range
+ * actually originates) plus a 2-hex row behind it (dy:-1), the back row shifted one dx left
+ * of Type 7/8's own dy:-1 row (dx 0,1) so it sits centered over the 3-wide front row instead
+ * of skewed to its right. Superseded by FOOTPRINT_TYPE_6 for Familiar Titã (see below); kept
+ * standalone rather than folded into it in case a future creature wants the narrower back
+ * row on purpose. */
 export const FOOTPRINT_TYPE_5 = [
   { dx: -1, dy: 0 },
   { dx: 0, dy: 0 },
   { dx: 1, dy: 0 },
   { dx: -1, dy: -1 },
   { dx: 0, dy: -1 },
+];
+
+/** Tipo 6 — Familiar Titã ("the Big Guy"): FOOTPRINT_TYPE_5 with a third back-row hex added
+ * at dx:1 (per direct instruction — the back row was reading as too narrow, a full 3-wide row
+ * to match the front instead of the 2-wide one Type 5 has), making it a true 3-wide/2-tall
+ * rectangle: 3-hex front row (dy:0, closest to the player) plus a matching 3-hex row behind
+ * it (dy:-1). */
+export const FOOTPRINT_TYPE_6 = [
+  { dx: -1, dy: 0 },
+  { dx: 0, dy: 0 },
+  { dx: 1, dy: 0 },
+  { dx: -1, dy: -1 },
+  { dx: 0, dy: -1 },
+  { dx: 1, dy: -1 },
 ];
 
 const DECO_PAIR = [{ dx: 0, dy: 0 }, { dx: 1, dy: 0 }];
@@ -599,7 +615,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     mov: 5,
     minRange: 1,
     maxRange: 1,
-    sprite: "kael",
+    sprite: "defaultWarrior",
     size: 1,
     init: 7,
   },
@@ -803,7 +819,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     mag: 0,
     def: 4,
     res: 4,
-    mov: 3,
+    mov: 5,
     minRange: 1,
     maxRange: 1,
     sprite: "birolho",
@@ -823,7 +839,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     mag: 0,
     def: 4,
     res: 4,
-    mov: 3,
+    mov: 5,
     minRange: 1,
     maxRange: 1,
     sprite: "birolho2",
@@ -840,7 +856,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     mag: 0,
     def: 4,
     res: 4,
-    mov: 3,
+    mov: 5,
     minRange: 1,
     maxRange: 1,
     sprite: "birolho3",
@@ -892,7 +908,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     mag: 0,
     def: 5,
     res: 5,
-    mov: 3,
+    mov: 5,
     minRange: 1,
     maxRange: 1,
     sprite: "horror",
@@ -909,7 +925,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     mag: 0,
     def: 6,
     res: 4,
-    mov: 2,
+    mov: 5,
     minRange: 1,
     maxRange: 1,
     sprite: "Asherah",
@@ -925,10 +941,14 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   // threat, and the growth table below scales the same way (res is the one that cannot —
   // 40% of 1 does not exist on an integer grid, so it stays 1).
   //
-  // Two things sit outside that multiplier. It reaches two hexes where the troll reaches
+  // One thing sits outside that multiplier: it reaches two hexes where the troll reaches
   // one, because its charge-up animation belongs to a beam the reference video could not be
-  // cut from (see the sprite folder's README) — so the reach stands in for it. And it moves
-  // 2 like the troll: speed is not what "stronger" was asked to mean.
+  // cut from (see the sprite folder's README) — so the reach stands in for it. Movement
+  // (mov) is no longer part of what set this creature apart, either — every large-footprint
+  // class (Birolho/Birolho2/Birolho3, Horror, Asherah, this, the Troll below) now moves the
+  // same 5 every other unit does, per direct instruction: a big creature's own multi-hex
+  // footprint already makes it easier to hit (see footprint()'s use for targeting/occupancy,
+  // untouched) — that's the entire point of it being large, not also being slow.
   ancientGolem: {
     id: "ancientGolem",
     name: "Golem Ancião",
@@ -938,7 +958,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     mag: 0,
     def: 13,
     res: 4,
-    mov: 2,
+    mov: 5,
     minRange: 1,
     maxRange: 2,
     sprite: "ancient-golem",
@@ -955,7 +975,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     mag: 0,
     def: 9,
     res: 3,
-    mov: 2,
+    mov: 5,
     minRange: 1,
     maxRange: 1,
     sprite: "troll",
@@ -1213,7 +1233,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   // combat stat here is a fallback only, same as familiar/familiar2 above: the real numbers
   // are 100% of the conjurer's own current attributes (SUMMON_FAMILIAR3.statScale), computed
   // live at cast time. Also the only familiar tier that can cast a spell of its own — see
-  // Unit.fireballCharges/familiarFireballCharges.
+  // Unit.spellCharges/familiarSpellCharges.
   familiar3: {
     id: "familiar3",
     name: "Familiar Titã",
@@ -1228,14 +1248,14 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     maxRange: 1,
     sprite: "familiar3",
     // Wolf-sized visually (size:2 — same render-scale bucket as morvenianWolf, plus its own
-    // dedicated +40% in engine.ts's familiar3Scale), but a real 5-hex attack-zone footprint
-    // (see FOOTPRINT_TYPE_5) instead of size:2's generic anchor+1-neighbor fallback —
+    // dedicated +40% in engine.ts's familiar3Scale), but a real 6-hex attack-zone footprint
+    // (see FOOTPRINT_TYPE_6) instead of size:2's generic anchor+1-neighbor fallback —
     // footprintOffsets is honored regardless of the size number (see footprint() in
     // pathfinding.ts), so the two are independent. The explicit shape is what
     // footprintCost/computeReachable key off, the same path already fixed for
     // Troll/Birolho/Horror/Asherah/Ancient Golem getting stuck on their own footprint.
     size: 2,
-    footprintOffsets: FOOTPRINT_TYPE_5,
+    footprintOffsets: FOOTPRINT_TYPE_6,
     init: 6,
     summon: true,
   },
@@ -3016,7 +3036,7 @@ export const PHANTASMAL_FORCE = {
 export const PHANTASMAL_FORCE_UNLOCK_LEVEL = 2;
 
 /** Phantasmal Force's damage dice — no flat power multiplier (spellDamage's mul stays at 1,
- * same reasoning as Toque Vampírico's own lifeDrainDice above), just MAG plus a die that
+ * same reasoning as Dreno de Vida's own lifeDrainDice above), just MAG plus a die that
  * climbs one weapon-style size every 2 levels (1D4 at 1-2, 1D6 at 3-4, 1D8 at 5-6, ...) — 1D4
  * at unlock (level 2), since the level gate and the dice curve are two independent things
  * that just happen to share this spell; don't re-derive one from the other. */
@@ -3059,7 +3079,7 @@ export const SUMMON_FAMILIAR3 = {
  * Familiar and Familiar Maior (tiers 1-2) both get Magic Missile, Familiar Titã (tier 3) gets
  * Bola de Fogo instead. Every other tier/class is absent, meaning "no familiar spell of its
  * own" (see familiarSpellRemaining in engine.ts). Familiar Maior is the one tier with a SECOND
- * own spell on top of this, Toque Vampírico (see LIFE_DRAIN/familiarLifeDrainCharges below) —
+ * own spell on top of this, Dreno de Vida (see LIFE_DRAIN/familiarLifeDrainCharges below) —
  * it isn't listed here because it runs through its own dedicated Unit.lifeDrainCharges field
  * and castLifeDrain, not the generic spellCharges machinery this table drives. */
 export const FAMILIAR_SPELL: Partial<Record<ClassId, SpellKind>> = {
@@ -3093,16 +3113,16 @@ export function familiarMagicMissileCharges(level: number): number {
   return 1;
 }
 
-/** Familiar Maior's own second spell, Toque Vampírico — a magical melee touch (MAG vs RES,
+/** Familiar Maior's own second spell, Dreno de Vida — a magical melee touch (MAG vs RES,
  * same as every other caster's attack — see powerOf/protOf in combat.ts) that also heals its
  * summoning conjurer for a share of the damage it deals (see the lifeDrain branch in
  * BattleEngine.stepSpell). Melee range, matching the familiar's own minRange/maxRange. */
 export const LIFE_DRAIN = {
-  name: "Toque Vampírico",
+  name: "Dreno de Vida",
   range: 1,
 };
 
-/** Toque Vampírico's own damage dice — no flat power multiplier (spellDamage's mul stays at
+/** Dreno de Vida's own damage dice — no flat power multiplier (spellDamage's mul stays at
  * 1, unlike Fireball/Lightning's own), just MAG plus a die that climbs one weapon-style size
  * every 3 levels (1D4 at 1-3, 1D6 at 4-6, 1D8 at 7-9, ...), the same shape a real weapon
  * upgrade path uses rather than a hand-picked breakpoint table. */
@@ -3115,7 +3135,7 @@ export function lifeDrainFormula(level: number, mag: number): string {
   return spellFormula(mag, 1, p.dice, p.faces, 0);
 }
 
-/** Familiar Maior's own Toque Vampírico charges for the battle — set once at summon time
+/** Familiar Maior's own Dreno de Vida charges for the battle — set once at summon time
  * from the conjurer's level, same idea as familiarSpellCharges/familiarMagicMissileCharges
  * (its own hand-validated breakpoint table, not a formula), but its own schedule since it's a
  * second, independent spell/charge pool on top of that tier's Magic Missile. */
@@ -3127,7 +3147,7 @@ export function familiarLifeDrainCharges(level: number): number {
   return 1;
 }
 
-/** What fraction of Toque Vampírico's dealt damage heals the familiar's summoning conjurer —
+/** What fraction of Dreno de Vida's dealt damage heals the familiar's summoning conjurer —
  * climbs in lockstep with familiarLifeDrainCharges' own breakpoints (same level thresholds),
  * hand-validated the same way. */
 export function lifeDrainHealMul(level: number): number {

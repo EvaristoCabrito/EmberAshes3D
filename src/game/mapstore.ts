@@ -313,6 +313,51 @@ export function saveVersionStore(store: Record<string, MapVersion[]>): boolean {
   }
 }
 
+/** The Locais screen's own config — which missions each location holds, in what order, and
+ * how many it's meant to hold. Saved here as the guaranteed, always-available copy: the dev
+ * server's /__map-order etc. routes write the real repo files too when one is running, but
+ * that write is best-effort (per direct instruction, Locais must save locally regardless of
+ * a dev server or ever touching the repo) and, being shared browser-wide the same way every
+ * localStorage key here is, this is also immune to the same-origin-but-different-tab
+ * staleness that let one tab's stale "Salvar" silently delete another location's real data
+ * (see refreshLocaisState's own comment in GameApp.tsx) — every tab reads and writes this
+ * one shared copy instead of each holding its own React-state snapshot from whenever it
+ * happened to mount. */
+export const LOCAIS_LOCAL_KEY = "ember-locais-local";
+
+export interface LocaisLocal {
+  order: Record<string, string[]>;
+  slots: Record<string, number>;
+  locationOrder: string[];
+}
+
+export function loadLocaisLocal(): LocaisLocal | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const raw = window.localStorage.getItem(LOCAIS_LOCAL_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const { order, slots, locationOrder } = parsed as Partial<LocaisLocal>;
+    if (!order || typeof order !== "object" || !slots || typeof slots !== "object" || !Array.isArray(locationOrder)) return null;
+    return { order, slots, locationOrder };
+  } catch {
+    return null;
+  }
+}
+
+/** Returns false when the browser refused the write (private mode, blocked storage, quota),
+ * same signal as saveVersionStore above — this is the one write Locais can actually promise,
+ * so a caller has to be able to tell if even this failed. */
+export function saveLocaisLocal(next: LocaisLocal): boolean {
+  try {
+    window.localStorage.setItem(LOCAIS_LOCAL_KEY, JSON.stringify(next));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function loadActiveVersions(): Record<string, number> {
   try {
     if (typeof window === "undefined") return {};

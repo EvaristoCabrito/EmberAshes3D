@@ -33,6 +33,7 @@ import {
   latestSerialFor,
   loadActiveDrafts,
   loadActiveVersions,
+  loadLocaisLocal,
   loadVersionStore,
   locationFill,
   locationForMission,
@@ -43,6 +44,7 @@ import {
   latestSavedDraft,
   saveActiveDrafts,
   saveActiveVersions,
+  saveLocaisLocal,
   saveVersionStore,
   savedScenarios,
   savedVersionsFor,
@@ -693,7 +695,14 @@ export function GameApp() {
   // map opens with that location's chapter list already popped open instead of the bare
   // map, so a multi-mission location plays as one continuous series of combats.
   const [openLocationOnMap, setOpenLocationOnMap] = useState<string | null>(null);
-  const [campaignLocations, setCampaignLocations] = useState<WorldLocation[]>(() => ALL_LOCATIONS);
+  // A Locais save made in an earlier session lives in localStorage (see saveLocaisLocal in
+  // mapstore.ts) — read it here too, not just in the editor's own order/slots/locationOrder
+  // state below, so the actual world map reflects it on a fresh load/reopen, not only while
+  // the editor itself is open and its "ember:locations-saved" event has fired this session.
+  const [campaignLocations, setCampaignLocations] = useState<WorldLocation[]>(() => {
+    const local = loadLocaisLocal();
+    return local ? locationsForOrder(local.order, local.locationOrder) : ALL_LOCATIONS;
+  });
   const [campaignMissionRevision, setCampaignMissionRevision] = useState(0);
   useEffect(() => {
     const applySavedLocations = (event: Event) => {
@@ -2296,7 +2305,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
   },
   { name: PIERCING_THRUST.name, cls: SKILL_CLASS.piercingThrust!, tier: spellTier("piercingThrust")!, formula: `dano de arma, −${Math.round(PIERCING_THRUST.armorIgnore * 100)}% armadura`, note: "Acerta em linha; o segundo alvo recebe metade." },
   { name: SUMMON_FAMILIAR.name, cls: SKILL_CLASS.summonFamiliar!, tier: spellTier("summonFamiliar")!, formula: "—", note: `Invoca aliado com ${Math.round(SUMMON_FAMILIAR.statScale * 100)}% dos atributos atuais — pode lançar Míssil Mágico por conta própria.` },
-  { name: SUMMON_FAMILIAR2.name, cls: SKILL_CLASS.summonFamiliar2!, tier: spellTier("summonFamiliar2")!, formula: "—", note: `Invoca aliado maior, com ${Math.round(SUMMON_FAMILIAR2.statScale * 100)}% dos atributos atuais — pode lançar Míssil Mágico ou Toque Vampírico por conta própria.` },
+  { name: SUMMON_FAMILIAR2.name, cls: SKILL_CLASS.summonFamiliar2!, tier: spellTier("summonFamiliar2")!, formula: "—", note: `Invoca aliado maior, com ${Math.round(SUMMON_FAMILIAR2.statScale * 100)}% dos atributos atuais — pode lançar Míssil Mágico ou Dreno de Vida por conta própria.` },
   { name: SUMMON_FAMILIAR3.name, cls: SKILL_CLASS.summonFamiliar3!, tier: spellTier("summonFamiliar3")!, formula: "—", note: `Invoca aliado com ${Math.round(SUMMON_FAMILIAR3.statScale * 100)}% dos atributos atuais — pode lançar Bola de Fogo por conta própria.` },
   {
     name: LIGHTNING.name,
@@ -3226,19 +3235,31 @@ function MapEditorScreen({
   const [showLocations, setShowLocations] = useState(false);
   const [showRandomEncounters, setShowRandomEncounters] = useState(false);
   const [encounterRegions, setEncounterRegions] = useState(() => RANDOM_ENCOUNTER_REGIONS);
+  // Locais' own guaranteed-local copy (see saveLocaisLocal's doc comment in mapstore.ts) —
+  // read once here so a returning session picks up wherever it last actually saved instead
+  // of the shipped/static defaults, same "localStorage wins over static data" precedence
+  // missionById already gives an activated map draft.
+  const locaisLocal = loadLocaisLocal();
   // Play order per location, keyed by location id. Seeded from what ALL_LOCATIONS resolved
   // to, so a location with no stored order still lists its missions in the order they play.
-  const [order, setOrder] = useState<Record<string, string[]>>(() =>
-    Object.fromEntries(ALL_LOCATIONS.map((l) => [l.id, [...l.missionIds]])),
+  const [order, setOrder] = useState<Record<string, string[]>>(
+    () => locaisLocal?.order ?? Object.fromEntries(ALL_LOCATIONS.map((l) => [l.id, [...l.missionIds]])),
   );
   // This is the chapter order between world-map markers. It is independent from the
   // missions listed inside each location and does not move the markers visually.
-  const [locationOrder, setLocationOrder] = useState<string[]>(() => ALL_LOCATIONS.map((location) => location.id));
+  const [locationOrder, setLocationOrder] = useState<string[]>(
+    () => locaisLocal?.locationOrder ?? ALL_LOCATIONS.map((location) => location.id),
+  );
 
   /** Writes src/game/map-order.json through the dev server. Config, not a version — a new
    * order replaces the old one rather than adding a serial. */
   const saveOrder = async (next: Record<string, string[]>) => {
     setOrder(next);
+    // The guaranteed save — see saveLocaisLocal's doc comment in mapstore.ts. Written and
+    // confirmed before the repo write is even attempted, so a missing/unreachable dev server
+    // never costs the author their change, only the bonus copy in src/game/map-order.json.
+    const localOk = saveLocaisLocal({ order: next, slots, locationOrder });
+    window.dispatchEvent(new CustomEvent("ember:locations-saved", { detail: { missionOrder: next, locationOrder } }));
     try {
       const res = await fetch("/__map-order", {
         method: "POST",
@@ -3247,13 +3268,12 @@ function MapEditorScreen({
       });
       const body = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !body.ok) {
-        setNote(`Não deu pra gravar a ordem: ${body.error ?? `HTTP ${res.status}`}`);
+        setNote(localOk ? "Ordem salva neste navegador." : `Não deu pra gravar a ordem: ${body.error ?? `HTTP ${res.status}`}`);
         return;
       }
-      window.dispatchEvent(new CustomEvent("ember:locations-saved", { detail: { missionOrder: next, locationOrder } }));
       setNote("Ordem das missões atualizada em src/game/map-order.json.");
-    } catch (err) {
-      setNote(`Sem servidor de dev — ordem não gravada (${err instanceof Error ? err.message : String(err)}).`);
+    } catch {
+      setNote(localOk ? "Ordem salva neste navegador (sem servidor de dev pro repositório)." : "NÃO SALVOU: nem localmente, nem no repositório.");
     }
   };
 
@@ -3396,13 +3416,14 @@ function MapEditorScreen({
     return [...known.values()].sort((a, b) => a.index - b.index || byName(a.title, b.title));
   }, [campaignIds, encounterRegions, savedLocationMaps]);
   const campaignLoadOptions = campaignMapReferences;
-  const [slots, setSlots] = useState<Record<string, number>>(LOCATION_SLOTS);
+  const [slots, setSlots] = useState<Record<string, number>>(() => locaisLocal?.slots ?? LOCATION_SLOTS);
 
   /** Declares how many missions a location is meant to hold, so the editor can show what
    * is still to author. Writes src/game/map-slots.json through the dev server — config,
    * not a version, so it replaces the previous count instead of adding a serial. */
   const doSaveSlots = async (next: Record<string, number>) => {
     setSlots(next);
+    const localOk = saveLocaisLocal({ order, slots: next, locationOrder });
     try {
       const res = await fetch("/__map-slots", {
         method: "POST",
@@ -3411,22 +3432,59 @@ function MapEditorScreen({
       });
       const body = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !body.ok) {
-        setNote(`Não deu pra gravar as vagas: ${body.error ?? `HTTP ${res.status}`}`);
+        setNote(localOk ? "Vagas salvas neste navegador." : `Não deu pra gravar as vagas: ${body.error ?? `HTTP ${res.status}`}`);
         return;
       }
       setNote("Vagas do local atualizadas em src/game/map-slots.json.");
-    } catch (err) {
-      setNote(`Sem servidor de dev — vagas não gravadas (${err instanceof Error ? err.message : String(err)}).`);
+    } catch {
+      setNote(localOk ? "Vagas salvas neste navegador (sem servidor de dev pro repositório)." : "NÃO SALVOU: nem localmente, nem no repositório.");
     }
   };
+  /** Re-reads the guaranteed-local Locais copy (see saveLocaisLocal in mapstore.ts) and
+   * replaces order/slots/locationOrder with exactly that — called right as the Locais screen
+   * opens (see its own onClick below), not just once at mount like these three useState
+   * initializers are. order/locationOrder/slots otherwise stay frozen at whatever they were
+   * the moment this component first mounted, for as long as the browser tab stays open —
+   * which can be hours into a session — so a save made from a DIFFERENT tab in the same
+   * browser (localStorage is shared browser-wide, same origin, across every tab) would
+   * never reach this one's own state. saveScenarios's "Salvar" then writes the *entire*
+   * current order/slots/locationOrder, every location included, so a location this tab
+   * never actually learned about — because some other tab saved it after this one
+   * mounted — would go out with whatever this tab's own stale stand-in for it was,
+   * silently reverting or erasing a real change. Confirmed by reproducing it. This closes
+   * that window from "however long the tab's been open" down to "however long the Locais
+   * screen's been open". No-op (leaves state as-is) if nothing has ever been saved locally
+   * yet. */
+  const refreshLocaisState = () => {
+    const fresh = loadLocaisLocal();
+    if (!fresh) return;
+    setOrder(fresh.order);
+    setSlots(fresh.slots);
+    setLocationOrder(fresh.locationOrder);
+  };
   /** Writes the Locais configuration — which missions each location holds, in what order,
-   * and how many it is meant to hold — and confirms it by what came back off disk.
-   *
-   * The order and slot writes already happen as you click, but silently: without a dev
-   * server they fail and the change lives only on screen until the tab closes. This is the
-   * deliberate one, and it says out loud whether the files exist afterwards. */
+   * and how many it is meant to hold. The local save (see saveLocaisLocal in mapstore.ts) is
+   * the one this promises: it always works, needs no dev server, and is what every other
+   * Locais/editor screen in this same browser reads from (see refreshLocaisState). The repo
+   * write (src/game/map-order.json etc., through the dev server) happens too when one is
+   * running — real files a build ships with — but it's a bonus on top, never the difference
+   * between "saved" and "NÃO SALVOU" the way it used to be. */
   const saveScenarios = async () => {
     setBigNote(null);
+    const localOk = saveLocaisLocal({ order, slots, locationOrder });
+    window.dispatchEvent(new CustomEvent("ember:locations-saved", { detail: { missionOrder: order, locationOrder } }));
+    if (!localOk) {
+      setBigNote({
+        ok: false,
+        title: "NÃO SALVOU",
+        lines: [
+          "O navegador recusou gravar (modo privado, armazenamento bloqueado ou cheio).",
+          "O texto abaixo é a sua configuração. Copie e guarde: cola numa conversa e eu gravo por você.",
+        ],
+        dump: JSON.stringify({ order, locationOrder, slots }, null, 2),
+      });
+      return;
+    }
     const post = async (route: string, payload: unknown) => {
       const res = await fetch(route, {
         method: "POST",
@@ -3443,28 +3501,25 @@ function MapEditorScreen({
       const lo = await post("/__location-order", locationOrder);
       const locais = Object.keys((o.onDisk as Record<string, unknown>) ?? {}).length;
       const vagas = Object.keys((sl.onDisk as Record<string, unknown>) ?? {}).length;
-      window.dispatchEvent(new CustomEvent("ember:locations-saved", { detail: { missionOrder: order, locationOrder } }));
       setBigNote({
         ok: true,
         title: "ESTÁ SALVO",
         lines: [
-          `${o.file} — ${locais} ${locais === 1 ? "local" : "locais"} com ordem definida`,
+          "Salvo neste navegador — vale já, sem precisar de servidor de dev.",
+          `Também gravado no repositório: ${o.file} — ${locais} ${locais === 1 ? "local" : "locais"} com ordem definida`,
           `${sl.file} — ${vagas} ${vagas === 1 ? "local" : "locais"} com vagas definidas`,
           `${lo.file} — sequência de locais da campanha confirmada`,
-          "Confirmado relendo os arquivos do disco, não é só promessa.",
         ],
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setBigNote({
-        ok: false,
-        title: "NÃO SALVOU",
+        ok: true,
+        title: "ESTÁ SALVO",
         lines: [
-          `Motivo: ${msg}`,
-          "Sem servidor de dev não há onde gravar — rodando pelo start.bat no PC, ou pelo Codespaces, funciona.",
-          "O texto abaixo é a sua configuração. Copie e guarde: cola numa conversa e eu gravo por você.",
+          "Salvo neste navegador — vale já, sem precisar de servidor de dev.",
+          `Não foi gravado no repositório (${msg}) — só afeta o arquivo que um build usaria; sua campanha já está valendo com a cópia local.`,
         ],
-        dump: JSON.stringify({ order, locationOrder, slots }, null, 2),
       });
     }
   };
@@ -3907,16 +3962,20 @@ function MapEditorScreen({
     setVersionStore(next);
     const localOk = saveVersionStore(next);
 
-    // Once a scenario has been activated, later saves are edits to that active campaign
-    // scenario. Keep its exact snapshot current instead of leaving an older title/map
-    // frozen in localStorage until the author manually activates another version.
-    if (activeVersions[savedDraft.id]) {
-      const nextActive = { ...activeVersions, [savedDraft.id]: localSerial };
-      saveActiveDrafts({ ...loadActiveDrafts(), [savedDraft.id]: savedDraft });
-      saveActiveVersions(nextActive);
-      setActiveVersions(nextActive);
-      window.dispatchEvent(new CustomEvent("ember:missions-saved"));
-    }
+    // "Salvar" makes this the version that actually plays, full stop — no separate
+    // "Ativar" step required. That used to only happen for a scenario already activated
+    // once before (see doActivate/doActivateFile); a scenario saved for the first time
+    // kept the shipped/static mission (or whatever older version was last activated)
+    // live in the real campaign despite the editor confidently reporting "Salvo" — a
+    // save that looked successful but never actually reached the game, which is what was
+    // reading as "changes don't stick" / "reverts on reload" (missionById resolves real
+    // play from loadActiveDrafts()/ALL_MISSIONS, neither of which a plain, never-activated
+    // save ever touched — see missionById's own doc comment in mapstore.ts).
+    const nextActive = { ...activeVersions, [savedDraft.id]: localSerial };
+    saveActiveDrafts({ ...loadActiveDrafts(), [savedDraft.id]: savedDraft });
+    saveActiveVersions(nextActive);
+    setActiveVersions(nextActive);
+    window.dispatchEvent(new CustomEvent("ember:missions-saved"));
 
     armEditorResume(savedDraft);
     const repo = await saveMapToRepo(savedDraft);
@@ -4047,11 +4106,6 @@ function MapEditorScreen({
   const heroNameByClassId: Partial<Record<ClassId, string>> = Object.fromEntries(
     [...EDITOR_HEROES, ...NAMED_NON_HERO_CLASS_IDS].map((h) => [h.classId, h.name]),
   );
-  // The six names HERO_SPRITE_BY_NAME (engine.ts) pins a sprite to regardless of classId —
-  // same cast as EDITOR_HEROES, by construction. Only a player-side spawn carrying one of
-  // these names has any use for the Spawn.useClassSprite toggle below; every other spawn's
-  // sprite already just follows its classId, so the toggle would be a no-op there.
-  const spritePinnedHeroNames = new Set(EDITOR_HEROES.map((h) => h.name));
   // One entry per distinct sprite (several classes share art — a promoted class, an
   // alternate skin), labeled by whichever class name reaches it first. Named heroes go
   // first so each of them claims their own sprite's slot under their own name — the
@@ -4155,7 +4209,14 @@ function MapEditorScreen({
           >
             Novo
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => setShowLocations(true)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              refreshLocaisState();
+              setShowLocations(true);
+            }}
+          >
             Locais
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setShowRandomEncounters(true)}>
@@ -5034,7 +5095,16 @@ function MapEditorScreen({
                 <select
                   className="bg-bg border border-border rounded-md px-1.5 py-1"
                   value={s.classId}
-                  onChange={(e) => updateSpawn(side, i, { classId: e.target.value as ClassId })}
+                  // useClassSprite: true so the pick actually renders as that class/sprite
+                  // right away — a named hero (Aldric, Kael, ...) would otherwise keep
+                  // rendering as their own permanently pinned hero art (see
+                  // HERO_SPRITE_BY_NAME/resolveHeroSprite in engine.ts) no matter what class
+                  // is picked here, which is what the old separate "Sprite: Herói/Classe"
+                  // toggle button used to require an extra manual step to override. Per
+                  // direct instruction: whatever's picked in this selector IS the character,
+                  // no second step, and it's stored per-spawn (so it only affects this one
+                  // mission's draft, not the hero's real pinned art anywhere else).
+                  onChange={(e) => updateSpawn(side, i, { classId: e.target.value as ClassId, useClassSprite: true })}
                 >
                   {classOptions.map((c) => (
                     <option key={c} value={c}>
@@ -5064,7 +5134,7 @@ function MapEditorScreen({
                       // exclusively to that hero, not to a shuffled mook.
                       const pool = classOptions.filter((c) => !isSummonClass(c) && !heroNameByClassId[c]);
                       const pick = pool[Math.floor(Math.random() * pool.length)] ?? s.classId;
-                      updateSpawn(side, i, { classId: pick });
+                      updateSpawn(side, i, { classId: pick, useClassSprite: true });
                     }}
                     className="text-muted hover:text-fg px-1.5"
                     aria-label="Sortear classe"
@@ -5081,20 +5151,6 @@ function MapEditorScreen({
                     title="Editar o diálogo desta unidade"
                   >
                     {s.dialog ? "Diálogo" : "+ Diálogo"}
-                  </button>
-                )}
-                {side === "playerSpawns" && spritePinnedHeroNames.has(s.name) && (
-                  <button
-                    type="button"
-                    onClick={() => updateSpawn(side, i, { useClassSprite: !s.useClassSprite })}
-                    className={`text-xs px-1.5 border border-border rounded-md shrink-0 ${s.useClassSprite ? "text-accent" : "text-muted hover:text-fg"}`}
-                    title={
-                      s.useClassSprite
-                        ? "Renderizando com o sprite da classe escolhida (teste) — clique para voltar ao sprite fixo do herói"
-                        : `${s.name} sempre usa o sprite dele, não importa a classe — clique para testar com o sprite da classe escolhida em vez disso`
-                    }
-                  >
-                    {s.useClassSprite ? "Sprite: Classe" : "Sprite: Herói"}
                   </button>
                 )}
                 <button type="button" onClick={() => removeSpawn(side, i)} className="text-danger px-1.5" aria-label="Remover">
@@ -5334,7 +5390,7 @@ function MapEditorScreen({
                         ↓
                       </button>
                     </div>
-                    <div className="mb-2 flex items-center gap-2">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
                       <Button
                         size="sm"
                         variant="quiet"
@@ -5358,28 +5414,55 @@ function MapEditorScreen({
                             place: loc.name,
                             locationId: loc.id,
                           });
-                          // The campaign structure is saved separately by "Salvar cenários".
-                          // Put this brand-new ID in that pending structure immediately, so
-                          // the button really does save the Local assignment the author chose.
-                          setOrder((current) => ({ ...current, [loc.id]: [...(current[loc.id] ?? []), mapId] }));
+                          // saveOrder (not setOrder) so the assignment reaches
+                          // src/game/map-order.json immediately — it used to only exist in
+                          // this component's state, undone by a reload unless the author
+                          // separately remembered "Salvar cenários" before leaving, which is
+                          // what was reading as "it never becomes a campaign map".
+                          void saveOrder({ ...order, [loc.id]: [...(order[loc.id] ?? []), mapId] });
                           setShowLocations(false);
-                          setNote(`Mapa novo criado para ${loc.name}. Salvar cenários grava a posição; Salvar mapa grava o conteúdo.`);
+                          setNote(`Mapa novo criado para ${loc.name} e já na campanha. Salvar mapa grava o conteúdo dele.`);
                         }}
                       >
                         Novo mapa aqui
                       </Button>
+                      {/* Two separate lists, not one merged pool — per direct instruction.
+                          "Adicionar mapa" is every map that HAS a save file but isn't in any
+                          Local's order yet (same "outside the campaign" set
+                          randomEncounterReferences already uses); "Adicionar mapa da
+                          campanha" is the opposite — a map already assigned to some OTHER
+                          Local, for moving it here instead. A map's only ever in one list at
+                          a time: joining a Local via either one is what makes it a campaign
+                          map, and it only leaves that set once removed from every Local. */}
                       <select
                         className="min-w-0 flex-1 bg-bg border border-border rounded px-1.5 py-1 text-xs"
                         value=""
-                        title="Coloca neste Local um cenário da campanha ou um mapa seu já salvo"
+                        title="Coloca neste Local um mapa seu já salvo que ainda não está na campanha"
                         onChange={(e) => {
                           const mapId = e.target.value;
                           e.target.value = "";
                           if (mapId) transferMission(mapId, loc.id);
                         }}
                       >
-                        <option value="">Adicionar cenário/mapa…</option>
-                        {campaignMapReferences.filter((map) => !ids.includes(map.id)).map((map) => (
+                        <option value="">Adicionar mapa…</option>
+                        {randomEncounterReferences.map((map) => (
+                          <option key={map.id} value={map.id}>
+                            {map.title} · {map.id}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="min-w-0 flex-1 bg-bg border border-border rounded px-1.5 py-1 text-xs"
+                        value=""
+                        title="Move pra este Local um mapa que já está em outro Local da campanha"
+                        onChange={(e) => {
+                          const mapId = e.target.value;
+                          e.target.value = "";
+                          if (mapId) transferMission(mapId, loc.id);
+                        }}
+                      >
+                        <option value="">Adicionar mapa da campanha…</option>
+                        {campaignMapReferences.filter((map) => campaignIds.has(map.id) && !ids.includes(map.id)).map((map) => (
                           <option key={map.id} value={map.id}>
                             {map.title} · {map.id}
                           </option>
@@ -5958,6 +6041,9 @@ function BattleScreen({
         break;
       case "magicMissile":
         engine.startMagicMissile();
+        break;
+      case "lifeDrain":
+        engine.startLifeDrain();
         break;
       case "longShot":
         engine.startLongShot();
