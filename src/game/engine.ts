@@ -1,4 +1,4 @@
-import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expForHit, FIREBALL, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, SUMMON_FAMILIAR2, SUMMON_FAMILIAR3, familiarFireballCharges, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, weightedWeaponPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance } from "./data";
+import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expForHit, FIREBALL, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, weightedWeaponPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance } from "./data";
 import type { SpellTier } from "./data";
 import { canCounter, makeForecast, mulberry32, powerOf, protOf, rollDamage, rollDamageCustom } from "./combat";
 import {
@@ -508,7 +508,7 @@ function pub(u: Unit, restrained: boolean, movLeft: number): UnitPublic {
     fullness: u.fullness,
     offHandId: u.offHandId,
     summoned: u.summoned,
-    fireballCharges: u.fireballCharges,
+    spellCharges: u.spellCharges,
     asleep: u.asleep,
     restrained,
     gear: { ...u.gear },
@@ -1919,6 +1919,13 @@ export class BattleEngine {
         const caster = this.units.find((u) => u.id === step.att);
         if (caster) for (const t of step.tiles) this.emitMissileFx(caster.x, caster.y, t.x, t.y, "magicMissile");
       }
+      // No dedicated art yet — reuses Magic Missile's own bolt FX, same as Phantasmal Force's
+      // spell-icon fallback in GameApp.tsx.
+      if (step.spellKind === "phantasmalForce") {
+        const caster = this.units.find((u) => u.id === step.att);
+        const target = step.tiles[0];
+        if (caster && target) this.emitMissileFx(caster.x, caster.y, target.x, target.y, "magicMissile");
+      }
       if (step.spellKind === "fireball" || step.spellKind === "causticVenom") {
         const caster = this.units.find((u) => u.id === step.att);
         const target = step.projectileTo ?? null;
@@ -2323,6 +2330,33 @@ export class BattleEngine {
         foe.flash = 1;
         this.provoke(foe, att);
         if (a.poison) foe.poisoned = true;
+        // Toque Vampírico: heals the familiar's own summoning conjurer for a share of the
+        // damage it just dealt (see lifeDrainHealMul) — off the real rolled damage, not a
+        // separate estimate, same reasoning as every other on-hit effect in this loop.
+        if (a.spellKind === "lifeDrain") {
+          const healer = this.units.find((u) => u.id === att.summonerId && u.alive);
+          if (healer) {
+            const gained = Math.min(Math.round(dmg * lifeDrainHealMul(att.level)), healer.maxHp - healer.hp);
+            if (gained > 0) {
+              healer.hp += gained;
+              healer.healGlow = 1;
+              healer.healGlowKind = "holyMinor";
+              this.emitParticle({
+                x: healer.drawX,
+                y: healer.drawY - 0.35,
+                vx: 0,
+                vy: -0.18,
+                life: 0,
+                max: 2,
+                size: 1,
+                color: "#d8ead2",
+                text: `+${gained}`,
+                kind: "text",
+                frame: 0,
+              });
+            }
+          }
+        }
         // AoE/line abilities (fireball, cleave, piercing...) run this once per unit actually
         // hit, so every landed hit grants its own XP — piercing can also clip an ally in the
         // line, which must never grant XP.
@@ -2530,12 +2564,17 @@ export class BattleEngine {
    * replacing it. */
   private static readonly KILL_EXP_BONUS_MUL = 1.25;
 
+  /** A summoned familiar never persists past this battle to keep XP of its own, so its
+   * attacks/spells/counters instead pay its summoning conjurer this fraction of what a real
+   * unit would have earned — floored in grantExp below, never rounded up, so a small gain (a
+   * familiar's own flat 1 XP counter, say) becomes 0 rather than bouncing back up to 1. */
+  private static readonly FAMILIAR_XP_SHARE = 0.1;
+
   private gainExp(attacker: Unit, targetLevel: number, amount: number, multiplier = 1, isKill = false): void {
     if (amount <= 0 || attacker.side !== "player" || !attacker.alive) return;
-    if (attacker.level >= MAX_LEVEL) return;
     const killMul = isKill ? BattleEngine.KILL_EXP_BONUS_MUL : 1;
     const gained = Math.round(expForHit(attacker.level, targetLevel) * multiplier * killMul);
-    this.addExp(attacker, gained);
+    this.grantExp(attacker, gained);
   }
 
   /** A successful counter always earns exactly 1 XP — flat, no level-gap scaling, no kill
@@ -2543,8 +2582,22 @@ export class BattleEngine {
    * only caps what it's worth in experience, so a unit can't out-level by baiting hits and
    * countering instead of attacking. */
   private gainCounterExp(attacker: Unit): void {
-    if (attacker.side !== "player" || !attacker.alive || attacker.level >= MAX_LEVEL) return;
-    this.addExp(attacker, 1);
+    if (attacker.side !== "player" || !attacker.alive) return;
+    this.grantExp(attacker, 1);
+  }
+
+  /** Routes earned XP to whoever should actually keep it: a summoned familiar (summonerId
+   * set) redirects FAMILIAR_XP_SHARE of its own gain to its summoning conjurer instead of
+   * keeping any itself; every other unit keeps 100% of its own gain, unchanged from before. */
+  private grantExp(attacker: Unit, amount: number): void {
+    if (attacker.summonerId) {
+      const conjurer = this.units.find((u) => u.id === attacker.summonerId);
+      if (!conjurer || conjurer.side !== "player" || !conjurer.alive || conjurer.level >= MAX_LEVEL) return;
+      this.addExp(conjurer, Math.floor(amount * BattleEngine.FAMILIAR_XP_SHARE));
+      return;
+    }
+    if (attacker.level >= MAX_LEVEL) return;
+    this.addExp(attacker, amount);
   }
 
   private addExp(attacker: Unit, gained: number): void {
@@ -3517,16 +3570,25 @@ export class BattleEngine {
     sfxPlay.ui();
   }
 
-  /** Fireball's remaining casts for `u` this battle: Familiar 3 ("the Big Guy") draws from
-   * its own fireballCharges (set at summon time, never a slot-table tier — see
-   * familiarFireballCharges), every other caster from the normal tier-3 slot pool. */
-  private fireballRemaining(u: Unit): number {
-    return u.classId === "familiar3" ? (u.fireballCharges ?? 0) : this.tierRemaining(u, "fireball");
+  /** `kind`'s remaining casts for `u` this battle: a familiar casting its OWN spell (see
+   * FAMILIAR_SPELL) draws from its own spellCharges (set at summon time, never a slot-table
+   * tier — see familiarSpellCharges); every other caster (including a familiar's other
+   * actions, which is a no-op since they have none) uses the normal tier-slot pool. */
+  private familiarSpellRemaining(u: Unit, kind: SpellKind): number {
+    return FAMILIAR_SPELL[u.classId] === kind ? (u.spellCharges ?? 0) : this.tierRemaining(u, kind);
+  }
+
+  /** Spends one cast of `kind` for `u`: its own spellCharges if `kind` is that familiar's own
+   * spell (see FAMILIAR_SPELL), otherwise the normal tier-slot pool — has to agree with
+   * familiarSpellRemaining above on which pool a given (unit, kind) pair actually draws from. */
+  private spendFamiliarOrTier(u: Unit, kind: SpellKind): void {
+    if (FAMILIAR_SPELL[u.classId] === kind) u.spellCharges = Math.max(0, (u.spellCharges ?? 1) - 1);
+    else this.spendTier(u, kind);
   }
 
   startFireball(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
-    if (!u || u.acted || this.fireballRemaining(u) <= 0) return;
+    if (!u || u.acted || this.familiarSpellRemaining(u, "fireball") <= 0) return;
     this.mode = "awaitSpell";
     this.spellKind = "fireball";
     this.spellArmed = false;
@@ -3598,7 +3660,7 @@ export class BattleEngine {
 
   startMagicMissile(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
-    if (!u || u.acted || this.tierRemaining(u, "magicMissile") <= 0) return;
+    if (!u || u.acted || this.familiarSpellRemaining(u, "magicMissile") <= 0) return;
     this.mode = "awaitSpell";
     this.spellKind = "magicMissile";
     this.spellArmed = false;
@@ -3606,6 +3668,21 @@ export class BattleEngine {
     this.hover = null;
     const shots = magicMissileCount(u.level);
     this.tip = `${MAGIC_MISSILE.name}: alcance ${MAGIC_MISSILE.range}, ${spellFormula(u.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)} − RES por míssil. ${shots} míssil${shots > 1 ? "eis, um alvo cada (pode repetir)" : ""}. Acerto garantido. Toque no inimigo.`;
+    sfxPlay.ui();
+  }
+
+  /** Familiar Maior's own second spell — its own dedicated lifeDrainCharges pool, never the
+   * generic familiarSpellRemaining/spendFamiliarOrTier machinery (that's reserved for the ONE
+   * own-spell every other familiar tier has). */
+  startLifeDrain(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    if (!u || u.acted || (u.lifeDrainCharges ?? 0) <= 0) return;
+    this.mode = "awaitSpell";
+    this.spellKind = "lifeDrain";
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.hover = null;
+    this.tip = `${LIFE_DRAIN.name}: alcance ${LIFE_DRAIN.range}, ${lifeDrainFormula(u.level, u.mag)} − RES, cura o invocador em ${Math.round(lifeDrainHealMul(u.level) * 100)}% do dano causado. Toque no inimigo.`;
     sfxPlay.ui();
   }
 
@@ -3694,33 +3771,83 @@ export class BattleEngine {
     sfxPlay.ui();
   }
 
+  /** One of each familiar tier at a time per caster — a conjurer re-casting a tier it
+   * already has out just replaces nothing and clutters the field, so every summonFamiliarX
+   * entry point (start and cast, both checked for the same reason spellAimValid AND
+   * castX both validate range) blocks while a living familiar of that exact class still
+   * carries this caster's id as its summonerId. Tiers stack freely with each other — this is
+   * a per-tier cap, not "one familiar total". */
+  private hasFamiliarOut(caster: Unit, classId: ClassId): boolean {
+    return this.units.some((u) => u.alive && u.summonerId === caster.id && u.classId === classId);
+  }
+
   startSummonFamiliar(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || u.acted || this.tierRemaining(u, "summonFamiliar") <= 0) return;
+    if (this.hasFamiliarOut(u, "familiar")) {
+      this.tip = `${u.name} já tem ${SUMMON_FAMILIAR.name} invocado.`;
+      sfxPlay.ui();
+      return;
+    }
     this.mode = "awaitSpell";
     this.spellKind = "summonFamiliar";
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${SUMMON_FAMILIAR.name}: convoca um aliado com metade dos seus atributos atuais, até ${SUMMON_FAMILIAR.range} hexes. Toque num espaço livre.`;
+    this.tip = `${SUMMON_FAMILIAR.name}: convoca um aliado com metade dos seus atributos atuais, até ${SUMMON_FAMILIAR.range} hexes. Pode lançar Míssil Mágico por conta própria. Toque num espaço livre.`;
+    sfxPlay.ui();
+  }
+
+  /** Conjurer tier 1's second spell — shares Invocar Familiar's own tier-1 pool of uses
+   * (tierRemaining/spendTier), but gated further by the caster's own level, since tierUses
+   * alone can't express "unlocked partway through a tier both spells already share". */
+  startPhantasmalForce(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    if (!u || u.acted || this.tierRemaining(u, "phantasmalForce") <= 0) return;
+    if (u.level < PHANTASMAL_FORCE_UNLOCK_LEVEL) {
+      this.tip = `${PHANTASMAL_FORCE.name} disponível a partir do nível ${PHANTASMAL_FORCE_UNLOCK_LEVEL}.`;
+      sfxPlay.ui();
+      return;
+    }
+    this.mode = "awaitSpell";
+    this.spellKind = "phantasmalForce";
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.hover = null;
+    this.tip = `${PHANTASMAL_FORCE.name}: alcance ${PHANTASMAL_FORCE.range}, ${phantasmalForceFormula(u.level, u.mag)} − RES. Toque no inimigo.`;
     sfxPlay.ui();
   }
 
   startSummonFamiliar2(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || u.acted || this.tierRemaining(u, "summonFamiliar2") <= 0) return;
+    if (u.level < SUMMON_FAMILIAR2_UNLOCK_LEVEL) {
+      this.tip = `${SUMMON_FAMILIAR2.name} disponível a partir do nível ${SUMMON_FAMILIAR2_UNLOCK_LEVEL}.`;
+      sfxPlay.ui();
+      return;
+    }
+    if (this.hasFamiliarOut(u, "familiar2")) {
+      this.tip = `${u.name} já tem ${SUMMON_FAMILIAR2.name} invocado.`;
+      sfxPlay.ui();
+      return;
+    }
     this.mode = "awaitSpell";
     this.spellKind = "summonFamiliar2";
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${SUMMON_FAMILIAR2.name}: convoca um aliado maior, com ${Math.round(SUMMON_FAMILIAR2.statScale * 100)}% dos seus atributos atuais, até ${SUMMON_FAMILIAR2.range} hexes. Toque num espaço livre.`;
+    this.tip = `${SUMMON_FAMILIAR2.name}: convoca um aliado maior, com ${Math.round(SUMMON_FAMILIAR2.statScale * 100)}% dos seus atributos atuais, até ${SUMMON_FAMILIAR2.range} hexes. Pode lançar Míssil Mágico ou Toque Vampírico por conta própria. Toque num espaço livre.`;
     sfxPlay.ui();
   }
 
   startSummonFamiliar3(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || u.acted || this.tierRemaining(u, "summonFamiliar3") <= 0) return;
+    if (this.hasFamiliarOut(u, "familiar3")) {
+      this.tip = `${u.name} já tem ${SUMMON_FAMILIAR3.name} invocado.`;
+      sfxPlay.ui();
+      return;
+    }
     this.mode = "awaitSpell";
     this.spellKind = "summonFamiliar3";
     this.spellArmed = false;
@@ -3893,6 +4020,14 @@ export class BattleEngine {
     }
     if (this.spellKind === "magicMissile") {
       this.castMagicMissile(u, cell);
+      return;
+    }
+    if (this.spellKind === "lifeDrain") {
+      this.castLifeDrain(u, cell);
+      return;
+    }
+    if (this.spellKind === "phantasmalForce") {
+      this.castPhantasmalForce(u, cell);
       return;
     }
     if (this.spellKind === "doubleStrike") {
@@ -4304,18 +4439,32 @@ export class BattleEngine {
       if (!this.targetable(here) || manhattan(caster, cell) > MAGIC_MISSILE.range) return false;
       return clearShot(caster, cell, this.tiles, this.cols, "bolt", this.decorOverlay);
     }
+    if (this.spellKind === "phantasmalForce") {
+      const here = this.occ().get(key(cell.x, cell.y));
+      if (!this.targetable(here) || manhattan(caster, cell) > PHANTASMAL_FORCE.range) return false;
+      return clearShot(caster, cell, this.tiles, this.cols, "bolt", this.decorOverlay);
+    }
     if (this.spellKind === "summonFamiliar" || this.spellKind === "summonFamiliar2" || this.spellKind === "summonFamiliar3") {
       const range = this.spellKind === "summonFamiliar3" ? SUMMON_FAMILIAR3.range : this.spellKind === "summonFamiliar2" ? SUMMON_FAMILIAR2.range : SUMMON_FAMILIAR.range;
       if (manhattan(caster, cell) > range) return false;
-      if (!inBounds(cell.x, cell.y, this.cols, this.rows)) return false;
-      if (!this.hexAt(cell.x, cell.y).passable) return false;
-      return !this.occ().get(key(cell.x, cell.y));
+      // Familiar 3 is a real multi-hex creature (FOOTPRINT_TYPE_5) — every cell of the shape
+      // it would actually occupy has to be checked, not just the anchor tile, or it can be
+      // summoned half-overlapping a wall/unit/off-map edge (same class of bug computeReachable
+      // was fixed for — see footprintCost's comment in pathfinding.ts).
+      const cells = this.spellKind === "summonFamiliar3" ? footprint({ x: cell.x, y: cell.y, size: CLASSES.familiar3!.size, footprintOffsets: CLASSES.familiar3!.footprintOffsets }) : [cell];
+      const occ = this.occ();
+      for (const p of cells) {
+        if (!inBounds(p.x, p.y, this.cols, this.rows)) return false;
+        if (!this.hexAt(p.x, p.y).passable) return false;
+        if (occ.get(key(p.x, p.y))) return false;
+      }
+      return true;
     }
     if (this.spellKind === "webOfDreams") {
       if (manhattan(caster, cell) > WEB_OF_DREAMS.range) return false;
       return clearShot(caster, fireballOrigin(cell, this.cols, this.rows), this.tiles, this.cols, "bolt", this.decorOverlay);
     }
-    if (this.spellKind === "doubleStrike" || this.spellKind === "trip") {
+    if (this.spellKind === "doubleStrike" || this.spellKind === "trip" || this.spellKind === "lifeDrain") {
       const here = this.occ().get(key(cell.x, cell.y));
       return !!here && here.alive && here.side !== caster.side && canHitFrom(caster, caster, here, this.tiles, this.cols, this.decorOverlay);
     }
@@ -4639,7 +4788,7 @@ export class BattleEngine {
 
     const shots = this.missileTargets;
     this.missileTargets = [];
-    this.spendTier(unit, "magicMissile");
+    this.spendFamiliarOrTier(unit, "magicMissile");
     this.spellKind = null;
     this.missileTargets = [];
     this.tip = null;
@@ -4753,6 +4902,72 @@ export class BattleEngine {
     });
   }
 
+  /** Familiar Maior's Toque Vampírico — routed through the same "spell" queue/stepSpell
+   * machinery as every other MAG-based cast (spellMul: 1, since its only power scaling is
+   * the level-scaled die from lifeDrainDice, not a flat multiplier like Fireball/Lightning's
+   * own). The heal-on-hit itself lands inside stepSpell's own lifeDrain branch, once the
+   * damage is known. */
+  private castLifeDrain(unit: Unit, cell: Point): void {
+    if (!this.spellAimValid(unit, cell)) {
+      this.tip = "Toque no inimigo.";
+      sfxPlay.ui();
+      return;
+    }
+    const occ = this.occ();
+    const foe = occ.get(key(cell.x, cell.y));
+    if (!foe) return;
+    unit.lifeDrainCharges = Math.max(0, (unit.lifeDrainCharges ?? 1) - 1);
+    this.spellKind = null;
+    this.missileTargets = [];
+    this.tip = null;
+    this.mode = "locked";
+    const dice = lifeDrainDice(unit.level);
+    this.queue.push({
+      type: "spell",
+      att: unit.id,
+      tiles: [cell],
+      ids: [foe.id],
+      dice: dice.dice,
+      faces: dice.faces,
+      bonus: 0,
+      label: LIFE_DRAIN.name,
+      spellMul: 1,
+      spellKind: "lifeDrain",
+    });
+  }
+
+  /** Conjurer tier 1's second spell — a long-range single hit, same MAG/spellMul:1/level-
+   * scaled-die shape as castLifeDrain above, just ranged (magicMissile's own FX/hit-timing;
+   * no dedicated art of its own yet) instead of melee. */
+  private castPhantasmalForce(unit: Unit, cell: Point): void {
+    if (!this.spellAimValid(unit, cell)) {
+      this.tip = "Alvo fora de alcance.";
+      sfxPlay.ui();
+      return;
+    }
+    const occ = this.occ();
+    const foe = occ.get(key(cell.x, cell.y));
+    if (!foe) return;
+    this.spendTier(unit, "phantasmalForce");
+    this.spellKind = null;
+    this.missileTargets = [];
+    this.tip = null;
+    this.mode = "locked";
+    const dice = phantasmalForceDice(unit.level);
+    this.queue.push({
+      type: "spell",
+      att: unit.id,
+      tiles: [cell],
+      ids: [foe.id],
+      dice: dice.dice,
+      faces: dice.faces,
+      bonus: 0,
+      label: PHANTASMAL_FORCE.name,
+      spellMul: 1,
+      spellKind: "phantasmalForce",
+    });
+  }
+
   /** Summon Familiar (Conjurer tier 1): spawns a new player-side unit directly into
    * `this.units` — no queued animation step, it just appears. It has no slot in this round's
    * `turnOrder` (that's rebuilt from `this.units` fresh every round in startNewRound), so it
@@ -4768,6 +4983,21 @@ export class BattleEngine {
       return;
     }
     const cls = tier === 3 ? CLASSES.familiar3! : tier === 2 ? CLASSES.familiar2! : CLASSES.familiar!;
+    // Re-checked here, not just in startSummonFamiliarX above — the authoritative gate, so
+    // the one-per-tier cap and tier 2's own level gate hold even if the awaitSpell state was
+    // ever entered some other way.
+    if (tier === 2 && unit.level < SUMMON_FAMILIAR2_UNLOCK_LEVEL) {
+      this.spellKind = null;
+      this.tip = `${SUMMON_FAMILIAR2.name} disponível a partir do nível ${SUMMON_FAMILIAR2_UNLOCK_LEVEL}.`;
+      sfxPlay.ui();
+      return;
+    }
+    if (this.hasFamiliarOut(unit, cls.id)) {
+      this.spellKind = null;
+      this.tip = `${unit.name} já tem ${cls.name} invocado.`;
+      sfxPlay.ui();
+      return;
+    }
     const scale = tier === 3 ? SUMMON_FAMILIAR3.statScale : tier === 2 ? SUMMON_FAMILIAR2.statScale : SUMMON_FAMILIAR.statScale;
     const spellKind: SpellKind = tier === 3 ? "summonFamiliar3" : tier === 2 ? "summonFamiliar2" : "summonFamiliar";
     const spellName = tier === 3 ? SUMMON_FAMILIAR3.name : tier === 2 ? SUMMON_FAMILIAR2.name : SUMMON_FAMILIAR.name;
@@ -4825,7 +5055,9 @@ export class BattleEngine {
       footprintOffsets: cls.footprintOffsets,
       shock: null,
       shockCharges: 0,
-      fireballCharges: tier === 3 ? familiarFireballCharges(unit.level) : 0,
+      spellCharges: tier === 3 ? familiarSpellCharges(unit.level) : familiarMagicMissileCharges(unit.level),
+      lifeDrainCharges: tier === 2 ? familiarLifeDrainCharges(unit.level) : undefined,
+      summonerId: unit.id,
       diseased: false,
       diseaseBase: null,
       poisoned: false,
@@ -6302,8 +6534,7 @@ export class BattleEngine {
       const u = this.units.find((x) => x.alive && occupies(x, t.x, t.y));
       if (u && !ids.includes(u.id)) ids.push(u.id);
     }
-    if (unit.classId === "familiar3") unit.fireballCharges = Math.max(0, (unit.fireballCharges ?? 1) - 1);
-    else this.spendTier(unit, "fireball");
+    this.spendFamiliarOrTier(unit, "fireball");
     this.spellKind = null;
     this.missileTargets = [];
     this.tip = null;
@@ -7261,7 +7492,8 @@ export class BattleEngine {
       } else if (selected && this.spellKind === "summonFamiliar3") {
         overlay(this.healRangeTiles(selected, SUMMON_FAMILIAR3.range), "rgba(180,150,235,0.45)");
         const cell = this.hover ?? this.spellAim;
-        if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(200,170,245,0.55)");
+        // Preview the full 5-hex silhouette he'd actually land on, not just the anchor tile.
+        if (cell && this.spellAimValid(selected, cell)) overlay(footprint({ x: cell.x, y: cell.y, size: CLASSES.familiar3!.size, footprintOffsets: CLASSES.familiar3!.footprintOffsets }), "rgba(200,170,245,0.55)");
       } else if (selected && this.spellKind === "webOfDreams") {
         overlay(this.healRangeTiles(selected, WEB_OF_DREAMS.range), "rgba(170,140,230,0.45)");
         const cell = this.hover ?? this.spellAim;
@@ -7591,6 +7823,9 @@ export class BattleEngine {
       // treatment, just a smaller gap than Malrec's above so one constant covers both
       // directions instead of needing a per-direction split.
       const cultistV2WalkScale = isCultistV2 && walk ? 1.02 : 1;
+      // Familiar 3 ("the Big Guy") reads as one size tier bigger than a plain size===2 wolf —
+      // on top of the built-in size-based bump above, not a replacement for it.
+      const familiar3Scale = u.classId === "familiar3" ? 1.4 : 1;
       const h =
         cell *
         (s >= 4 ? 3.35 : s === 2 ? 1.72 : boss ? 1.44 : 1.42) *
@@ -7601,7 +7836,8 @@ export class BattleEngine {
         cultistV2AtkScale *
         malrecWalkHeightScale *
         malrecAtkScale *
-        cultistV2WalkScale;
+        cultistV2WalkScale *
+        familiar3Scale;
       const w =
         cell *
         (s >= 4 ? 2.85 : s === 2 ? 1.85 : boss ? 1.12 : 1.11) *
@@ -7614,7 +7850,8 @@ export class BattleEngine {
         malrecWalkWidthScale *
         malrecAtkScale *
         malrecAtkFrame27WidthScale *
-        cultistV2WalkScale;
+        cultistV2WalkScale *
+        familiar3Scale;
       // The cast cut's own content also sits higher inside its canvas than idle/attack's does
       // (feet reach only ~87% of the way down vs idle's ~99%) — without this, boosting h above
       // would float the feet even further off the ground than they already subtly are. Shifts
@@ -7644,6 +7881,12 @@ export class BattleEngine {
       // The familiar's art is drawn facing left by default — the opposite of every other
       // sprite's "facing 1 shows the sheet as drawn" convention — so its mirror has to run
       // backwards from u.facing or it walks left while visually facing right and vice versa.
+      // Familiar 3's own footage is a mixed bag, unlike familiar's (consistently left-facing
+      // everywhere): its move/idle/cast cuts are shot facing right (normal convention, no
+      // negation). Its two atk/atk2 cuts (separate source clips) are ALSO shot facing right —
+      // negating them while an actual melee swing (combat type) is playing (as this used to do)
+      // made the swing face the opposite way from the target it was actually hitting, so the
+      // attack cuts now use the same plain facing as everything else.
       const facing = u.classId === "familiar" ? -u.facing : u.facing;
       const flip = dirAction ? 1 : facing;
       if (u.sprite === "kael" || u.sprite === "kaelEarly" || u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval" || u.sprite === "conjurer" || u.sprite === "malrec") ctx.scale(flip, 1);

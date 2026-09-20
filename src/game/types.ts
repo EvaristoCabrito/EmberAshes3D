@@ -94,7 +94,7 @@ export type ClassId =
   | "familiar2"
   // Conjurer tier 3 (Summon Familiar Titã, "the Big Guy"): a full-strength summon (100% of
   // the conjurer's current attributes, not a fraction like familiar/familiar2) that can also
-  // cast its own Fireball a few times a battle — see familiarFireballCharges/Unit.fireballCharges.
+  // cast its own Fireball a few times a battle — see familiarSpellCharges/Unit.spellCharges.
   | "familiar3";
 export type SpriteId = "kael" | "neera" | "voss" | "salazar" | "aldric" | "malrec" | "defaultLancer" | "soldier" | "brigand" | "captain" | "sorcerer" | "horror" | "Asherah" | "pikeman" | "wardog" | "troll" | "morvenian-wolf" | "punisher" | "theButcher" | "birolho" | "birolho2" | "birolho3" | "familiar" | "familiar2" | "familiar3" | "swamp-blue-calf" | "ancient-golem" | "lancer" | "sandoval" | "kaelFinal" | "kaelEarly" | "conjurer" | "cultist-v2"
   // Generic-enemy "alter" sprites, split off so a plain Archer/Mage/Healer enemy (and their
@@ -123,8 +123,10 @@ export type SpellKind =
   | "sweep"
   | "trip"
   | "summonFamiliar"
+  | "phantasmalForce"
   | "summonFamiliar2"
   | "summonFamiliar3"
+  | "lifeDrain"
   | "webOfDreams"
   | "multiShot"
   | "secondWind"
@@ -483,10 +485,20 @@ export interface Unit {
   /** Enemy-only Choque charges (weaker Relâmpago). Not a player tier — see shockChargesFor.
    * Distinct from `shock` above, which is Relâmpago's echo DoT. */
   shockCharges: number;
-  /** Familiar 3 ("the Big Guy") only: remaining Fireball casts this battle — set at summon
-   * time from familiarFireballCharges(conjurer's level), spent by castFireball, never
-   * refilled mid-battle. Undefined/0 for every other unit. */
-  fireballCharges?: number;
+  /** A summoned familiar's own spell charges this battle — which spell (if any) is FAMILIAR_SPELL[classId];
+   * set at summon time from familiarSpellCharges(conjurer's level), spent by that spell's own
+   * castX, never refilled mid-battle. Undefined/0 for every other unit. */
+  spellCharges?: number;
+  /** Familiar Maior's (tier 2) own Toque Vampírico charges this battle — independent of
+   * spellCharges above, since tier 2 is the one familiar tier with two own spells (Magic
+   * Missile via spellCharges, Life Drain via this) — set at summon time from
+   * familiarLifeDrainCharges(conjurer's level), spent by castLifeDrain, never refilled
+   * mid-battle. Undefined/0 for every other unit. */
+  lifeDrainCharges?: number;
+  /** A summoned familiar's own summoning conjurer, by id — set once at summon time. Consulted
+   * by Familiar Maior's Toque Vampírico to know who to heal (see the lifeDrain branch in
+   * BattleEngine.stepSpell); undefined for every non-familiar unit. */
+  summonerId?: string;
   diseased: boolean;
   diseaseBase: { atk: number; mag: number; def: number; res: number; mov: number } | null;
   /** Caustic Venom residue: 1D4 damage at the start of every one of this unit's own turns
@@ -590,8 +602,10 @@ export interface UnitPublic {
   crippled: boolean;
   offHandId: string | null;
   summoned: boolean;
-  /** Familiar 3 ("the Big Guy") only — see the matching field on Unit. */
-  fireballCharges?: number;
+  /** A summoned familiar's own spell charges — see the matching field on Unit. */
+  spellCharges?: number;
+  /** Familiar Maior's own Toque Vampírico charges — see the matching field on Unit. */
+  lifeDrainCharges?: number;
   asleep: boolean;
   /** True while this unit's current cell sits inside an active Web of Dreams zone — purely a
    * display flag; the movement penalty it implies is computed live off the zone, not stored. */

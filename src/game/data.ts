@@ -114,6 +114,18 @@ export const FOOTPRINT_TYPE_7 = [
   { dx: 1, dy: -2 },
 ];
 
+/** Tipo 5 — Familiar Titã ("the Big Guy"): a 3-hex front row (dy:0, closest to the player —
+ * where its melee/attack range actually originates) plus a 2-hex row behind it (dy:-1), the
+ * back row shifted one dx left of Type 7/8's own dy:-1 row (dx 0,1) so it sits centered over
+ * the 3-wide front row instead of skewed to its right. */
+export const FOOTPRINT_TYPE_5 = [
+  { dx: -1, dy: 0 },
+  { dx: 0, dy: 0 },
+  { dx: 1, dy: 0 },
+  { dx: -1, dy: -1 },
+  { dx: 0, dy: -1 },
+];
+
 const DECO_PAIR = [{ dx: 0, dy: 0 }, { dx: 1, dy: 0 }];
 const DECO_TRIO = [{ dx: 0, dy: 0 }, { dx: 1, dy: 0 }, { dx: 0, dy: -1 }];
 const DECO_ROW_TRIO = [{ dx: 0, dy: 0 }, { dx: 1, dy: 0 }, { dx: 2, dy: 0 }];
@@ -1215,7 +1227,15 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     minRange: 1,
     maxRange: 1,
     sprite: "familiar3",
-    size: 1,
+    // Wolf-sized visually (size:2 — same render-scale bucket as morvenianWolf, plus its own
+    // dedicated +40% in engine.ts's familiar3Scale), but a real 5-hex attack-zone footprint
+    // (see FOOTPRINT_TYPE_5) instead of size:2's generic anchor+1-neighbor fallback —
+    // footprintOffsets is honored regardless of the size number (see footprint() in
+    // pathfinding.ts), so the two are independent. The explicit shape is what
+    // footprintCost/computeReachable key off, the same path already fixed for
+    // Troll/Birolho/Horror/Asherah/Ancient Golem getting stuck on their own footprint.
+    size: 2,
+    footprintOffsets: FOOTPRINT_TYPE_5,
     init: 6,
     summon: true,
   },
@@ -2980,6 +3000,35 @@ export const SUMMON_FAMILIAR = {
   statScale: 0.5,
 };
 
+/** Conjurer tier 1's second spell (shares tier 1's pool of uses with Invocar Familiar, same
+ * "more than one spell at the same tier" deal as summonFamiliar2/webOfDreams at tier 2 — see
+ * FAMILIAR_SPELL's doc above and tierRemaining/spendTier in engine.ts) — a long-range single
+ * hit from a summoned spirit that strikes once and vanishes, never a lingering ally like the
+ * familiar summons. Unlocked at PHANTASMAL_FORCE_UNLOCK_LEVEL rather than from level 1 like
+ * Invocar Familiar, even though they share a tier — tierUses alone can't express a
+ * per-spell gate within a shared tier, so startPhantasmalForce checks the caster's level
+ * directly (see engine.ts). */
+export const PHANTASMAL_FORCE = {
+  name: "Força Fantasmal",
+  range: 6,
+};
+
+export const PHANTASMAL_FORCE_UNLOCK_LEVEL = 2;
+
+/** Phantasmal Force's damage dice — no flat power multiplier (spellDamage's mul stays at 1,
+ * same reasoning as Toque Vampírico's own lifeDrainDice above), just MAG plus a die that
+ * climbs one weapon-style size every 2 levels (1D4 at 1-2, 1D6 at 3-4, 1D8 at 5-6, ...) — 1D4
+ * at unlock (level 2), since the level gate and the dice curve are two independent things
+ * that just happen to share this spell; don't re-derive one from the other. */
+export function phantasmalForceDice(level: number): { dice: number; faces: number } {
+  return { dice: 1, faces: 4 + Math.floor((Math.max(1, level) - 1) / 2) * 2 };
+}
+
+export function phantasmalForceFormula(level: number, mag: number): string {
+  const p = phantasmalForceDice(level);
+  return spellFormula(mag, 1, p.dice, p.faces, 0);
+}
+
 /** Conjurer tier 2: a second, stronger summon — its own spell/slot/tier-2 charge, not an
  * upgrade of Invocar Familiar. The first case of a class having more than one spell choice
  * at the same tier, sharing that tier's pool of uses (see castSummonFamiliar's `evolved`
@@ -2990,25 +3039,103 @@ export const SUMMON_FAMILIAR2 = {
   statScale: 0.75,
 };
 
+/** Extra per-spell gate on top of tier 2's own shared-pool unlock (tier 2 first grants uses
+ * at level 3 under FULL_TABLE, same level Web of Dreams becomes castable) — same
+ * "tierUses alone can't express a per-spell gate within a shared tier" reasoning as
+ * PHANTASMAL_FORCE_UNLOCK_LEVEL, so startSummonFamiliar2 checks the caster's level directly
+ * (see engine.ts) instead of relying on the tier table alone. */
+export const SUMMON_FAMILIAR2_UNLOCK_LEVEL = 5;
+
 /** Conjurer tier 3: "the Big Guy" — same summon shape as tiers 1-2, its own spell/slot, but
- * at 100% of the conjurer's current attributes (not a fraction) and the only familiar that
- * can cast a spell of its own once summoned (Fireball — see familiarFireballCharges). */
+ * at 100% of the conjurer's current attributes (not a fraction) and its own Fireball once
+ * summoned — see familiarSpellCharges. */
 export const SUMMON_FAMILIAR3 = {
   name: "Invocar Familiar Titã",
   range: 7,
   statScale: 1,
 };
 
-/** Familiar 3's own Fireball charges for the battle — set once at summon time from the
+/** Which of the conjurer's three familiar tiers gets a spell of its own, and which one —
+ * Familiar and Familiar Maior (tiers 1-2) both get Magic Missile, Familiar Titã (tier 3) gets
+ * Bola de Fogo instead. Every other tier/class is absent, meaning "no familiar spell of its
+ * own" (see familiarSpellRemaining in engine.ts). Familiar Maior is the one tier with a SECOND
+ * own spell on top of this, Toque Vampírico (see LIFE_DRAIN/familiarLifeDrainCharges below) —
+ * it isn't listed here because it runs through its own dedicated Unit.lifeDrainCharges field
+ * and castLifeDrain, not the generic spellCharges machinery this table drives. */
+export const FAMILIAR_SPELL: Partial<Record<ClassId, SpellKind>> = {
+  familiar: "magicMissile",
+  familiar2: "magicMissile",
+  familiar3: "fireball",
+};
+
+/** Familiar Titã's own Fireball charges for the battle — set once at summon time from the
  * conjurer's level (the familiar's own `level` is copied from its summoner in
  * castSummonFamiliar, so passing either one in works out the same). Once per combat at
  * unlock, then +1 at each of these levels — validated by hand like every other level×count
  * breakpoint table in this file, not a formula. */
-export function familiarFireballCharges(level: number): number {
+export function familiarSpellCharges(level: number): number {
   if (level >= 28) return 4;
   if (level >= 21) return 3;
   if (level >= 16) return 2;
   return 1;
+}
+
+/** Familiar and Familiar Maior's own Magic Missile charges for the battle — same idea as
+ * familiarSpellCharges above (set once at summon time from the conjurer's level), but its own
+ * curve: it starts a level earlier and climbs on a tighter breakpoint schedule, topping out
+ * one charge higher, so the weaker two familiar tiers still feel like they're gaining
+ * something across a full playthrough even without Familiar Titã's raw power. */
+export function familiarMagicMissileCharges(level: number): number {
+  if (level >= 20) return 5;
+  if (level >= 16) return 4;
+  if (level >= 11) return 3;
+  if (level >= 5) return 2;
+  return 1;
+}
+
+/** Familiar Maior's own second spell, Toque Vampírico — a magical melee touch (MAG vs RES,
+ * same as every other caster's attack — see powerOf/protOf in combat.ts) that also heals its
+ * summoning conjurer for a share of the damage it deals (see the lifeDrain branch in
+ * BattleEngine.stepSpell). Melee range, matching the familiar's own minRange/maxRange. */
+export const LIFE_DRAIN = {
+  name: "Toque Vampírico",
+  range: 1,
+};
+
+/** Toque Vampírico's own damage dice — no flat power multiplier (spellDamage's mul stays at
+ * 1, unlike Fireball/Lightning's own), just MAG plus a die that climbs one weapon-style size
+ * every 3 levels (1D4 at 1-3, 1D6 at 4-6, 1D8 at 7-9, ...), the same shape a real weapon
+ * upgrade path uses rather than a hand-picked breakpoint table. */
+export function lifeDrainDice(level: number): { dice: number; faces: number } {
+  return { dice: 1, faces: 4 + Math.floor((Math.max(1, level) - 1) / 3) * 2 };
+}
+
+export function lifeDrainFormula(level: number, mag: number): string {
+  const p = lifeDrainDice(level);
+  return spellFormula(mag, 1, p.dice, p.faces, 0);
+}
+
+/** Familiar Maior's own Toque Vampírico charges for the battle — set once at summon time
+ * from the conjurer's level, same idea as familiarSpellCharges/familiarMagicMissileCharges
+ * (its own hand-validated breakpoint table, not a formula), but its own schedule since it's a
+ * second, independent spell/charge pool on top of that tier's Magic Missile. */
+export function familiarLifeDrainCharges(level: number): number {
+  if (level >= 30) return 5;
+  if (level >= 23) return 4;
+  if (level >= 17) return 3;
+  if (level >= 10) return 2;
+  return 1;
+}
+
+/** What fraction of Toque Vampírico's dealt damage heals the familiar's summoning conjurer —
+ * climbs in lockstep with familiarLifeDrainCharges' own breakpoints (same level thresholds),
+ * hand-validated the same way. */
+export function lifeDrainHealMul(level: number): number {
+  if (level >= 30) return 1;
+  if (level >= 23) return 0.75;
+  if (level >= 17) return 0.6;
+  if (level >= 10) return 0.4;
+  return 0.25;
 }
 
 /** Conjurer tier 2: drops a sticky patch of webbing centered on the target cell. Every unit
@@ -3405,6 +3532,7 @@ export const SPELL_TIER: Partial<Record<SpellKind, SpellTier>> = {
   sweep: 2,
   trip: 3,
   summonFamiliar: 1,
+  phantasmalForce: 1,
   summonFamiliar2: 2,
   summonFamiliar3: 3,
   webOfDreams: 2,
