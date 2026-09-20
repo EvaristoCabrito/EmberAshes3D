@@ -44,6 +44,15 @@ export interface EffectAnchor {
 
 export type AnchorProvider = (col: number, row: number) => EffectAnchor;
 
+/** A local spell light expressed in the same CSS-pixel coordinate system as BattleEngine's
+ * unit renderer. WebGL2DRenderer consumes this per sprite to do directional surface lighting. */
+export interface PointLightSample {
+  x: number;
+  y: number;
+  boost: number;
+  color: [number, number, number];
+}
+
 export interface SpawnOptions {
   /** Effect footprint as a multiple of one hex's tile size. Default 1.4. */
   radiusTiles?: number;
@@ -293,6 +302,39 @@ export class EffectsRenderer {
       boost += (fx.kind === "darkness" ? -1 : 1) * atten * params.intensity;
     }
     return boost;
+  }
+
+  /** Nearest positive light at a sprite. Unlike lightBoostAt (which is deliberately a scalar
+   * for the legacy brightness fallback), this keeps source position and colour so the unit
+   * shader can illuminate the light-facing side and shade the far side. */
+  pointLightAt(
+    px: number,
+    py: number,
+    targetCol: number,
+    targetRow: number,
+    getAnchor: AnchorProvider,
+    isOccluded?: (fromCol: number, fromRow: number, toCol: number, toRow: number) => boolean,
+  ): PointLightSample | null {
+    let best: PointLightSample | null = null;
+    for (const fx of this.effects.values()) {
+      if (!LIGHT_ELEMENTS.has(fx.kind) || fx.kind === "darkness") continue;
+      // A wall, barricade, or raised shot-blocking terrain cell between the source and this
+      // unit blocks its point light too. This is the first real occlusion rule in the 2.5D
+      // pipeline: light does not pass through map geometry just because the sprites are flat.
+      if (isOccluded?.(fx.col, fx.row, targetCol, targetRow)) continue;
+      const ov = fx.override;
+      const anchor = ov ?? getAnchor(fx.col, fx.row);
+      const radius = ov
+        ? ov.halfWidthPx * GLOBAL_FX_PARAMS.lightRadiusMul * 1.8
+        : anchor.tile * fx.radiusTiles * GLOBAL_FX_PARAMS.lightRadiusMul;
+      if (radius <= 0) continue;
+      const d = Math.min(1, Math.hypot(px - anchor.x, py - anchor.y) / radius);
+      const boost = Math.pow(Math.max(0, 1 - d), 1.8) * EFFECT_PARAMS[fx.kind].intensity;
+      if (boost <= 0 || (best && boost <= best.boost)) continue;
+      const color = EFFECT_PARAMS[fx.kind].color;
+      best = { x: anchor.x, y: anchor.y, boost, color: [color[0], color[1], color[2]] };
+    }
+    return best;
   }
 
   private drawQuad(

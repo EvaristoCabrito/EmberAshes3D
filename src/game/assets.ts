@@ -69,6 +69,8 @@ const HERO_PORTRAIT: Partial<Record<string, string>> = {
   defaultLancer: "/game/portraits/aldric-profile-001.jpg?v=3",
   sandoval: "/game/portraits/sandoval-001.jpg?v=1",
   conjurer: "/game/portraits/conjurer-002.png?v=2",
+  // Malrec is the named Conjurer hero: always use his face portrait, never a battle sprite frame.
+  malrec: "/game/portraits/conjurer-002.png?v=2",
   theButcher: "/game/portraits/the-butcher-portrait-001.jpg?v=1",
 };
 

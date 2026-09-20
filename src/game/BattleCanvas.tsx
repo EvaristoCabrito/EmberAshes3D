@@ -228,7 +228,10 @@ export function BattleCanvas({
           unitsRenderer,
           wrap.clientWidth,
           wrap.clientHeight,
-          fx ? (px: number, py: number) => fx.lightBoostAt(px, py, (col, row) => engine.effectAnchor(col, row)) : undefined,
+          fx
+            ? (px: number, py: number, col: number, row: number) =>
+                fx.pointLightAt(px, py, col, row, (sourceCol, sourceRow) => engine.effectAnchor(sourceCol, sourceRow), (fromCol, fromRow, toCol, toRow) => engine.lightOccludes(fromCol, fromRow, toCol, toRow))
+            : undefined,
         );
       }
       const hud = engine.getHud();

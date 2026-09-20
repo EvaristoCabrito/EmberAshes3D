@@ -109,6 +109,8 @@ uniform float u_alpha;
 uniform float u_brightness;
 uniform vec2 u_lightDir; // normalized, screen-space (x right, y down), points TOWARD the light
 uniform float u_lightStrength; // 0 = identical to plain drawImage, ~0.3-0.5 is a tasteful amount
+uniform vec3 u_pointLight; // xy = direction toward nearest live spell light, z = attenuated energy
+uniform vec3 u_pointColor;
 out vec4 FragColor;
 void main() {
   vec4 t = texture(u_tex, v_uv);
@@ -138,7 +140,7 @@ void main() {
   // through — full +/-1.0 range here so "top of sprite catches the key light, feet sit in its
   // own shadow" is something you can actually see, not just something true in the math.
   float wash = clamp(1.0 - v_uv.y, 0.0, 1.0) * 2.0 - 1.0;
-  float lit = clamp(wash + rim, -1.0, 1.0) * u_lightStrength;
+  float lit = clamp(wash + rim, -1.0, 1.0);
 
   // Wider tint spread than before (was ~0.8-1.1, barely off-white) — a real warm/cool swing so
   // the direction of the light is legible on the sprite itself, not just in its shadow.
@@ -150,6 +152,14 @@ void main() {
   // a neutral bright highlight, added more gently now that it's actually confined to the
   // light-facing edge instead of spread around the whole silhouette.
   vec3 finalRgb = mix(rgb, graded, u_lightStrength) + vec3(1.0, 0.97, 0.9) * rim * u_lightStrength * 0.4;
+
+  float luma = dot(t.rgb, vec3(0.299, 0.587, 0.114));
+  vec2 paintSlope = vec2(dFdx(luma), dFdy(luma)) * 8.0;
+  vec3 surfaceNormal = normalize(vec3(-outward * max(edgeLen * 5.0, 0.35) - paintSlope, 1.0));
+  vec3 pointDir = normalize(vec3(u_pointLight.xy, 0.72));
+  float pointDiffuse = max(0.0, dot(surfaceNormal, pointDir)) * u_pointLight.z;
+  finalRgb += rgb * u_pointColor * pointDiffuse;
+
 
   float ao = smoothstep(0.82, 1.0, v_uv.y);
   finalRgb *= mix(1.0, 0.62, ao * u_lightStrength);
@@ -448,19 +458,30 @@ export class WebGL2DRenderer {
   // to plain drawImage, so it's always safe to dial back per-scene without touching call sites.
   private lightDirX = -0.6;
   private lightDirY = -0.8;
-  // Off by default — the ambient key-light/rim tint this drives turned out not to be what was
-  // wanted at all (a real light SOURCE — a torch, a cast spell — not a flat sun-angle tint
-  // applied everywhere regardless of what's actually lit). drawImageLit at 0 renders pixel-
-  // identical to plain drawImage; the plumbing (shader, uniforms, direction) stays in place
-  // in case a real per-source light model gets built on top of it later, but it does nothing
-  // to the image right now.
-  lightStrength = 0;
+  private pointLightDirX = 0;
+  private pointLightDirY = -1;
+  private pointLightEnergy = 0;
+  private pointLightColor: [number, number, number] = [1, 1, 1];
+  // A clear directional key light makes the GPU sprite shader's warm-facing planes,
+  // cool self-shadow and feet contact-occlusion visible without repainting the authored art.
+  // Spell lights still add their own localized brightness in BattleCanvas/EffectsRenderer;
+  // this is the stable sun direction their cast shadows already use.
+  lightStrength = 0.45;
 
   setLightDirection(dx: number, dy: number): void {
     const len = Math.hypot(dx, dy) || 1;
     this.lightDirX = dx / len;
     this.lightDirY = dy / len;
   }
+
+  setPointLight(dx: number, dy: number, energy = 0, color: [number, number, number] = [1, 1, 1]): void {
+    const len = Math.hypot(dx, dy) || 1;
+    this.pointLightDirX = dx / len;
+    this.pointLightDirY = dy / len;
+    this.pointLightEnergy = Math.max(0, energy);
+    this.pointLightColor = color;
+  }
+
 
   constructor(canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", { antialias: true, alpha: true, stencil: true });
@@ -968,6 +989,8 @@ export class WebGL2DRenderer {
     gl.uniform1f(gl.getUniformLocation(this.progTexLit, "u_brightness"), this.parseBrightness());
     gl.uniform2f(gl.getUniformLocation(this.progTexLit, "u_lightDir"), this.lightDirX, this.lightDirY);
     gl.uniform1f(gl.getUniformLocation(this.progTexLit, "u_lightStrength"), this.lightStrength);
+    gl.uniform3f(gl.getUniformLocation(this.progTexLit, "u_pointLight"), this.pointLightDirX, this.pointLightDirY, this.pointLightEnergy);
+    gl.uniform3f(gl.getUniformLocation(this.progTexLit, "u_pointColor"), this.pointLightColor[0], this.pointLightColor[1], this.pointLightColor[2]);
     gl.uniformMatrix4fv(gl.getUniformLocation(this.progTexLit, "u_matrix"), false, this.matrix);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }

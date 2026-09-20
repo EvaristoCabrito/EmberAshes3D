@@ -1276,6 +1276,13 @@ export function GameApp() {
     setScreen("mapChoice");
   }, []);
 
+  // The Inn is entered from an already-running map session. Returning from it must preserve
+  // that map (and work the same in campaign and debug), not bounce through MapChoice where
+  // its Back button deliberately leads to the title/test menu.
+  const returnFromInn = useCallback(() => {
+    setScreen(mapMode === "rpg" ? "overworldMap" : "worldMap");
+  }, [mapMode]);
+
   const leaveBoot = useCallback(() => {
     // Entering the world map is a hard music boundary: do not leave intro.mp3 under it.
     playTheme("worldMap");
@@ -1707,7 +1714,7 @@ export function GameApp() {
             unlockAudio();
             setMutedUi((v) => !v);
           }}
-          onLeave={goToMap}
+          onLeave={returnFromInn}
           onBuyWeapon={(hero: string, weaponId: string) => {
             const rec = readMapSave();
             const w = WEAPONS[weaponId];
@@ -6114,13 +6121,14 @@ function BattleScreen({
 
   const unit: UnitPublic | null = hud.selected ?? hud.pendingFoe ?? hud.inspected;
   const statusUnit: UnitPublic | null = (browseId ? engine.publicUnit(browseId) : null) ?? unit;
-  const statusAllocation = statusUnit
+  const statusIsSummon = !!statusUnit && isSummonClass(statusUnit.classId);
+  const statusAllocation = statusUnit && !statusIsSummon
     ? (playtest ? playtestStatPointAllocations[statusUnit.name] ?? {} : save.statPointAllocations[statusUnit.name] ?? {})
     : {};
-  const unspentStatusPoints = statusUnit
+  const unspentStatusPoints = statusUnit && !statusIsSummon
     ? Math.max(0, (statusUnit.level - 1) * STAT_POINTS_PER_LEVEL - Object.values(statusAllocation).reduce((total, value) => total + (value ?? 0), 0))
     : 0;
-  const adjustStatusPoint = statusUnit?.side === "player"
+  const adjustStatusPoint = statusUnit?.side === "player" && !statusIsSummon
     ? (stat: StatPointAttribute, delta: 1 | -1) => {
         const unit = statusUnit;
         if (!playtest) return onAdjustStatPoint?.(unit.name, unit.id, stat, delta) ?? false;
@@ -6541,7 +6549,7 @@ function BattleScreen({
                 <img
                   src={portraitFor(unit.sprite).src}
                   alt=""
-                  className={portraitFor(unit.sprite).framed ? "h-16 w-12 sm:h-20 sm:w-14 object-cover rounded-md" : "h-14 w-14 object-contain"}
+                  className={portraitFor(unit.sprite).framed || isSummonClass(unit.classId) ? "h-16 w-12 sm:h-20 sm:w-14 object-cover rounded-md" : "h-14 w-14 object-contain"}
                 />
                 {unit.side === "player" && <HungerBar name={unit.name} value={unit.fullness} />}
               </button>
@@ -7144,6 +7152,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
   const familiar1 = unit.classId === "familiar";
   const familiar2 = unit.classId === "familiar2";
   const familiar3 = unit.classId === "familiar3";
+  const familiar = familiar1 || familiar2 || familiar3;
   const condition = characterCondition(unit);
 
   return (
@@ -7160,10 +7169,9 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
               <div className="status-panel-portrait grid place-items-center overflow-hidden rounded-lg border border-border bg-black">
                 {/* Every portrait is treated as a 512×768 (2:3) source, cropped centered to
                     that ratio before it ever fills the box. For a file already 512×768 this
-                    crop is a no-op. Malrec's own 800×1000 file already reads correctly at
-                    natural scale — forcing it through this crop over-zooms his face, so his
-                    sprite skips it and renders plain, same as before. */}
-                {unit.sprite === "conjurer" ? (
+                    crop is a no-op. Malrec's face portrait reads correctly at its natural
+                    scale, so it fills the panel directly rather than being cropped again. */}
+                {unit.sprite === "conjurer" || unit.sprite === "malrec" ? (
                   <img src={portraitFor(unit.sprite).src} alt="" className="h-full w-full object-cover" />
                 ) : (
                   <span className="block w-full shrink-0" style={{ aspectRatio: "2 / 3" }}>
@@ -7261,7 +7269,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
           </div>
         </div>
 
-        {unit.side === "player" && onAdjustStatPoint && (
+        {unit.side === "player" && !familiar && onAdjustStatPoint && (
           <div className="mb-4 flex items-center gap-3 rounded-lg border border-accent/40 bg-bg px-3 py-2.5">
             <img src="/game/icons/stat-points-001.png" alt="" className="size-10 shrink-0 object-contain" />
             <div className="min-w-0">
@@ -7288,7 +7296,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
               ) : (
                 <p className="text-xs font-medium tabular-nums">{value}</p>
               )}
-              {stat && onAdjustStatPoint ? (
+              {stat && !familiar && onAdjustStatPoint ? (
                 <div className="mt-0.5 flex items-center justify-center gap-0.5">
                   <button
                     type="button"
