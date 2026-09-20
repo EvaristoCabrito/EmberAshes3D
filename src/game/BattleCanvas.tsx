@@ -224,7 +224,12 @@ export function BattleCanvas({
       if (unitsRenderer && unitsCanvas) {
         unitsRenderer.setTransform(dpr, 0, 0, dpr, 0, 0);
         unitsRenderer.clear();
-        engine.renderUnitsAndOverlays(unitsRenderer, wrap.clientWidth, wrap.clientHeight);
+        engine.renderUnitsAndOverlays(
+          unitsRenderer,
+          wrap.clientWidth,
+          wrap.clientHeight,
+          fx ? (px: number, py: number) => fx.lightBoostAt(px, py, (col, row) => engine.effectAnchor(col, row)) : undefined,
+        );
       }
       const hud = engine.getHud();
       const k = [
@@ -496,6 +501,26 @@ export function BattleCanvas({
       <canvas ref={canvasRef} className="block h-full w-full touch-none" />
       <canvas ref={fxCanvasRef} className="pointer-events-none absolute inset-0 block h-full w-full touch-none" style={{ display: "none" }} />
       <canvas ref={unitsCanvasRef} className="pointer-events-none absolute inset-0 block h-full w-full touch-none" />
+      {/* Diorama color grade + vignette: a subtle warm key-light / cool shadow wash from the
+          same upper-left "sun" the unit/decoration relighting and cast shadows use (see
+          WebGL2DRenderer's lightDirX/Y and BattleEngine's shadowDirX/Y), plus a soft edge
+          vignette. Pure CSS, above every game canvas, non-interactive, and gentle enough
+          (soft-light / multiply, low alpha) to never wash out the art or UI underneath. */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "linear-gradient(135deg, rgba(255,208,150,0.16) 0%, rgba(255,208,150,0) 32%, rgba(48,58,92,0) 55%, rgba(40,52,88,0.22) 100%)",
+          mixBlendMode: "soft-light",
+        }}
+      />
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: "radial-gradient(130% 130% at 50% 42%, transparent 52%, rgba(4,5,10,0.4) 100%)",
+          mixBlendMode: "multiply",
+        }}
+      />
     </div>
   );
 }

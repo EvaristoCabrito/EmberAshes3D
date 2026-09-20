@@ -1114,8 +1114,15 @@ export class BattleEngine {
   /** After a mid-battle load, the next beginUnitTurn must not re-run start-of-turn effects
    * (echo, poison, stun skip) — those already happened on the turn we saved in the middle of. */
   private skipStartOfTurn = false;
+  /** Test-mode-only: drops every ally/enemy/condition restriction on who a spell can target
+   * (targetable's side check, healing/curing an enemy, aiming at a full-HP or undiseased
+   * unit) so a debug session can freely fire any spell at any unit just to look at its FX,
+   * without the normal "that's not a valid target" gameplay rules getting in the way. Wired
+   * from GameApp's testMode — never true for a real save. */
+  private debugFreeCast = false;
 
-  constructor(mission: Mission, art: GameArt, roster: Roster, seed = 1) {
+  constructor(mission: Mission, art: GameArt, roster: Roster, seed = 1, debugFreeCast = false) {
+    this.debugFreeCast = debugFreeCast;
     this.mission = mission;
     this.art = art;
     this.ownedWeapons = new Set(roster.ownedWeaponIds ?? []);
@@ -1658,6 +1665,15 @@ export class BattleEngine {
   tick(dt: number): void {
     const cap = Math.min(0.05, dt);
     this.time += cap;
+    // Same speedMode scaling stepActive applies to combat/spell/heal's own a.t (see there for
+    // the full explanation) — applied here too, to every spell/attack VISUAL effect timer
+    // (missile bolts, fireball bursts, lightning, holy rays, blade sweeps, summon portals) so
+    // they stay in lockstep with the now-slower hit timing instead of the bolt still zipping
+    // across the screen at the old speed while the damage/hit-tick that's supposed to land
+    // right as it arrives now fires later. Ambient stuff below (particles, level-up sparks,
+    // bob/breathing, fade) deliberately stays on the unscaled `cap` — slowing those down too
+    // would make idle units look like they're moving through syrup for no reason.
+    const actionCap = cap * (this.speedMode === "fast" ? 1 : this.speedMode === "slow" ? 0.4 : 0.65);
     if (this.tip !== this.lastTipSeen) {
       this.lastTipSeen = this.tip;
       this.tipSetAt = this.time;
@@ -1722,7 +1738,16 @@ export class BattleEngine {
       let live = 0;
       for (const m of this.missileFx) {
         if (!m.live) continue;
-        m.t += cap;
+        m.t += actionCap;
+        // Track the bolt itself while it's actually in flight (not the afterglow lingering
+        // once it's landed) — same one-time ensureVisible nudge startSeq already does for the
+        // cast's start/end points, just repeated every frame along the flight path so the
+        // camera pans smoothly with a fast-travelling shot instead of only snapping to catch
+        // up once it's already arrived.
+        if (m.t < m.travel) {
+          const k = m.t / m.travel;
+          this.ensureVisible(m.fromX + (m.toX - m.fromX) * k, m.fromY + (m.toY - m.fromY) * k);
+        }
         if (m.t >= m.max) {
           m.live = false;
           continue;
@@ -1735,7 +1760,7 @@ export class BattleEngine {
       let live = 0;
       for (const burst of this.fireballBurstFx) {
         if (!burst.live) continue;
-        burst.t += cap;
+        burst.t += actionCap;
         if (burst.t >= burst.max) { burst.live = false; continue; }
         live += 1;
       }
@@ -1745,7 +1770,7 @@ export class BattleEngine {
       let live = 0;
       for (const l of this.lightningFx) {
         if (!l.live) continue;
-        l.t += cap;
+        l.t += actionCap;
         if (l.t >= l.max) {
           l.live = false;
           continue;
@@ -1758,7 +1783,7 @@ export class BattleEngine {
       let live = 0;
       for (const h of this.holyFx) {
         if (!h.live) continue;
-        h.t += cap;
+        h.t += actionCap;
         if (h.t >= h.max) {
           h.live = false;
           continue;
@@ -1771,7 +1796,7 @@ export class BattleEngine {
       let live = 0;
       for (const b of this.bladeFx) {
         if (!b.live) continue;
-        b.t += cap;
+        b.t += actionCap;
         if (b.t >= b.max) {
           b.live = false;
           continue;
@@ -1784,7 +1809,7 @@ export class BattleEngine {
       let live = 0;
       for (const p of this.portalFx) {
         if (!p.live) continue;
-        p.t += cap;
+        p.t += actionCap;
         if (p.t >= p.max) {
           p.live = false;
           continue;
@@ -1861,7 +1886,12 @@ export class BattleEngine {
       const attacker = this.units.find((u) => u.id === step.att);
       this.faceSpriteToward(step.att, target.x);
       this.faceSpriteToward(step.def, attacker?.x ?? target.x);
-      if (attacker && attacker.side !== "player") {
+      // Bring both ends of the attack into view regardless of who's acting — this used to be
+      // enemy-only (side !== "player"), which meant the camera dutifully followed every enemy
+      // swing but never panned to show the PLAYER's own target when it was off past the turn's
+      // starting view. That read as "the camera doesn't follow spells" even though it was
+      // working fine — just only for the other side.
+      if (attacker) {
         this.ensureVisible(attacker.x, attacker.y);
         this.ensureVisible(target.x, target.y);
       }
@@ -1916,10 +1946,14 @@ export class BattleEngine {
         const tx = look?.x ?? step.tiles[0]?.x;
         if (tx != null) this.faceSpriteToward(step.att, tx);
         const caster = this.units.find((u) => u.id === step.att);
-        if (caster && caster.side !== "player") {
+        // Same fix as the combat branch above: this was enemy-only (side !== "player"), so a
+        // player's own spell never panned the camera toward its target — only ever the caster,
+        // wherever the camera already happened to be sitting from the start of their turn.
+        // ensureAreaVisible covers the whole blast/cone/line, not just its centroid, so a wide
+        // AOE's far edge isn't left off-screen just because its middle fit.
+        if (caster) {
           this.ensureVisible(caster.x, caster.y);
-          const firstTile = step.tiles[0];
-          if (firstTile) this.ensureVisible(firstTile.x, firstTile.y);
+          this.ensureAreaVisible(step.tiles);
         }
       }
       this.banner = step.label ?? "";
@@ -1965,7 +1999,9 @@ export class BattleEngine {
       const healed = this.units.find((u) => u.id === step.def);
       if (healed) this.faceSpriteToward(step.att, healed.x);
       const healer = this.units.find((u) => u.id === step.att);
-      if (healer && healer.side !== "player") this.ensureVisible(healer.x, healer.y);
+      // Same enemy-only fix as combat/spell above.
+      if (healer) this.ensureVisible(healer.x, healer.y);
+      if (healed) this.ensureVisible(healed.x, healed.y);
     } else if (step.type === "cureDisease") {
       this.active = { type: "cureDisease", att: step.att, def: step.def, t: 0, applied: false };
       this.banner = CURE_DISEASE.name;
@@ -2052,10 +2088,24 @@ export class BattleEngine {
       }
       return;
     }
-    if (a.type === "combat") this.stepCombat(a, dt);
-    if (a.type === "spell") this.stepSpell(a, dt);
-    if (a.type === "heal") this.stepHeal(a, dt);
-    if (a.type === "cureDisease") this.stepCureDisease(a, dt);
+    // Movement already scales its own duration directly off speedMode (see `dur` above) —
+    // combat/spell/heal never did, they always ran at one hardcoded pace no matter what the
+    // player picked, which is why "Lenta" visibly slowed walking but did nothing for the part
+    // that actually needs slowing down: the hit itself, a bolt's flight, an AOE's burst. This
+    // scales the dt these four steppers see instead of touching every fixed-time threshold
+    // inside them individually (stepCombat/stepSpell/stepHeal/stepCureDisease are full of
+    // those, e.g. stepSpell's finishCombat/afterglow timing) — a smaller dt makes `a.t` climb
+    // toward those same unchanged thresholds more slowly, uniformly stretching the whole
+    // animation without touching the careful relative timing between its stages.
+    // "Rápida" keeps today's actual speed (unchanged, for players who already picked it and
+    // are happy with it); "Normal" is deliberately slowed down some on its own, since this was
+    // the direct, repeated report — the default pace read as too fast to actually see what
+    // just happened; "Lenta" is slowed down a lot, enough to really watch a cast land.
+    const actionDt = dt * (this.speedMode === "fast" ? 1 : this.speedMode === "slow" ? 0.4 : 0.65);
+    if (a.type === "combat") this.stepCombat(a, actionDt);
+    if (a.type === "spell") this.stepSpell(a, actionDt);
+    if (a.type === "heal") this.stepHeal(a, actionDt);
+    if (a.type === "cureDisease") this.stepCureDisease(a, actionDt);
   }
 
   private stepCombat(a: CombatAnim, dt: number): void {
@@ -4234,7 +4284,11 @@ export class BattleEngine {
    * had not spotted it yet would be a worse lie than not being able to shoot it.
    */
   private targetable(u: Unit | undefined): u is Unit {
-    if (!u || !attackableByPlayer(u)) return false;
+    if (!u || !u.alive || u.dialog) return false;
+    // debugFreeCast drops attackableByPlayer's ally/enemy filter (so a single-target spell
+    // can be aimed at your own party too) but the dialog-NPC exclusion above still always
+    // applies — a talk-only fixture unit still isn't a sane thing to fireball.
+    if (!this.debugFreeCast && !attackableByPlayer(u)) return false;
     return !this.unitHidden(u);
   }
 
@@ -4569,14 +4623,18 @@ export class BattleEngine {
     if (manhattan(caster, cell) > range) return false;
     const occ = this.occ();
     const who = occ.get(key(cell.x, cell.y));
-    return !!who && who.side === "player" && who.alive && who.hp < who.maxHp;
+    if (!who || !who.alive) return false;
+    if (this.debugFreeCast) return true;
+    return who.side === "player" && who.hp < who.maxHp;
   }
 
   private validCureDiseaseTarget(caster: Unit, cell: Point): boolean {
     if (manhattan(caster, cell) > CURE_DISEASE.range) return false;
     const occ = this.occ();
     const who = occ.get(key(cell.x, cell.y));
-    return !!who && who.side === "player" && who.alive && (who.diseased || who.poisoned);
+    if (!who || !who.alive) return false;
+    if (this.debugFreeCast) return true;
+    return who.side === "player" && (who.diseased || who.poisoned);
   }
 
   private healRangeTiles(from: Point, range: number): Point[] {
@@ -6775,6 +6833,29 @@ export class BattleEngine {
     this.clampCam();
   }
 
+  /** Same job as ensureVisible, but for a whole spread of tiles at once — a Fireball/Caustic
+   * Venom blast, an enemy's cone or line spell, anything hitting more than one hex. A single
+   * ensureVisible(centroid) call still left a wide spread's outer edge off past the viewport
+   * (the centroid can sit comfortably in view while the blast's far corner doesn't); this pulls
+   * both the near and far corner of the affected area's bounding box in, one after the other —
+   * each call sees the camera position the previous one just left, so the two corners converge
+   * toward "as much of the whole spread fits as the viewport allows" rather than fighting each
+   * other. A spread wider than the viewport itself still can't fully fit — no amount of panning
+   * fixes that, only zooming out would — but every real spell's radius is well within one
+   * screen, so this covers the actual reported case (a wide blast landing partly off-frame). */
+  private ensureAreaVisible(tiles: readonly Point[]): void {
+    if (tiles.length === 0) return;
+    let minX = tiles[0]!.x, maxX = tiles[0]!.x, minY = tiles[0]!.y, maxY = tiles[0]!.y;
+    for (const t of tiles) {
+      if (t.x < minX) minX = t.x;
+      if (t.x > maxX) maxX = t.x;
+      if (t.y < minY) minY = t.y;
+      if (t.y > maxY) maxY = t.y;
+    }
+    this.ensureVisible(minX, minY);
+    this.ensureVisible(maxX, maxY);
+  }
+
   private focusPlayers(): void {
     const u = this.units.find((x) => x.side === "player" && x.alive) ?? this.units[0];
     if (!u) return;
@@ -6962,18 +7043,18 @@ export class BattleEngine {
       const art = facing.own ? (this.art.decorations[facing.file] ?? img) : img;
 
       if (facing.step === 0) {
-        ctx.drawImage(art, cx - w / 2, cy - h / 2 + dy, w, h);
+        ctx.drawImageLit(art, cx - w / 2, cy - h / 2 + dy, w, h);
       } else if (facing.own) {
         ctx.save();
         ctx.translate(cx, cy + dy);
         if (facing.mirror) ctx.scale(-1, 1);
-        ctx.drawImage(art, -w / 2, -h / 2, w, h);
+        ctx.drawImageLit(art, -w / 2, -h / 2, w, h);
         ctx.restore();
       } else {
         ctx.save();
         ctx.translate(cx, cy + dy);
         ctx.rotate((facing.step * Math.PI) / 3);
-        ctx.drawImage(art, -w / 2, -h / 2, w, h);
+        ctx.drawImageLit(art, -w / 2, -h / 2, w, h);
         ctx.restore();
       }
     }
@@ -7632,7 +7713,13 @@ export class BattleEngine {
    * drawn on top of renderGround's output. Re-applies this frame's screen-shake offset (see
    * frameShakeDx/Dy) independently rather than sharing one still-open ctx.save() with
    * renderGround, since the two may be drawing onto two different canvases. */
-  renderUnitsAndOverlays(ctx: any, cssW: number, cssH: number): void {
+  /** getLightAt, when given, answers "how much extra light falls on this screen point right
+   * now?" from actually-active spell casts (fire/acid/holy/darkness/webShot) — see
+   * EffectsRenderer.lightBoostAt, which BattleCanvas wires this to. Positive brightens a unit
+   * standing near a fire/holy/acid glow or a travelling web shot; negative (darkness) dims one.
+   * Omitted (the render() convenience path above, which has no EffectsRenderer of its own)
+   * simply skips the check — units draw exactly as if nothing were casting light nearby. */
+  renderUnitsAndOverlays(ctx: any, cssW: number, cssH: number, getLightAt?: (px: number, py: number) => number): void {
     const tile = ZOOM_RADII[this.zoom]!;
     const sqrt3 = Math.sqrt(3);
     const shake = this.reducedMotion ? 0 : this.trauma * this.trauma;
@@ -7692,6 +7779,14 @@ export class BattleEngine {
     }
 
     const cell = tile * sqrt3;
+    // A single "sun" direction shared (by hand, kept in sync — see the comment on
+    // WebGL2DRenderer's lightDirX/Y) with the sprite relighting in WebGL2DRenderer.ts: that
+    // renderer's default light points toward (-0.6, -0.8) screen-space, so shadows here use the
+    // exact opposite vector, offset and stretched along that axis instead of sitting as a
+    // perfectly round puddle centered under every unit regardless of where the light actually is.
+    const shadowDirX = 0.6;
+    const shadowDirY = 0.8;
+    const shadowOffset = cell * 0.16;
     const sorted = [...this.units].sort((a, b) => a.drawY - b.drawY || a.drawX - b.drawX);
     for (const u of sorted) {
       if (u.fade <= 0) continue;
@@ -7709,18 +7804,27 @@ export class BattleEngine {
       const lift = this.unitLift(u, cell);
       ctx.save();
       ctx.globalAlpha = u.fade * (u.moved && u.side === "player" && this.phase === "player" ? 0.8 : 1);
-      ctx.fillStyle = "rgba(0,0,0,0.4)";
-      ctx.beginPath();
-      ctx.ellipse(
-        px + sway,
-        py + cell * 0.22,
-        cell * 0.22 * foot * (1 + breath * 0.4),
-        cell * 0.1 * Math.min(2.2, foot) * (1 - breath * 0.3),
-        0,
-        0,
-        Math.PI * 2,
-      );
-      ctx.fill();
+      {
+        // A soft cast shadow instead of a flat dark puddle: a radial gradient (center dark,
+        // fading fully transparent at the edge) offset toward shadowDir so it reads as light
+        // falling across the board rather than an ambient-occlusion blob glued to every unit's
+        // feet. A unit standing on high ground (lift > 0, see unitLift — including mid-step
+        // while walking on/off a raised hex) throws a slightly longer shadow, same as a real
+        // object held further from the ground it's cast onto.
+        const stretch = 1 + Math.min(0.6, lift / cell) * 0.5;
+        const shadowCx = px + sway + shadowDirX * shadowOffset * stretch;
+        const shadowCy = py + cell * 0.22 + shadowDirY * shadowOffset * stretch;
+        const shadowRx = cell * 0.24 * foot * (1 + breath * 0.4) * stretch;
+        const shadowRy = cell * 0.1 * Math.min(2.2, foot) * (1 - breath * 0.3);
+        const shadowGrad = ctx.createRadialGradient(shadowCx, shadowCy, 0, shadowCx, shadowCy, Math.max(shadowRx, shadowRy));
+        shadowGrad.addColorStop(0, "rgba(6,7,10,0.5)");
+        shadowGrad.addColorStop(0.72, "rgba(6,7,10,0.3)");
+        shadowGrad.addColorStop(1, "rgba(6,7,10,0)");
+        ctx.fillStyle = shadowGrad;
+        ctx.beginPath();
+        ctx.ellipse(shadowCx, shadowCy, shadowRx, shadowRy, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
       const atk = this.attackPose(u);
       const moving = this.active?.type === "move" && this.active.id === u.id;
       // idleAlt flips once per this unit's own turn (see beginUnitTurn) — a sprite with a
@@ -7979,8 +8083,15 @@ export class BattleEngine {
         ctx.shadowColor = `rgba(${halo.core},${0.9 * u.healGlow})`;
         ctx.shadowBlur = w * (u.healGlowKind === "holyMedium" ? 0.48 : 0.32) * u.healGlow * pulse;
       }
+      // Real point-light influence from whatever's actually casting light nearby right now
+      // (a fire/holy/acid glow, a travelling web shot, darkness's own dimming) — see
+      // EffectsRenderer.lightBoostAt. Skipped entirely when a hit-flash is already driving
+      // the filter (a rare, deliberately much brighter flash that shouldn't be diluted by
+      // ambient spell light), and when nothing nearby is casting anything (the common case).
+      const lightBoost = getLightAt ? getLightAt(px, py) : 0;
       if (u.flash > 0) ctx.filter = `brightness(${1.8 + u.flash})`;
-      if (img) ctx.drawImage(img, -w / 2, -h + cultistV2CastFootOffset, w, h);
+      else if (Math.abs(lightBoost) > 0.03) ctx.filter = `brightness(${Math.max(0.35, 1 + lightBoost * 0.5)})`;
+      if (img) ctx.drawImageLit(img, -w / 2, -h + cultistV2CastFootOffset, w, h);
       else {
         ctx.fillStyle = u.side === "player" ? "#8a97a1" : u.side === "neutral" ? "#5f8a58" : "#a35a4a";
         ctx.fillRect(-w / 2, -h, w, h);

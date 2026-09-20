@@ -925,10 +925,16 @@ export function GameApp() {
       const resolved = override ?? missionById(id);
       if (!resolved) return;
       const m = testMode ? addMissingTestHeroes(resolved) : resolved;
+      // !!! DO NOT change this back to `m.index + 1` (mission-position level) !!!
+      // Test mode exists so the party can be tested at full strength on ANY mission without
+      // grinding first — that means DEFAULT_TEST_LEVEL (see its own definition below, also
+      // commented), not "whatever level roughly matches this mission's spot in the campaign".
+      // This exact line has been reverted back to m.index + 1 by mistake multiple times
+      // across sessions — if you're about to "fix" or "simplify" this, don't; ask first.
       const levels: Record<string, number> = testMode
         ? override
-          ? Object.fromEntries(m.playerSpawns.map((s) => [s.name, playerLevels?.[s.name] ?? m.index + 1]))
-          : Object.fromEntries(m.playerSpawns.map((s) => [s.name, m.index + 1]))
+          ? Object.fromEntries(m.playerSpawns.map((s) => [s.name, playerLevels?.[s.name] ?? DEFAULT_TEST_LEVEL]))
+          : Object.fromEntries(m.playerSpawns.map((s) => [s.name, DEFAULT_TEST_LEVEL]))
         : save.levels;
       const bags = testMode ? startingBags() : save.bags;
       // Partial progress toward the next level (not enough to level up yet) has to carry
@@ -983,7 +989,7 @@ export function GameApp() {
       const hungerPenaltyPct = testMode ? 0 : hungerPenaltyFor(save.hungerStreak);
       const heroHunger = testMode ? undefined : save.heroHunger;
       const heroDiseases = testMode ? undefined : save.heroDiseases;
-      const battle = new BattleEngine(m, art, { hp, levels, bags, xp, promotions, weapons, offHand, equipment, statPointAllocations, enemyLevels, neutralLevels, ownedWeaponIds, spellSpent, hungerPenaltyPct, heroHunger, heroDiseases }, Date.now() % 100000);
+      const battle = new BattleEngine(m, art, { hp, levels, bags, xp, promotions, weapons, offHand, equipment, statPointAllocations, enemyLevels, neutralLevels, ownedWeaponIds, spellSpent, hungerPenaltyPct, heroHunger, heroDiseases }, Date.now() % 100000, testMode);
       if (resume && resume.missionId === m.id) battle.applySnapshot(resume);
       if (typeof window !== "undefined" && window.innerWidth < 720) battle.zoom = 0;
       awardedRef.current = null;
@@ -1261,22 +1267,14 @@ export function GameApp() {
     playMenuMusic();
   }, [screen, muted, missionId]);
 
-  // Routes to whichever map the player already picked this session, or to the mapChoice
-  // screen first if they haven't yet. Every "return to the map" spot in this file goes
-  // through here rather than naming "worldMap" directly, so both maps share one entry point.
+  // Routes to the mapChoice screen every time. Every "return to the map" spot in this file
+  // goes through here rather than naming "worldMap" directly, so both maps share one entry
+  // point. Deliberately asks on every single trip back (finished mission, the Inn, Debug,
+  // etc.), not just the first — by explicit request, so either map is always one pick away
+  // instead of getting locked in for the rest of the tab's session.
   const goToMap = useCallback(() => {
-    // Asked once, right when a campaign (real or test) actually starts — every later trip
-    // back to the map, from anywhere (a finished mission, the Inn, etc.), goes straight to
-    // whichever map was picked that first time. Test mode used to re-ask on every single
-    // return specifically so both maps stayed easy to reach for testing; picking one from
-    // the Map Editor's own test menu still works for that, so this no longer needs to nag
-    // on every trip back.
-    if (mapMode) {
-      setScreen(mapMode === "classic" ? "worldMap" : "overworldMap");
-      return;
-    }
     setScreen("mapChoice");
-  }, [mapMode]);
+  }, []);
 
   const leaveBoot = useCallback(() => {
     // Entering the world map is a hard music boundary: do not leave intro.mp3 under it.
@@ -2810,9 +2808,16 @@ const DECO_SHUFFLE_EXCLUDE_KEY = "ember-deco-shuffle-exclude";
 const EDITOR_COLS_DEFAULT = 20;
 const EDITOR_ROWS_DEFAULT = 20;
 
-/** Default level for a newly added spawn: enough spell slots unlocked to actually test
- * with, without being maxed out. */
-const DEFAULT_TEST_LEVEL = 10;
+/** Default level for a newly added spawn, and for every hero's level in test mode: enough
+ * spell slots unlocked to actually test with, without being maxed out.
+ *
+ * !!! THIS IS THE ONE PLACE TO CHANGE THE TEST-MODE LEVEL — never hardcode a level number
+ * anywhere else, and never let test mode fall back to a mission-position-based level
+ * (m.index + 1) instead of this constant. Test mode's entire point is full-strength testing
+ * on any mission with no grinding; reverting to a per-mission level defeats that and has
+ * happened by accident multiple times already. If a level-related bug shows up in test mode,
+ * fix it here or ask first — don't route around this constant. */
+const DEFAULT_TEST_LEVEL = 15;
 
 /** One canonical scenario prefix everywhere: the editor's ID becomes the exact file prefix.
  * `Vau 01` therefore saves as `vau-01001.json` only if the author actually made the ID

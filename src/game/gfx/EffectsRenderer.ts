@@ -267,6 +267,34 @@ export class EffectsRenderer {
     return false;
   }
 
+  /** CPU-side answer to "how much extra light falls on this one point right now?", for the
+   * units canvas — a separate DOM canvas stacked above this one, so it can't just sample the
+   * GPU lightmap texture this renderer builds for its own composite (see FRAG_LIGHT/lightFbo
+   * in render() above). Walks the same live effect list with the same falloff shape
+   * (pow(smoothstep(1,0,d), 1.8), d = distance/radius) instead of rasterizing it, since this
+   * only ever needs the value at one point (a unit's feet) rather than a whole screen. Returns
+   * a signed intensity: positive brightens (fire/acid/holy/webShot), negative darkens
+   * (darkness) — 0 when nothing nearby is casting light, so a caller can skip touching
+   * brightness at all rather than applying a no-op filter every frame. */
+  lightBoostAt(px: number, py: number, getAnchor: AnchorProvider): number {
+    let boost = 0;
+    for (const fx of this.effects.values()) {
+      if (!LIGHT_ELEMENTS.has(fx.kind)) continue;
+      const ov = fx.override;
+      const anchor = ov ?? getAnchor(fx.col, fx.row);
+      const radius = ov
+        ? ov.halfWidthPx * GLOBAL_FX_PARAMS.lightRadiusMul * 1.8
+        : anchor.tile * fx.radiusTiles * (fx.kind === "darkness" ? 1 : GLOBAL_FX_PARAMS.lightRadiusMul);
+      if (radius <= 0) continue;
+      const d = Math.min(1, Math.hypot(px - anchor.x, py - anchor.y) / radius);
+      const atten = Math.pow(Math.max(0, 1 - d), 1.8);
+      if (atten <= 0) continue;
+      const params = EFFECT_PARAMS[fx.kind];
+      boost += (fx.kind === "darkness" ? -1 : 1) * atten * params.intensity;
+    }
+    return boost;
+  }
+
   private drawQuad(
     program: WebGLProgram,
     uniforms: {
