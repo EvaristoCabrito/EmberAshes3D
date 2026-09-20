@@ -11,7 +11,7 @@ import { DialogOverlay } from "./DialogOverlay";
 import { DialogEditor } from "./DialogEditor";
 import { BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, decorationImage, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, type SpellTier } from "./data";
 import { BattleEngine } from "./engine";
-import { MapPreviewCanvas, type PreviewUnitSelection } from "./MapPreviewCanvas";
+import { MapPreviewCanvas, type PreviewDecorationSelection, type PreviewUnitSelection } from "./MapPreviewCanvas";
 import { WorldMapScreen } from "./WorldMapScreen";
 import { OverworldMapScreen } from "./OverworldMapScreen";
 import { LoadingCurtain, useLoadingCurtain } from "./MapLoadingOverlay";
@@ -4005,6 +4005,62 @@ function MapEditorScreen({
     updateSpawn(selected.side, selected.index, { x, y });
     setNote(`${current.name} movido para ${x},${y}.`);
   };
+
+  const selectPreviewDecoration = (decoration: PreviewDecorationSelection) => {
+    setSelectedPlacedDecoration(decoration);
+    const def = DECORATIONS[decoration.id];
+    setNote(`${def?.name ?? decoration.id} selecionada. Arraste até um hex vazio da prévia para movê-la.`);
+  };
+
+  /** Right-click-drag drop for an existing decoration, mirroring placePreviewUnit: refuses the
+   * same way a fresh placement or a turn would (see toggleDecoration/turnDecoration) — off the
+   * board or overlapping another prop — and re-stamps the terrain it carries under it the same
+   * way a turn does, since a moved house has to leave its climbable ground behind, not drag it. */
+  const placePreviewDecoration = (selected: PreviewDecorationSelection, x: number, y: number) => {
+    setDraft((d) => {
+      const hit = d.decorations.find(
+        (p) => p.id === selected.id && p.x === selected.x && p.y === selected.y && (p.rot ?? 0) === (selected.rot ?? 0),
+      );
+      if (!hit) {
+        setNote("Essa decoração já não está no mapa.");
+        return d;
+      }
+      const def = DECORATIONS[hit.id];
+      if (!def) return d;
+      if (hit.x === x && hit.y === y) return d;
+      const moved = { ...hit, x, y };
+      const before = placedFootprint(hit);
+      const after = placedFootprint(moved);
+      if (!after.every((f) => x + f.dx >= 0 && y + f.dy >= 0 && x + f.dx < d.cols && y + f.dy < d.rows)) {
+        setNote(`${def.name} não cabe aí — sairia do mapa.`);
+        return d;
+      }
+      const others = decorationCells(d.decorations.filter((p) => p !== hit));
+      for (const f of after) {
+        if (others.has(`${x + f.dx},${y + f.dy}`)) {
+          setNote(`${def.name} não cabe aí — bateria em outra decoração.`);
+          return d;
+        }
+      }
+      const tiles = [...d.tiles];
+      const tileVariants = [...d.tileVariants];
+      const tileRots = [...(d.tileRots ?? [])];
+      if (def.tile) {
+        const base = baseForDraft(d);
+        for (const f of before) {
+          const i = cellIndex(hit.x + f.dx, hit.y + f.dy, d.cols, d.rows);
+          if (i >= 0 && tiles[i] === def.tile) { tiles[i] = base.tile; tileVariants[i] = base.variant; tileRots[i] = 0; }
+        }
+        for (const f of after) {
+          const i = cellIndex(x + f.dx, y + f.dy, d.cols, d.rows);
+          if (i >= 0) tiles[i] = def.tile;
+        }
+      }
+      setSelectedPlacedDecoration(moved);
+      setNote(`${def.name} movida para ${x},${y}.`);
+      return { ...d, tiles, tileVariants, tileRots, decorations: d.decorations.map((p) => (p === hit ? moved : p)) };
+    });
+  };
   /** Drops one hero or the whole party on the bottom row. Worked out from the current draft
    * rather than inside the state updater: React runs that when it pleases, so counting
    * there reported on placements that had not happened yet. */
@@ -5035,6 +5091,8 @@ function MapEditorScreen({
                 selectedPlacedDecoration={selectedPlacedDecoration}
                 onUnitSelect={selectPreviewUnit}
                 onUnitPlace={placePreviewUnit}
+                onDecorationSelect={selectPreviewDecoration}
+                onDecorationPlace={placePreviewDecoration}
               />
             ) : (
               <div className="h-full w-full grid place-items-center text-xs text-muted">Carregando prévia…</div>
