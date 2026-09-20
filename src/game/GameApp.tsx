@@ -2972,11 +2972,8 @@ const TERRAIN_SWATCH: Record<TerrainId, string> = {
   column: "#4a4a52",
   nave: "#26262c",
   barricade: "#5a4630",
-  highwood: "#4a3f2a",
-  highruin: "#5f584c",
   chest: "#7a5c2e",
   door: "#4a3524",
-  deadtree: "#4a3f2a",
   void: "#050505",
   snow: "#d8dee2",
 };
@@ -2994,9 +2991,12 @@ const BUILDER_TERRAIN: TerrainId[] = [
   // "barricade" is deliberately not here: it is a decoration now, placed with the Decoração
   // brush, which lays its terrain with it. Painting the bare tile still works — a map that
   // already had one keeps it, and the prop is derived on load — but authoring goes one way.
-  // "highwood"/"deadtree"/"highruin"/"chest" are the same story: dead-tree-large and the
-  // two chest decorations lay their own terrain, so the bare tiles are dropped from manual
-  // painting here. Existing maps keep whichever of these they already have.
+  // "chest" is the same story: the two chest decorations lay their own terrain, so the bare
+  // tile is dropped from manual painting here.
+  // highwood/deadtree/highruin used to be listed here too — retired entirely per direct
+  // instruction (they were mechanically identical to "hill", just three redundant visual
+  // reskins of it — see clearScrappedGroundTiles in data.ts, which converted every existing
+  // occurrence to hill + a matching decoration). They no longer exist as a TerrainId at all.
   "door",
   "void",
   "snow",
@@ -4282,9 +4282,32 @@ function MapEditorScreen({
               className="flex-1 min-w-0 bg-bg border border-border rounded-md px-2 py-1.5"
               value=""
               title="Abre o save mais recente desse cenário — a lista de arquivos abaixo deixa escolher outro serial"
-              onChange={(e) => {
+              onChange={async (e) => {
                 const id = e.target.value;
                 if (!id) return;
+                // latestSavedDraft/latestSerialFor read mapstore.ts's eager import.meta.glob
+                // snapshot — taken once when this page/module loaded, and map-save-plugin.mjs
+                // deliberately suppresses the HMR that would normally refresh it on a map file
+                // write (see its handleHotUpdate: reloading the whole game on every save would
+                // throw the author out of the editor). That leaves this glob permanently stale
+                // the instant ANY save happens after page load — including a save from a
+                // different tab, or an earlier session — so it can silently open an older
+                // file than what's actually on disk (reads as "loads the first version I ever
+                // saved" instead of the latest). /__map-list?id= hits the disk directly, same
+                // as refreshRepoFiles already does for the "files in repository" panel, so
+                // it's asked first here too; the stale glob is now only the fallback for a
+                // built release with no dev server to ask.
+                try {
+                  const response = await fetch(`/__map-list?id=${encodeURIComponent(id)}`);
+                  const body = (await response.json()) as { ok?: boolean; files?: MapFile[] };
+                  if (!response.ok || !body.ok || !Array.isArray(body.files) || body.files.length === 0) throw new Error("lista indisponível");
+                  const latestFile = body.files.reduce((best: MapFile, f) => (f.serial > best.serial ? f : best));
+                  setDraft(latestFile.draft);
+                  setNote(`Aberto ${latestFile.file ?? mapFileName(id, latestFile.serial)} — o save mais novo de "${id}".`);
+                  return;
+                } catch {
+                  // No dev server (built release) — fall back to the static snapshot.
+                }
                 const fromDisk = latestSavedDraft(id);
                 if (fromDisk) {
                   setDraft(fromDisk);
@@ -6228,7 +6251,7 @@ function BattleScreen({
           <p className="bg-surface/90 border border-border rounded-md px-1.5 py-0.5 text-[10px] tabular-nums text-muted pointer-events-none">
             T{hud.turn} · {hud.playerAlive}/{hud.enemyAlive}
           </p>
-          {hud.terrain && (hud.terrain.note || hud.terrain.id === "barricade" || hud.terrain.id === "hill" || hud.terrain.id === "highwood" || hud.terrain.id === "highruin") && (
+          {hud.terrain && (hud.terrain.note || hud.terrain.id === "barricade" || hud.terrain.id === "hill") && (
             <p className="bg-surface/90 border border-border rounded-md px-1.5 py-0.5 text-[10px] text-accent pointer-events-none max-w-[14rem] truncate">
               {hud.terrain.name}
             </p>

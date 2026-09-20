@@ -57,11 +57,8 @@ export const TERRAIN: Record<TerrainId, TerrainDef> = {
   column: { id: "column", name: "Coluna", moveCost: 99, def: 0, atk: 0, passable: false, blocksShot: true },
   nave: { id: "nave", name: "Laje", moveCost: 1, def: 0, atk: 0, passable: true },
   barricade: { id: "barricade", name: "Barricada", moveCost: 99, def: 0, atk: 0, passable: false, blocksShot: true },
-  highwood: { id: "highwood", name: "Tronco morto", moveCost: 2, def: 1, atk: 2, passable: true, height: 1 },
-  highruin: { id: "highruin", name: "Casa abandonada", moveCost: 2, def: 1, atk: 2, passable: true, height: 1 },
   chest: { id: "chest", name: "Baú trancado", moveCost: 99, def: 0, atk: 0, passable: false },
   door: { id: "door", name: "Porta trancada", moveCost: 99, def: 0, atk: 0, passable: false, blocksShot: true },
-  deadtree: { id: "deadtree", name: "Tronco caído", moveCost: 2, def: 1, atk: 2, passable: true, height: 1 },
   snow: { id: "snow", name: "Neve", moveCost: 1, def: 0, atk: 0, passable: true },
   /** Pure void — a building block for closed/indoor maps: apaga o terreno e nem se atravessa, nem se vê através. */
   void: { id: "void", name: "Vazio", moveCost: 99, def: 0, atk: 0, passable: false, blocksShot: true },
@@ -348,7 +345,15 @@ export const DEADWOODS_DECOR_IDS = new Set([
 export const DECORATIONS: Record<string, DecorationDef> = {
   "mountain-ridge": { id: "mountain-ridge", name: "Cordilheira", footprint: DECO_PAIR, tile: "hill" },
   "spike-rocks": { id: "spike-rocks", name: "Agulhas de Pedra", footprint: DECO_PAIR, tile: "column" },
-  "dead-tree-large": { id: "dead-tree-large", name: "Árvore Morta Grande", footprint: DECO_PAIR, tile: "highwood" },
+  // No tile stamp (unlike mountain-ridge/spike-rocks/dense-forest/broken-cliff-wall/
+  // boulder-cluster above) — it used to stamp "highwood" underneath itself, which is exactly
+  // the terrain deadtree/highwood/highruin were retired for being (see
+  // clearScrappedGroundTiles' own doc comment): a fallen-tree PROP re-creating a fallen-tree
+  // GROUND TILE the instant it's placed, including by scatterDecor's random scatter (which
+  // draws from every decoration in this whole record) — so "Gerar terreno" kept bringing
+  // highwood back even after scatterTactics stopped generating it directly. Purely
+  // decorative now, same as wilds-fallen-log/wilds-dead-oak.
+  "dead-tree-large": { id: "dead-tree-large", name: "Árvore Morta Grande", footprint: DECO_PAIR },
   "dense-forest": { id: "dense-forest", name: "Bosque Denso", footprint: DECO_PAIR, tile: "woods" },
   "broken-cliff-wall": { id: "broken-cliff-wall", name: "Muralha Rochosa Partida", footprint: DECO_PAIR, tile: "column", repeatGroup: "broken-cliff-wall" },
   "boulder-cluster": { id: "boulder-cluster", name: "Amontoado de Pedras", footprint: DECO_TRIO, tile: "column" },
@@ -3663,11 +3668,8 @@ const CHAR: Record<string, TerrainId> = {
   c: "column",
   n: "nave",
   b: "barricade",
-  d: "highwood",
-  s: "highruin",
   k: "chest",
   o: "door",
-  t: "deadtree",
   v: "void",
   u: "snow",
 };
@@ -3693,11 +3695,8 @@ export const TILE_CHAR: Record<TerrainId, string> = {
   column: "c",
   nave: "n",
   barricade: "b",
-  highwood: "d",
-  highruin: "s",
   chest: "k",
   door: "o",
-  deadtree: "t",
   void: "v",
   snow: "u",
 };
@@ -4384,9 +4383,10 @@ export function scatterTactics(m: Mission): Mission {
   // to roughly 224-352 cells. Run unscaled on a smaller board they crowd it — a raw 10x8
   // got the same two walls in a quarter of the space — so they follow the area instead.
   const density = (m.cols * m.rows) / 288;
-  // Two on a campaign-sized board, and capped there: barricades are the most intrusive
-  // thing the scatter places, so the count is allowed to start at two and then stop
-  // climbing rather than growing with every extra hex of map.
+  // Two to three on a campaign-sized board — back to the original count (1-2 read as too
+  // sparse per direct follow-up report). Decoration variety is still the bigger lean now
+  // (see scatterDecor's own want below, which stayed bumped up), just not at the cost of
+  // barricades reading as scarce.
   const wantWalls = Math.min(3, Math.max(1, Math.round(2 * density)));
   // Picking straight off the static score sort put every wall in practically the same spot:
   // the score is dominated by "between the spawns and horizontally centered," so the 2nd and
@@ -4436,7 +4436,7 @@ export function scatterTactics(m: Mission): Mission {
     for (const p of cand) {
       if (got >= n) break;
       const i = p.y * m.cols + p.x;
-      if (tiles[i] === "hill" || tiles[i] === "highwood" || tiles[i] === "highruin" || tiles[i] === "deadtree" || tiles[i] === "barricade") continue;
+      if (tiles[i] === "hill" || tiles[i] === "barricade") continue;
       if (taken.some((q) => oddrDist(p.x, p.y, q.x, q.y) < 3)) continue;
       tiles[i] = kind;
       taken.push(p);
@@ -4445,16 +4445,12 @@ export function scatterTactics(m: Mission): Mission {
   };
   // Uncapped: high ground should keep coming as the board grows. Only the barricades
   // above are held back — everything else is meant to be plentiful.
-  pick(Math.max(1, Math.round(4 * density)), "hill");
-  const highKinds: TerrainId[] = ["hill", "highwood", "highruin", "deadtree"];
-  for (let y = 0; y < m.rows; y++) {
-    for (let x = 0; x < m.cols; x++) {
-      const i = y * m.cols + x;
-      if (tiles[i] !== "hill") continue;
-      const v = (x * 17 + y * 31 + m.index * 9) % highKinds.length;
-      tiles[i] = highKinds[v] ?? "hill";
-    }
-  }
+  // Used to diversify a fraction of these into highwood/highruin/deadtree — per direct
+  // instruction, those three are retired as ground-tile terrain entirely (a fallen tree
+  // trunk or an abandoned house is a prop sitting on ground, not a kind of ground) and
+  // replaced everywhere by a decoration on plain ground instead (see
+  // clearScrappedGroundTiles below, which does that for every existing mission). Every
+  // elevated tile this generator produces is plain "hill" now, nothing else.
   const layout: string[] = [];
   for (let y = 0; y < m.rows; y++) {
     let row = "";
@@ -4506,6 +4502,60 @@ function rockifyColumns(mission: Mission): Mission {
   for (let y = 0; y < mission.rows; y++) {
     for (let x = 0; x < mission.cols; x++) {
       if (grid[y]![x] === "c" && !claimed.has(`${x},${y}`)) grid[y]![x] = fallbackFloor;
+    }
+  }
+  return { ...mission, layout: grid.map((row) => row.join("")), decorations };
+}
+
+// deadtree/highwood/highruin's replacement decorations, one pool per retired tile — each
+// picked specifically for having NO `tile` property of its own (see DECORATIONS.dead-tree-
+// large.tile — a decoration WITH one re-stamps that same terrain under itself the instant
+// it's placed, engine.ts's own decoration-placement code applies it live, which would just
+// silently recreate the exact ground tile this whole pass exists to get rid of). Single-hex
+// on purpose too: deadtree/highwood/highruin were common enough (dozens per mission on some
+// boards) that adjacent runs of them are the normal case, and a single-hex prop never needs
+// the neighbor-overlap bookkeeping a multi-hex one would.
+const DEADTREE_REPLACEMENT = "wilds-fallen-log";
+const HIGHWOOD_REPLACEMENT = "wilds-dead-oak";
+const HIGHRUIN_REPLACEMENT = "wilds-ruined-wayside-shrine";
+
+/** Retires deadtree/highwood/highruin as ground-tile terrain, per direct instruction: those
+ * three were never really "ground" — a fallen tree trunk (deadtree/highwood, distinguished
+ * only by which sprite folder inherited the name — see TERRAIN's own "Tronco caído"/"Tronco
+ * morto") and an abandoned house (highruin) are props that happen to sit on the ground, not
+ * a kind of ground themselves — so every occurrence becomes plain floor (matching
+ * rockifyColumns' own fallbackFloor convention: "n" on an indoor/underground map, "."
+ * everywhere else) with a same-theme decoration placed on top instead. Runs in the same
+ * post-expandMaps pipeline slot as rockifyColumns for the same reason: coordinates only
+ * line up with the final rendered grid after expandMaps has already doubled every raw
+ * hand-authored cell. */
+function clearScrappedGroundTiles(mission: Mission): Mission {
+  if (mission.hub) return mission;
+  const grid = mission.layout.map((row) => row.split(""));
+  // "h" (hill), not the plain floor fallback — deadtree/highwood/highruin were always
+  // mechanically identical to hill (moveCost 2, def 1, atk 2, height 1, every one of them —
+  // see TERRAIN's own now-removed entries), just three redundant visual reskins of the same
+  // elevated terrain. Per direct instruction, a "high ground tile" becomes hill (keeping the
+  // actual elevation gameplay) with a "high ground decoration" on top for the visual variety
+  // those three used to carry, not flattened away to plains.
+  const fallbackFloor = "h";
+  const decorations: DecorationPlacement[] = [...(mission.decorations ?? [])];
+  const claimed = decorationCells(decorations);
+  const targets: { char: string; id: string }[] = [
+    { char: "t", id: DEADTREE_REPLACEMENT },
+    { char: "d", id: HIGHWOOD_REPLACEMENT },
+    { char: "s", id: HIGHRUIN_REPLACEMENT },
+  ];
+  for (const { char, id } of targets) {
+    for (let y = 0; y < mission.rows; y++) {
+      for (let x = 0; x < mission.cols; x++) {
+        if (grid[y]![x] !== char) continue;
+        grid[y]![x] = fallbackFloor;
+        const key = `${x},${y}`;
+        if (claimed.has(key)) continue;
+        decorations.push({ id, x, y });
+        claimed.add(key);
+      }
     }
   }
   return { ...mission, layout: grid.map((row) => row.join("")), decorations };
@@ -4775,8 +4825,10 @@ export function scatterDecor(m: Mission, excludeIds?: ReadonlySet<string>): Miss
   // pulling it out of DECORATIONS entirely and losing manual placement too.
   const ids = Object.keys(DECORATIONS).filter((id) => !CHEST_DECOR_IDS.has(id) && !MANUAL_DECORATION_IDS.has(id) && !excludeIds?.has(id));
   // Uncapped and generous: scenery is the thing a board should have lots of, and anything
-  // unwanted is a click to clear.
-  const want = Math.max(3, Math.round(((m.cols * m.rows) / 288) * 10));
+  // unwanted is a click to clear. Bumped from 10 to 14 per campaign-sized board alongside
+  // wallCenters' own reduction above — the generator now leans toward decoration variety
+  // rather than barricades for its "intrusive" scatter.
+  const want = Math.max(4, Math.round(((m.cols * m.rows) / 288) * 14));
   const placed: DecorationPlacement[] = [...(m.decorations ?? [])];
   if (ids.length === 0) return { ...m, decorations: placed };
 
@@ -4804,10 +4856,15 @@ export function scatterDecor(m: Mission, excludeIds?: ReadonlySet<string>): Miss
  * decoration. The Map Editor's "Gerar terreno" calls this so the board it fills matches
  * what a real mission would look like, rather than only the first of the three. */
 export function dressMap(m: Mission, excludeIds?: ReadonlySet<string>): Mission {
-  return scatterDecor(decorateOpenTerrain(rockifyColumns(scatterTactics(m))), excludeIds);
+  // clearScrappedGroundTiles last: scatterTactics no longer generates deadtree/highwood/
+  // highruin and dead-tree-large no longer re-stamps highwood, so this shouldn't have
+  // anything left to do on a fresh "Gerar terreno" — kept as a safety net, and run after
+  // scatterDecor specifically so it sees every decoration already placed (rocks, chests,
+  // the random scatter) before deciding where its own replacements safely fit.
+  return clearScrappedGroundTiles(scatterDecor(decorateOpenTerrain(rockifyColumns(scatterTactics(m))), excludeIds));
 }
 
-export const MISSIONS: Mission[] = expandMaps(RAW_MISSIONS).map(rockifyColumns).map(decorateOpenTerrain).map(applyDeadGround);
+export const MISSIONS: Mission[] = expandMaps(RAW_MISSIONS).map(rockifyColumns).map(decorateOpenTerrain).map(applyDeadGround).map(clearScrappedGroundTiles);
 
 export function missionById(id: string): Mission | undefined {
   return MISSIONS.find((m) => m.id === id);

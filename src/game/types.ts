@@ -28,7 +28,7 @@ export interface Spells {
 export const TIER_KEYS = ["tier1", "tier2", "tier3", "tier4", "tier5", "tier6", "tier7", "tier8", "tier9", "tier10"] as const;
 export type TierKey = (typeof TIER_KEYS)[number];
 
-export type TerrainId = "plains" | "woods" | "ruins" | "water" | "ember" | "hill" | "flame" | "column" | "nave" | "barricade" | "highwood" | "highruin" | "chest" | "door" | "deadtree" | "void" | "snow";
+export type TerrainId = "plains" | "woods" | "ruins" | "water" | "ember" | "hill" | "flame" | "column" | "nave" | "barricade" | "chest" | "door" | "void" | "snow";
 /** Which faction a unit fights for.
  *
  * "neutral" is the wild-beast side: it holds its ground (never enters the turn order, so it
@@ -265,8 +265,8 @@ export interface DecorationDef {
    *
    * Decorations are art: every rule — whether a hex can be walked, shot through or stood
    * on top of — comes from the tile underneath, which is why the rocks that rockifyColumns
-   * draws leave their column tile in place. A house you can climb is a house prop sitting
-   * on "highruin". Naming it here lets the editor lay the tile with the prop, so the
+   * draws leave their column tile in place. A ridge you can climb is a mountain-ridge prop
+   * sitting on "hill". Naming it here lets the editor lay the tile with the prop, so the
    * picture and the rules cannot drift apart. */
   tile?: TerrainId;
   /** Draw this prop after character sprites so near-side scenery can naturally occlude
