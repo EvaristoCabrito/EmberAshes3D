@@ -763,7 +763,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   // Stats are a first pass — placeholder numbers to get it on the board, to be balanced later.
   morvenianWolf: {
     id: "morvenianWolf",
-    name: "Lobo Mordaviano",
+    name: "Mordavian Puppy",
     role: "Fera",
     hp: 34,
     atk: 10,
@@ -774,6 +774,24 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     minRange: 1,
     maxRange: 1,
     sprite: "morvenian-wolf",
+    size: 2,
+    footprintOffsets: FOOTPRINT_TYPE_2,
+    init: 7,
+  },
+  // Stats are a first pass — placeholder numbers to get it on the board, to be balanced later.
+  mordavianWolf: {
+    id: "mordavianWolf",
+    name: "Mordavian Wolf",
+    role: "Fera",
+    hp: 44,
+    atk: 13,
+    mag: 0,
+    def: 3,
+    res: 2,
+    mov: 6,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "mordavian-wolf",
     size: 2,
     footprintOffsets: FOOTPRINT_TYPE_2,
     init: 7,
@@ -1471,6 +1489,7 @@ export const GROWTH: Record<ClassId, { hp: number; atk: number; mag: number; def
   captain: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
   wardog: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
   morvenianWolf: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
+  mordavianWolf: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
   punisher: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
   // Boss-tier growth (matches sandoval below) — high stats scale up like an elite's, not
   // a rank-and-file enemy's, if he's ever spawned at a later mission index.
@@ -2597,6 +2616,7 @@ export const EMBER_DROP: Partial<Record<ClassId, number>> = {
   pikeman: 3,
   wardog: 2,
   morvenianWolf: 3,
+  mordavianWolf: 5,
   punisher: 5,
   // Matches CLASSES.theButcher's stat boost — a tougher kill is worth more.
   theButcher: 9,

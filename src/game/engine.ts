@@ -1815,14 +1815,14 @@ export class BattleEngine {
   /** Point a directional sprite (conjurer / lancer) at a column so walk and attack
    * play the matching left/right cut instead of a mirrored idle. Other sprites keep
    * the historical "facing = 1 shows the sheet as drawn" convention — EXCEPT familiar3,
-   * whose facing drives render()'s ordinary CSS mirror (dirAction is false for it, same as
-   * every other non-directional sprite) rather than an asset pick, but which was never in
-   * this update path at all: outside faceSpriteToward, u.facing only ever changes from
-   * actually walking (see the stepMove branch that sets it), so a familiar3 that attacked
-   * without moving, or moved one way and then got attacked from the other side, kept
-   * whatever stale facing its last step left behind instead of turning to face the fight —
-   * the "not facing the enemy" report, distinct from (and left uncaught by) the earlier
-   * mirrored-attack-frame fix above familiar3Scale. */
+   * morvenian-wolf and mordavian-wolf, whose facing drives render()'s ordinary CSS mirror
+   * (dirAction is false for them, same as every other non-directional sprite) rather than
+   * an asset pick, but which were never in this update path at all: outside faceSpriteToward, u.facing only
+   * ever changes from actually walking (see the stepMove branch that sets it), so a unit
+   * that attacked without moving, or moved one way and then got attacked from the other
+   * side, kept whatever stale facing its last step left behind instead of turning to face
+   * the fight — the "not facing the enemy" report, distinct from (and left uncaught by) the
+   * earlier mirrored-attack-frame fix above familiar3Scale. */
   private faceSpriteToward(id: string, x: number): void {
     const u = this.units.find((n) => n.id === id);
     if (
@@ -1833,7 +1833,9 @@ export class BattleEngine {
         u.sprite !== "sandoval" &&
         u.sprite !== "conjurer" &&
         u.sprite !== "malrec" &&
-        u.sprite !== "familiar3")
+        u.sprite !== "familiar3" &&
+        u.sprite !== "morvenian-wolf" &&
+        u.sprite !== "mordavian-wolf")
     )
       return;
     if (x > u.x) u.facing = 1;

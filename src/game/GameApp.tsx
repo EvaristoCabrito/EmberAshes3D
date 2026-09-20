@@ -363,6 +363,7 @@ const BRIEF_ART: Record<string, string> = {
   portao: "/game/assets/brief-portao.jpg",
   profundezas: "/game/assets/profundezas-bg.jpg?v=2",
   thebridge: "/game/assets/brief-thebridge.jpg?v=2",
+  "wisp-forest": "/game/assets/brief-wisp-forest.jpg",
 };
 
 function briefArt(id: string): string | null {

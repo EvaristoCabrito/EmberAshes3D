@@ -82,7 +82,7 @@ export function portraitFor(sprite: SpriteId): { src: string; framed: boolean } 
 }
 
 const TILES = Object.keys(TILE_VARIANT_COUNT) as TerrainId[];
-const SPRITES: SpriteId[] = ["defaultWarrior", "neera", "voss", "salazar", "aldric", "malrec", "defaultLancer", "soldier", "brigand", "captain", "sorcerer", "horror", "Asherah", "pikeman", "wardog", "troll", "morvenian-wolf", "punisher", "theButcher", "birolho", "birolho2", "birolho3", "familiar", "familiar2", "familiar3", "swamp-blue-calf", "ancient-golem", "lancer", "sandoval", "kaelFinal", "kaelEarly", "conjurer", "cultist-v2", "archerRecruit", "mageRecruit", "healerRecruit"];
+const SPRITES: SpriteId[] = ["defaultWarrior", "neera", "voss", "salazar", "aldric", "malrec", "defaultLancer", "soldier", "brigand", "captain", "sorcerer", "horror", "Asherah", "pikeman", "wardog", "troll", "morvenian-wolf", "mordavian-wolf", "punisher", "theButcher", "birolho", "birolho2", "birolho3", "familiar", "familiar2", "familiar3", "swamp-blue-calf", "ancient-golem", "lancer", "sandoval", "kaelFinal", "kaelEarly", "conjurer", "cultist-v2", "archerRecruit", "mageRecruit", "healerRecruit"];
 
 const LOAD_POOL = 8;
 let loadActive = 0;
@@ -182,7 +182,7 @@ export async function loadGameArt(): Promise<GameArt> {
   const attacks: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
   await Promise.all(
     SPRITES.map(async (id) => {
-      const n = id === "conjurer" || id === "kaelFinal" || id === "aldric" || id === "cultist-v2" || id === "malrec" || id === "familiar3" ? 36 : id === "sandoval" ? 8 : id === "birolho2" ? 18 : id === "birolho3" ? 12 : HERO_IDLE.has(id) ? 12 : 4;
+      const n = id === "conjurer" || id === "kaelFinal" || id === "aldric" || id === "cultist-v2" || id === "malrec" || id === "familiar3" ? 36 : id === "sandoval" || id === "mordavian-wolf" ? 8 : id === "birolho2" ? 18 : id === "birolho3" ? 12 : HERO_IDLE.has(id) ? 12 : 4;
       const cacheBust = id === "troll" ? "?v=11" : id === "Asherah" ? "?v=3" : id === "familiar" ? "?v=6" : id === "aldric" ? "?v=aldric-final-001" : id === "defaultLancer" ? "?v=sheet2" : id === "lancer" ? "?v=3" : id === "sandoval" ? "?v=sandoval-complete-001" : id === "kaelFinal" ? "?v=kael-final-002" : id === "kaelEarly" ? "?v=kael-early" : id === "defaultWarrior" ? "?v=kael-v2" : id === "conjurer" ? "?v=conjurer-complete-003" : "";
       sprites[id] = await Promise.all(
         Array.from({ length: n }, (_, i) =>
@@ -221,6 +221,10 @@ export async function loadGameArt(): Promise<GameArt> {
     familiar2: { n: 12, bust: "" },
     "ancient-golem": { n: 8, bust: "" },
     "morvenian-wolf": { n: 6, bust: "" },
+    // Mordavian Wolf — the bigger cousin, sliced from its own reference sheet; the row
+    // labeled "8 frames" only actually has 7 distinct poses (two columns share the "07" tag,
+    // none reads "02"-"05" — a defect in that sheet's own generation, not a slicing choice).
+    "mordavian-wolf": { n: 7, bust: "" },
     birolho: { n: 4, bust: "" },
     birolho2: { n: 4, bust: "" },
     punisher: { n: 4, bust: "" },
@@ -343,6 +347,14 @@ export async function loadGameArt(): Promise<GameArt> {
     // Right-facing cut; see the dedicated walksLeft["cultist-v2"] load below.
     "cultist-v2": { n: 36, bust: "" },
     familiar3: { n: 36, bust: "" },
+    // Right-facing cut, sliced from the Mordavian Puppy reference sheet's WALK RIGHT row;
+    // see the dedicated walksLeft["morvenian-wolf"] load below for its own authored
+    // left-facing cut (real distinct footage, 7 frames vs this row's 6 — not the CSS mirror
+    // every other sprite absent from walksLeft falls back to).
+    "morvenian-wolf": { n: 6, bust: "" },
+    // Mordavian Wolf — one authored cut (its sheet has no separate left row like the
+    // Puppy's); the renderer mirrors it for left-facing movement, same as most sprites here.
+    "mordavian-wolf": { n: 8, bust: "" },
   };
   const walks: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
   await Promise.all(
@@ -383,6 +395,13 @@ export async function loadGameArt(): Promise<GameArt> {
   walksLeft.familiar2 = await Promise.all(
     Array.from({ length: WALK_FRAMES.familiar2!.n }, (_, i) => loadImage(spriteFrameSrc("familiar2", `move-left-${i + 1}`, WALK_FRAMES.familiar2!.bust))),
   );
+  // Mordavian Puppy has real, distinct left-facing walk footage sliced from the same
+  // reference sheet's WALK LEFT row — 7 frames there vs 6 in WALK_FRAMES["morvenian-wolf"]'s
+  // right-facing count above, so this can't reuse that n like familiar2/theButcher/cultist-v2
+  // do; it's its own standalone count.
+  walksLeft["morvenian-wolf"] = await Promise.all(
+    Array.from({ length: 7 }, (_, i) => loadImage(spriteFrameSrc("morvenian-wolf", `move-left-${i + 1}`, ""))),
+  );
   // Malrec's own "Walk Left" export turned out not to be mirrored footage at all — laid
   // frame-by-frame next to "Walk Right", both face/stride the same screen direction. The
   // sliced move-left-*.png frames are left on disk but deliberately unused: no walksLeft
@@ -403,6 +422,18 @@ export async function loadGameArt(): Promise<GameArt> {
   const backdrops: Record<string, HTMLImageElement> = {
     profundezas: await loadImage("/game/assets/profundezas-bg.jpg?v=2"),
     thebridge: await loadImage("/game/assets/thebridge-bg.jpg?v=1"),
+    "wisp-forest": await loadImage("/game/assets/wisp-forest-bg.jpg"),
+    "random-encounter-1": await loadImage("/game/assets/random-encounter-1-bg.jpg"),
+    "random-encounter-2": await loadImage("/game/assets/random-encounter-2-bg.jpg"),
+    "random-encounter-4": await loadImage("/game/assets/random-encounter-4-bg.jpg"),
+    "random-encounter-5": await loadImage("/game/assets/random-encounter-5-bg.jpg"),
+    "random-encounter-8": await loadImage("/game/assets/random-encounter-8-bg.jpg"),
+    // Shared by the O Vau campaign mission and its Vau Raso road encounter — same river
+    // crossing, same painted backdrop for both.
+    vau: await loadImage("/game/assets/vau-bg.jpg"),
+    "random-encounter-6": await loadImage("/game/assets/vau-bg.jpg"),
+    aldeia: await loadImage("/game/assets/aldeia-bg.jpg"),
+    bosque: await loadImage("/game/assets/bosque-bg.jpg"),
   };
   const idles: Partial<Record<SpriteId, HTMLImageElement[]>> = {
     // defaultWarrior (the generic/default warrior look) reads its own kael-v2 stand cut;
