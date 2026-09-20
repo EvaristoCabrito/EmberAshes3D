@@ -87,6 +87,7 @@ import {
   selectSlot,
 } from "./save";
 import type { Bag, BattleSnapshot, ClassId, DecorationPlacement, DialogTree, ElementalFxPlacement, EquipSlot, GameArt, GrowthLine, HudSnapshot, Mission, PotionId, SaveBank, SaveData, ScreenId, SpellKind, Spawn, SpriteId, StatPointAllocation, StatPointAttribute, TerrainId, UnitPublic, WinCondition, WorldLocation } from "./types";
+import { hexNeighbors, key as hexKey } from "./pathfinding";
 
 /** A map JSON write updates Vite's module list and can reload the app. This one-shot
  * snapshot restores the editor instead of sending the author to the title screen. */
@@ -860,6 +861,48 @@ export function GameApp() {
     goToMap();
   };
 
+  /** Test mode's whole point is checking every hero's balance regardless of story progress,
+   * but a mission's own playerSpawns only ever lists whichever heroes the story had actually
+   * recruited by that point — no mission written before Aldric/Malrec join the party
+   * includes them, so they silently never appeared in a test battle at all. Adds whichever
+   * of the six are missing, each placed via the same nearest-free-cell BFS real spawns get
+   * nudged onto for a hazard (see BattleEngine.nudgeOffHazard) — never a hardcoded offset
+   * that could land on a wall, water, or another unit on a layout this never saw. */
+  const TEST_PARTY_CLASS: Record<string, ClassId> = { Kael: "kaelFinal", Neera: "neera", Voss: "voss", Salazar: "salazar", Aldric: "aldric", Malrec: "conjurer" };
+  function addMissingTestHeroes(mission: Mission): Mission {
+    const present = new Set(mission.playerSpawns.map((s) => s.name));
+    const missing = Object.keys(TEST_PARTY_CLASS).filter((name) => !present.has(name));
+    if (missing.length === 0) return mission;
+    const terrain = parseLayout(mission.layout);
+    const occupied = new Set([...mission.playerSpawns, ...mission.enemySpawns, ...(mission.neutralSpawns ?? [])].map((s) => hexKey(s.x, s.y)));
+    const anchor = mission.playerSpawns[0] ?? { x: 0, y: 0 };
+    const added: Spawn[] = [];
+    for (const name of missing) {
+      const seen = new Set([hexKey(anchor.x, anchor.y)]);
+      const q: { x: number; y: number }[] = [anchor];
+      let placed: { x: number; y: number } | null = null;
+      while (q.length && !placed) {
+        const cur = q.shift()!;
+        for (const n of hexNeighbors(cur.x, cur.y)) {
+          if (n.x < 0 || n.y < 0 || n.x >= mission.cols || n.y >= mission.rows) continue;
+          const k = hexKey(n.x, n.y);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          const terr = TERRAIN[terrain[n.y * mission.cols + n.x]];
+          if (terr?.passable && !occupied.has(k)) {
+            placed = n;
+            break;
+          }
+          q.push(n);
+        }
+      }
+      if (!placed) continue; // no free cell anywhere reachable — skip rather than overlap
+      occupied.add(hexKey(placed.x, placed.y));
+      added.push({ name, classId: TEST_PARTY_CLASS[name]!, x: placed.x, y: placed.y });
+    }
+    return added.length > 0 ? { ...mission, playerSpawns: [...mission.playerSpawns, ...added] } : mission;
+  }
+
   const startBattle = useCallback(
     (
       id: string,
@@ -878,12 +921,13 @@ export function GameApp() {
       if (!override) {
         setCustomMission(null);
       }
-      const m = override ?? missionById(id);
-      if (!m) return;
+      const resolved = override ?? missionById(id);
+      if (!resolved) return;
+      const m = testMode ? addMissingTestHeroes(resolved) : resolved;
       const levels: Record<string, number> = testMode
         ? override
           ? Object.fromEntries(m.playerSpawns.map((s) => [s.name, playerLevels?.[s.name] ?? m.index + 1]))
-          : { Kael: m.index + 1, Neera: m.index + 1, Voss: m.index + 1, Salazar: m.index + 1 }
+          : Object.fromEntries(m.playerSpawns.map((s) => [s.name, m.index + 1]))
         : save.levels;
       const bags = testMode ? startingBags() : save.bags;
       // Partial progress toward the next level (not enough to level up yet) has to carry

@@ -119,12 +119,29 @@ export function mapSavePlugin() {
     configResolved(config) {
       watchedMapsDir = join(config.root, MAPS_DIR).replaceAll("\\", "/");
     },
-    // Map JSONs are written by this plugin. They are listed by the editor directly after
-    // the confirmed response, so reloading the whole game here only throws the author out
-    // of the editor without making the save safer.
+    // Map JSONs are written by this plugin (or by hand, or by another tool entirely — any
+    // of the three). The editor already refreshes its own picker lists straight from the
+    // confirmed save response, so a full browser reload here would only throw the author
+    // out of the editor without making the save safer — that's still suppressed below.
+    // But mapstore.ts's `import.meta.glob("./maps/*.json", { eager: true })` gets baked
+    // into ITS OWN transformed module at the moment Vite first transforms it, and without
+    // an explicit invalidation here Vite has no way to know that module's result is stale —
+    // it never re-transforms mapstore.ts again, EVEN ON A FULL PAGE RELOAD, until the dev
+    // server itself restarts. That's what let a just-saved/just-deleted/hand-written map
+    // file silently vanish from every list that resolves through ALL_MISSIONS/missionById
+    // (the campaign screen, "Carregar mapa da campanha", etc.) — not stale until refreshed,
+    // stale until the whole server restarts. Invalidating the module here (without forcing
+    // the reload) means the very next real page load picks up the current file list, no
+    // restart required.
     handleHotUpdate(ctx) {
       const changed = ctx.file.replaceAll("\\", "/");
-      if (watchedMapsDir && changed.startsWith(`${watchedMapsDir}/`) && changed.endsWith(".json")) return [];
+      if (watchedMapsDir && changed.startsWith(`${watchedMapsDir}/`) && changed.endsWith(".json")) {
+        const mapstoreFile = join(ctx.server.config.root, "src", "game", "mapstore.ts");
+        for (const mod of ctx.server.moduleGraph.getModulesByFile(mapstoreFile) ?? []) {
+          ctx.server.moduleGraph.invalidateModule(mod);
+        }
+        return [];
+      }
     },
     configureServer(server) {
       const dir = join(server.config.root, MAPS_DIR);
