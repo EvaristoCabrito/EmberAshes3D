@@ -55,6 +55,24 @@ import {
   type MapVersion,
   type DraftSpawn,
 } from "./mapstore";
+
+/** The real latest saved draft for a scenario, asked from the dev server directly rather than
+ * trusted from latestSavedDraft's static snapshot — see the "Carregar mapa..."/"Abrir mapa
+ * salvo" pickers' own comments for why that snapshot goes stale the instant any save happens
+ * after this page loaded. Falls back to the stale snapshot only when there's no dev server to
+ * ask (a built release). Every "reopen this saved map in the editor" entry point should use
+ * this, not latestSavedDraft directly, or it silently reintroduces the same staleness. */
+async function fetchLatestDraft(id: string): Promise<MapDraft | undefined> {
+  try {
+    const response = await fetch(`/__map-list?id=${encodeURIComponent(id)}`);
+    const body = (await response.json()) as { ok?: boolean; files?: MapFile[] };
+    if (!response.ok || !body.ok || !Array.isArray(body.files) || body.files.length === 0) throw new Error("lista indisponível");
+    const latestFile = body.files.reduce((best: MapFile, f) => (f.serial > best.serial ? f : best));
+    return latestFile.draft;
+  } catch {
+    return latestSavedDraft(id);
+  }
+}
 import {
   activeSave,
   emptySave,
@@ -1244,6 +1262,11 @@ export function GameApp() {
       rations: fresh.rations,
       hungerStreak: fresh.hungerStreak,
       exploredHexes: fresh.exploredHexes,
+      // Test mode always starts the party at DEFAULT_TEST_LEVEL, never whatever the real
+      // save slot's own progression happens to be (a fresh/new real game reads level 1 here
+      // otherwise, since this spreads ...save above) — the whole point of testing is having
+      // enough level to actually reach higher-tier spells/gear without grinding first.
+      levels: { Kael: DEFAULT_TEST_LEVEL, Neera: DEFAULT_TEST_LEVEL, Voss: DEFAULT_TEST_LEVEL, Salazar: DEFAULT_TEST_LEVEL, Aldric: DEFAULT_TEST_LEVEL, Malrec: DEFAULT_TEST_LEVEL },
     };
   }, [save, muted]);
   /** The save every map/Inn handler below reads: the real bank normally, or test mode's
@@ -3361,17 +3384,6 @@ function MapEditorScreen({
   const latestRepoFile = repoFiles.reduce((best: MapFile | null, f) => (!best || f.savedAt > best.savedAt ? f : best), null);
   const latestVersion = versions.reduce((best: MapVersion | null, v) => (!best || v.savedAt > best.savedAt ? v : best), null);
   const trueLatestIsVersion = !!latestVersion && (!latestRepoFile || latestVersion.savedAt > latestRepoFile.savedAt);
-  /** Every scenario the picker can open, from either store. Files on disk are the real
-   * saves — a map authored offline exists only there — so they lead; a scenario that
-   * lives only in this browser (no dev server when it was saved) still gets a row. */
-  const pickable = (() => {
-    const rows = savedScenarios().map((s) => ({ id: s.id, files: s.files, local: (versionStore[s.id] ?? []).length }));
-    const seen = new Set(rows.map((r) => r.id));
-    for (const [id, list] of Object.entries(versionStore)) {
-      if (!seen.has(id) && list.length > 0) rows.push({ id, files: 0, local: list.length });
-    }
-    return rows.sort((a, b) => byName(a.id, b.id));
-  })();
   const [savedLocationMaps, setSavedLocationMaps] = useState<{ id: string; title: string; index: number }[]>(() =>
     savedScenarios().map((scenario) => ({ id: scenario.id, title: latestSavedDraft(scenario.id)?.title ?? scenario.id, index: latestSavedDraft(scenario.id)?.index ?? 0 })),
   );
@@ -3396,25 +3408,45 @@ function MapEditorScreen({
     }
     return ids;
   }, [order, locationOrder]);
-  /** Saved maps outside the campaign can be assigned to an encounter region. The region
-   * config itself is intentionally independent from world-map locations. */
-  const randomEncounterReferences = useMemo(
-    () => savedLocationMaps.filter((map) => !campaignIds.has(map.id)),
-    [campaignIds, savedLocationMaps],
-  );
-  // The campaign is filtered by Locais. The editor also exposes the two prepared
-  // reserve maps (R1 and R2), so they can be edited or assigned later without playing.
-  const campaignMapReferences = useMemo(() => {
-    const assignedEncounterIds = new Set(encounterRegions.flatMap((region) => region.encounterIds));
+  /** Every scenario the "Abrir mapa salvo" picker can open, from either store. Files on disk
+   * are the real saves — a map authored offline exists only there — so they lead; a scenario
+   * that lives only in this browser (no dev server when it was saved) still gets a row.
+   * Excludes anything already assigned to a Local — that's campanha's own dropdown's job
+   * (campaignMapReferences above), and a mission showing up in both was the whole complaint. */
+  const pickable = (() => {
+    const rows = savedScenarios()
+      .filter((s) => !campaignIds.has(s.id))
+      .map((s) => ({ id: s.id, files: s.files, local: (versionStore[s.id] ?? []).length }));
+    const seen = new Set(rows.map((r) => r.id));
+    for (const [id, list] of Object.entries(versionStore)) {
+      if (!seen.has(id) && !campaignIds.has(id) && list.length > 0) rows.push({ id, files: 0, local: list.length });
+    }
+    return rows.sort((a, b) => byName(a.id, b.id));
+  })();
+  /** Every "reserva" map: not in the campaign, full stop, no in-between — a saved-but-
+   * unassigned file (savedLocationMaps) or a shipped-but-unassigned mission (R1/R2 —
+   * "vertente"/"portao" — and anything else in ALL_MISSIONS never given to a Local). This is
+   * both the encounter-region assignment pool AND the Locais "Adicionar mapa…" (reserva)
+   * picker's source — a map only ever needs one "not yet campanha" list. */
+  const randomEncounterReferences = useMemo(() => {
     const known = new Map<string, { id: string; title: string; index: number }>();
-    for (const id of [...campaignIds, "vertente", "portao"]) {
+    for (const map of savedLocationMaps) if (!campaignIds.has(map.id)) known.set(map.id, map);
+    for (const m of ALL_MISSIONS) if (!m.hub && !campaignIds.has(m.id) && !known.has(m.id)) known.set(m.id, { id: m.id, title: m.title, index: m.index });
+    return [...known.values()].sort((a, b) => a.index - b.index || byName(a.title, b.title));
+  }, [campaignIds, savedLocationMaps]);
+  // ONLY missions actually assigned to a Local — the two dropdowns split on purpose (this
+  // one is campaign-only; "Abrir mapa salvo" below is every saved file, reserves and scratch
+  // maps included), so this must never pull in anything else again: not R1/R2 ("vertente"/
+  // "portao", prepared-but-unassigned reserve maps), not an arbitrary saved-but-unassigned
+  // map. Assigning something to a Local is what makes it campanha in the first place.
+  const campaignMapReferences = useMemo(() => {
+    const known = new Map<string, { id: string; title: string; index: number }>();
+    for (const id of campaignIds) {
       const mission = missionById(id);
       if (mission && !mission.hub) known.set(id, { id, title: mission.title, index: mission.index });
     }
-    // New saved maps remain available here so they can be assigned to a Local.
-    for (const map of savedLocationMaps) if (!assignedEncounterIds.has(map.id) && !known.has(map.id)) known.set(map.id, map);
     return [...known.values()].sort((a, b) => a.index - b.index || byName(a.title, b.title));
-  }, [campaignIds, encounterRegions, savedLocationMaps]);
+  }, [campaignIds]);
   const campaignLoadOptions = campaignMapReferences;
   const [slots, setSlots] = useState<Record<string, number>>(() => locaisLocal?.slots ?? LOCATION_SLOTS);
 
@@ -4259,8 +4291,25 @@ function MapEditorScreen({
           <select
             className="bg-bg border border-border rounded-md px-2 py-1.5"
             value=""
-            onChange={(e) => {
+            onChange={async (e) => {
               const id = e.target.value;
+              // Same staleness as the "Abrir mapa salvo" picker below (see its own comment) —
+              // latestSavedDraft reads mapstore.ts's eager import.meta.glob snapshot, frozen
+              // at page load and never refreshed by map-save-plugin.mjs's saves on purpose.
+              // Ask the dev server for the real latest file first; fall back to the stale
+              // snapshot only when there's none to ask (a built release).
+              try {
+                const response = await fetch(`/__map-list?id=${encodeURIComponent(id)}`);
+                const body = (await response.json()) as { ok?: boolean; files?: MapFile[] };
+                if (!response.ok || !body.ok || !Array.isArray(body.files) || body.files.length === 0) throw new Error("lista indisponível");
+                const latestFile = body.files.reduce((best: MapFile, f) => (f.serial > best.serial ? f : best));
+                const m = draftToMission(latestFile.draft);
+                setDraft(missionToDraft(m));
+                setNote(`Carregado "${m.title}" (${m.id}) no editor — ${m.cols}x${m.rows}.`);
+                return;
+              } catch {
+                // No dev server (built release) — fall back to the static snapshot.
+              }
               const saved = latestSavedDraft(id);
               // Saved drafts carry editor-only metadata such as the chosen replacement base.
               // Prefer that exact source when reopening a map, before its playable Mission view.
@@ -4270,7 +4319,7 @@ function MapEditorScreen({
               setNote(`Carregado "${m.title}" (${m.id}) no editor — ${m.cols}x${m.rows}.`);
             }}
           >
-            <option value="">Carregar mapa da campanha ou reserva…</option>
+            <option value="">Carregar mapa da campanha…</option>
             {campaignLoadOptions.map((map) => (
               <option key={map.id} value={map.id}>
                 {map.title}
@@ -5644,7 +5693,7 @@ function MapEditorScreen({
                         {maps.map((map, index) => (
                           <div key={map.id} className="flex items-center gap-1.5 text-xs bg-bg border border-border rounded-md px-2 py-1.5">
                             <span className="tabular-nums text-muted w-5 shrink-0">{index + 1}.</span>
-                            <button type="button" className="flex-1 min-w-0 truncate text-left" onClick={() => { const saved = latestSavedDraft(map.id); if (saved) { setDraft(saved); setShowRandomEncounters(false); } }} title="Abrir encontro no editor">{map.title}</button>
+                            <button type="button" className="flex-1 min-w-0 truncate text-left" onClick={async () => { const saved = await fetchLatestDraft(map.id); if (saved) { setDraft(saved); setShowRandomEncounters(false); } }} title="Abrir encontro no editor">{map.title}</button>
                             <button type="button" disabled={index === 0} onClick={() => { const next = [...region.encounterIds]; [next[index - 1], next[index]] = [next[index]!, next[index - 1]!]; updateRegion(next); }} className="px-1.5 rounded border border-border disabled:opacity-30" aria-label="Subir">↑</button>
                             <button type="button" disabled={index === maps.length - 1} onClick={() => { const next = [...region.encounterIds]; [next[index], next[index + 1]] = [next[index + 1]!, next[index]!]; updateRegion(next); }} className="px-1.5 rounded border border-border disabled:opacity-30" aria-label="Descer">↓</button>
                             <button type="button" onClick={() => updateRegion(region.encounterIds.filter((id) => id !== map.id))} className="px-1 rounded border border-border text-danger" aria-label={`Remover ${map.title}`}>✕</button>

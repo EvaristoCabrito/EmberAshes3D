@@ -19,7 +19,11 @@
     "passagem",
     "profundezas"
   ],
+  "misty-cave": [
+    "vertente",
+    "portao"
+  ],
   "wisp-forest": [
-    "wisp-forest-mu97323l"
+    "wisp-forest"
   ]
 }
