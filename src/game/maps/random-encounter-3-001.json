@@ -384,8 +384,8 @@
         "level": 8
       },
       {
-        "name": "Cão de guerra",
-        "classId": "wardog",
+        "name": "Lobo Mordaviano",
+        "classId": "morvenianWolf",
         "x": 8,
         "y": 2,
         "level": 8

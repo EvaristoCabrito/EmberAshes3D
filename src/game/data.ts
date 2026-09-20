@@ -763,7 +763,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   // Stats are a first pass — placeholder numbers to get it on the board, to be balanced later.
   morvenianWolf: {
     id: "morvenianWolf",
-    name: "Lobo Morveniano",
+    name: "Lobo Mordaviano",
     role: "Fera",
     hp: 34,
     atk: 10,

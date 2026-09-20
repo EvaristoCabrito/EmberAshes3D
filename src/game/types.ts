@@ -996,6 +996,15 @@ export interface SaveData {
    * status once past the 3-day grace period — see hungerPenaltyFor in overworld.ts.
    * Resets to 0 the moment rations flow again or the party reaches an Inn. */
   hungerStreak: number;
+  /** Days left of doubled battle-encounter odds on the road, set by the "large tracks cross
+   * the path" event (see BATTLE_ENCOUNTER_CHANCE/stepOverworld in overworld.ts) — something
+   * really is out there, whether or not it's crossed your path yet. Decrements by one every
+   * travel day, 0 = normal odds. */
+  alertStreak: number;
+  /** The road encounter's mission id from the last time one triggered — excluded from the
+   * very next pick (see roadEncounterIds/stepOverworld in overworld.ts) so the same fight
+   * never repeats twice in a row. null before the first one ever fires. */
+  lastRoadEncounterId: string | null;
 }
 
 export interface SaveBank {

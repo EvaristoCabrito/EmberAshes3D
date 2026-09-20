@@ -52,8 +52,8 @@
       { "name": "Besteiro", "classId": "brigand", "x": 3, "y": 2, "level": 6 },
       { "name": "Besteiro", "classId": "brigand", "x": 10, "y": 3, "level": 6 },
       { "name": "Soldado", "classId": "soldier", "x": 6, "y": 2, "level": 6 },
-      { "name": "Cão de guerra", "classId": "wardog", "x": 4, "y": 6, "level": 6 },
-      { "name": "Cão de guerra", "classId": "wardog", "x": 9, "y": 6, "level": 6 }
+      { "name": "Lobo Mordaviano", "classId": "morvenianWolf", "x": 4, "y": 6, "level": 6 },
+      { "name": "Lobo Mordaviano", "classId": "morvenianWolf", "x": 9, "y": 6, "level": 6 }
     ],
     "neutralSpawns": []
   }
