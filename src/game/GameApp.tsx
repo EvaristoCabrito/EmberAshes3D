@@ -1244,6 +1244,14 @@ export function GameApp() {
     stopMusic();
     playMenuMusic();
     setScreen("title");
+    // Wipe every trace of test mode the instant you leave it — testMode itself used to
+    // linger true here (only onNew/onContinue on the title screen ever cleared it, as a
+    // defensive afterthought), and testOverworld/testEmber stayed at whatever test mode
+    // left them, not reset until the next "Modo Teste" entry. None of it ever touches the
+    // real save, but it shouldn't outlive the session that made it either.
+    setTestMode(false);
+    setTestOverworld(null);
+    setTestEmber(TEST_EMBER);
   }, []);
 
   /** The base to start a fresh test-mode overworld/Inn session from: current roster/stats
