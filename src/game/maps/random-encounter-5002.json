@@ -1,6 +1,6 @@
 {
-  "serial": 1,
-  "savedAt": 1789300000004,
+  "serial": 2,
+  "savedAt": 1789879587458,
   "draft": {
     "id": "random-encounter-5",
     "index": 13,
@@ -131,7 +131,7 @@
       "plains",
       "plains",
       "plains",
-      "woods",
+      "plains",
       "plains",
       "plains",
       "plains",
@@ -294,16 +294,6 @@
         "id": "wilds-campfire-cauldron",
         "x": 3,
         "y": 5
-      },
-      {
-        "id": "boulder-mound",
-        "x": 1,
-        "y": 3
-      },
-      {
-        "id": "boulder-mound",
-        "x": 11,
-        "y": 6
       }
     ],
     "playerSpawns": [
@@ -317,21 +307,21 @@
       {
         "name": "Neera",
         "classId": "neera",
-        "x": 5,
-        "y": 8,
+        "x": 3,
+        "y": 7,
         "level": 10
       },
       {
         "name": "Voss",
         "classId": "voss",
-        "x": 7,
-        "y": 8,
+        "x": 4,
+        "y": 9,
         "level": 10
       },
       {
         "name": "Salazar",
         "classId": "salazar",
-        "x": 6,
+        "x": 8,
         "y": 9,
         "level": 10
       }
@@ -378,6 +368,7 @@
           ]
         }
       }
-    ]
+    ],
+    "tileRots": []
   }
 }
