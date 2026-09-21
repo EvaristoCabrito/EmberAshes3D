@@ -1,9 +1,20 @@
 import { useEffect, useRef } from "react";
 import type { BattleEngine } from "./engine";
-import { AtmosphereRenderer } from "./gfx/AtmosphereRenderer";
 import { EffectsRenderer } from "./gfx/EffectsRenderer";
 import { WebGL2DRenderer } from "./gfx/WebGL2DRenderer";
+import { ThreeBattleRenderer } from "./gfx/three/ThreeBattleRenderer";
 import type { HudSnapshot } from "./types";
+
+/** MILESTONE 1 checkpoint flag: `?renderer=three` swaps the ground/terrain canvas from the
+ * Canvas2D-shim WebGL renderer to the new Three.js spatial renderer (see ThreeBattleRenderer's
+ * module comment) — everything else (elemental FX, units, HP bars, hover/selection highlight,
+ * decorations, mouse interaction) is untouched either way. Opt-in and URL-driven on purpose:
+ * nothing about the shipped game changes unless this is explicitly asked for, so the two
+ * renderers stay directly comparable while the Three.js migration is still being verified. */
+function useThreeGroundRenderer(): boolean {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("renderer") === "three";
+}
 
 export function BattleCanvas({
   engine,
@@ -23,7 +34,6 @@ export function BattleCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fxCanvasRef = useRef<HTMLCanvasElement>(null);
   const unitsCanvasRef = useRef<HTMLCanvasElement>(null);
-  const atmosphereCanvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const hudKey = useRef("");
 
@@ -31,9 +41,16 @@ export function BattleCanvas({
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
-    let renderer: WebGL2DRenderer;
+    const threeGround = useThreeGroundRenderer();
+    // Exactly one of these two is ever non-null for the lifetime of this effect — see
+    // useThreeGroundRenderer's comment. Both expose just enough surface (a resize call and a
+    // per-frame draw call) that the rest of this component barely has to branch on which one
+    // it's holding.
+    let renderer2D: WebGL2DRenderer | null = null;
+    let rendererThree: ThreeBattleRenderer | null = null;
     try {
-      renderer = new WebGL2DRenderer(canvas);
+      if (threeGround) rendererThree = new ThreeBattleRenderer(canvas, engine);
+      else renderer2D = new WebGL2DRenderer(canvas);
     } catch {
       return;
     }
@@ -73,23 +90,6 @@ export function BattleCanvas({
       }
     }
 
-    // Global atmosphere layer (ambient/light-field/haze/volumetric/dust/bloom) — see
-    // AtmosphereRenderer.ts. Entirely automatic and entirely separate from the elemental FX
-    // overlay above: no placements, nothing spell-driven, and the runtime AtmosphereFX toggle
-    // (engine.atmosphereFxOn) just tells the loop below to clear this canvas instead of
-    // drawing into it, rather than tearing anything down.
-    let atmosphere: AtmosphereRenderer | null = null;
-    const atmosphereCanvas = atmosphereCanvasRef.current;
-    if (atmosphereCanvas) {
-      try {
-        atmosphere = new AtmosphereRenderer(atmosphereCanvas);
-        atmosphere.setProfile(engine.atmosphereProfile);
-      } catch {
-        atmosphere = null;
-        atmosphereCanvas.style.display = "none";
-      }
-    }
-
     // Dreaming Web's travelling shot, unlike every other elemental FX here, is spawned/
     // despawned live as the spell itself plays out rather than once at mount from an editor-
     // authored placements list — see the sync inside loop() below. The zone's own persistent
@@ -122,34 +122,6 @@ export function BattleCanvas({
     // travels far enough to count as a pan.
     let holdTimer: number | null = null;
     let holding = false;
-    // Tracks whichever pointer currently holds canvas.setPointerCapture, so a lost focus
-    // event (alt-tab, an OS popup grabbing focus, switching monitors) mid-hold can still find
-    // and release it — otherwise the browser never delivers the matching pointerup/pointercancel
-    // that would normally release it, and the canvas keeps swallowing every later pointer
-    // event with that id (including clicks on HUD buttons like End Turn) forever.
-    let capturedPointerId: number | null = null;
-    const releaseCapture = () => {
-      if (capturedPointerId !== null && canvas.hasPointerCapture(capturedPointerId)) {
-        canvas.releasePointerCapture(capturedPointerId);
-      }
-      capturedPointerId = null;
-    };
-    const forceResetDrag = () => {
-      cancelHold();
-      if (mouseHoldTimer !== null) {
-        window.clearTimeout(mouseHoldTimer);
-        mouseHoldTimer = null;
-      }
-      releaseCapture();
-      mouseDown = false;
-      dragging = false;
-      dragged = false;
-      mouseArmed = false;
-      pointers.clear();
-      pinchDist = 0;
-      pinched = false;
-      canvas.style.cursor = "";
-    };
     const cancelHold = () => {
       if (holdTimer !== null) {
         window.clearTimeout(holdTimer);
@@ -179,11 +151,17 @@ export function BattleCanvas({
       const h = wrap.clientHeight;
       const pw = Math.max(1, Math.floor(w * dpr));
       const ph = Math.max(1, Math.floor(h * dpr));
-      canvas.width = pw;
-      canvas.height = ph;
       canvas.style.width = `${w}px`;
       canvas.style.height = `${h}px`;
-      renderer.setSize(pw, ph);
+      if (rendererThree) {
+        // Owns canvas.width/height itself (device pixels, via its own dpr bookkeeping) —
+        // see ThreeBattleRenderer.setSize.
+        rendererThree.setSize(w, h, dpr);
+      } else if (renderer2D) {
+        canvas.width = pw;
+        canvas.height = ph;
+        renderer2D.setSize(pw, ph);
+      }
       if (fxCanvas) {
         fx?.resize(w, h, dpr);
         fxCanvas.style.width = `${w}px`;
@@ -195,11 +173,6 @@ export function BattleCanvas({
         unitsCanvas.style.width = `${w}px`;
         unitsCanvas.style.height = `${h}px`;
         unitsRenderer.setSize(pw, ph);
-      }
-      if (atmosphereCanvas) {
-        atmosphere?.resize(w, h, dpr);
-        atmosphereCanvas.style.width = `${w}px`;
-        atmosphereCanvas.style.height = `${h}px`;
       }
     };
     resize();
@@ -225,8 +198,12 @@ export function BattleCanvas({
         engine.tick(dt);
       }
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      renderer.clear();
-      engine.renderGround(renderer, wrap.clientWidth, wrap.clientHeight, dpr);
+      if (rendererThree) {
+        rendererThree.render(wrap.clientWidth, wrap.clientHeight);
+      } else if (renderer2D) {
+        renderer2D.clear();
+        engine.renderGround(renderer2D, wrap.clientWidth, wrap.clientHeight, dpr);
+      }
       if (fx) {
         // Dreaming Web's shot: one "webShot" beam, repositioned every frame via updateOverride
         // to follow the travelling missile's own timing (see BattleEngine.webShotBeam) — it
@@ -280,19 +257,11 @@ export function BattleCanvas({
           unitsRenderer,
           wrap.clientWidth,
           wrap.clientHeight,
-          fx
-            ? (px: number, py: number, col: number, row: number) =>
-                fx.pointLightAt(px, py, col, row, (sourceCol, sourceRow) => engine.effectAnchor(sourceCol, sourceRow), (fromCol, fromRow, toCol, toRow) => engine.lightOccludes(fromCol, fromRow, toCol, toRow))
-            : undefined,
+          fx ? (px: number, py: number) => fx.lightBoostAt(px, py, (col, row) => engine.effectAnchor(col, row)) : undefined,
+          // ThreeBattleRenderer already draws ground/behind decorations itself — see its
+          // module comment and renderUnitsAndOverlays' skipGroundDecor doc.
+          !!rendererThree,
         );
-      }
-      // Topmost of the battle canvases — see AtmosphereRenderer.ts. panOffset is screen minus
-      // world for hex (0,0) (the same convention BattleEngine.effectAnchor documents for the
-      // water/river shader), which is all the atmosphere layer needs to hold its noise fields
-      // still in world space while the camera pans.
-      if (atmosphere) {
-        const anchor = engine.effectAnchor(0, 0);
-        atmosphere.render(dt, anchor.x - anchor.worldX, anchor.y - anchor.worldY, engine.atmosphereFxOn);
       }
       const hud = engine.getHud();
       const k = [
@@ -365,7 +334,6 @@ export function BattleCanvas({
         lastX = e.clientX;
         lastY = e.clientY;
         canvas.setPointerCapture(e.pointerId);
-        capturedPointerId = e.pointerId;
         canvas.style.cursor = "grabbing";
         if (mouseHoldTimer !== null) window.clearTimeout(mouseHoldTimer);
         mouseHoldTimer = window.setTimeout(() => {
@@ -376,7 +344,6 @@ export function BattleCanvas({
       }
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       canvas.setPointerCapture(e.pointerId);
-      capturedPointerId = e.pointerId;
       if (pointers.size >= 2) {
         const pts = [...pointers.values()];
         pinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -449,7 +416,6 @@ export function BattleCanvas({
     const onUp = (e: PointerEvent) => {
       const wasHolding = holding;
       cancelHold();
-      if (e.pointerId === capturedPointerId) releaseCapture();
       if (e.pointerType === "mouse") {
         canvas.style.cursor = "";
         if (mouseHoldTimer !== null) {
@@ -531,14 +497,6 @@ export function BattleCanvas({
       if (!showAct || hud.busy) return;
       engine.cancel();
     };
-    // If the window loses focus (alt-tab, an OS dialog, switching monitors) while a pointer is
-    // still down, the browser may never deliver the pointerup/pointercancel that normally clears
-    // the drag state and releases capture — see capturedPointerId's comment above. This is the
-    // fallback: force everything back to idle whenever focus leaves, so a resumed session never
-    // finds the canvas still swallowing pointer events meant for HUD buttons like End Turn.
-    const onVisibility = () => {
-      if (document.hidden) forceResetDrag();
-    };
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerup", onUp);
@@ -548,8 +506,6 @@ export function BattleCanvas({
     canvas.addEventListener("contextmenu", onMenu);
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKeyUp);
-    window.addEventListener("blur", forceResetDrag);
-    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
       running = false;
@@ -566,12 +522,10 @@ export function BattleCanvas({
       canvas.removeEventListener("contextmenu", onMenu);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keyup", onKeyUp);
-      window.removeEventListener("blur", forceResetDrag);
-      document.removeEventListener("visibilitychange", onVisibility);
       const w = window as Window & { __emberEngine?: BattleEngine };
       if (w.__emberEngine === engine) delete w.__emberEngine;
       fx?.dispose();
-      atmosphere?.dispose();
+      rendererThree?.dispose();
     };
   }, [engine, onHud, paused]);
 
@@ -580,7 +534,6 @@ export function BattleCanvas({
       <canvas ref={canvasRef} className="block h-full w-full touch-none" />
       <canvas ref={fxCanvasRef} className="pointer-events-none absolute inset-0 block h-full w-full touch-none" style={{ display: "none" }} />
       <canvas ref={unitsCanvasRef} className="pointer-events-none absolute inset-0 block h-full w-full touch-none" />
-      <canvas ref={atmosphereCanvasRef} className="pointer-events-none absolute inset-0 block h-full w-full touch-none" />
       {/* Diorama color grade + vignette: a subtle warm key-light / cool shadow wash from the
           same upper-left "sun" the unit/decoration relighting and cast shadows use (see
           WebGL2DRenderer's lightDirX/Y and BattleEngine's shadowDirX/Y), plus a soft edge

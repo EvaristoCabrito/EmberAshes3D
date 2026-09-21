@@ -1,25 +1,33 @@
-/** Global automatic atmospheric rendering system — ambient wash, a slow broad light/shadow
- * field, procedural haze, soft volumetric shafts, drifting dust and a bloom + grading finish,
- * composited as one transparent layer above everything BattleCanvas already draws.
+/** Global automatic atmospheric + environmental lighting system. Two renderers, matching the
+ * two depth planes this splits the battlefield into:
  *
- * Deliberately its own pipeline, independent of EffectsRenderer (the elemental/spell FX
- * overlay in EffectsRenderer.ts): no map author places anything for this, no spell touches
- * it, and it can be switched off entirely (see setEnabled) without any of the rest of the
- * game noticing. It reuses a few of EffectsRenderer's shared building blocks read-only
- * (glutil's FBO helpers, noiseTexture's tileable noise, and a couple of shaders.ts's
- * generic, non-spell-specific passes — the fullscreen triangle, the soft particle mote, the
- * bright-pass/blur pair) exactly the way those files are already shared infrastructure.
+ *  - GroundAtmosphere draws DIRECTLY onto the battle's own ground WebGL2 canvas (it shares that
+ *    canvas's context — see the constructor — rather than owning a separate one), immediately
+ *    after BattleEngine.renderGround finishes and before EffectsRenderer photographs the canvas
+ *    as its "scene" texture. World lighting (a real multiply-blend pass, not a tint layer),
+ *    ground haze and volumetric shafts become actual terrain pixels this way, so the elemental
+ *    FX layer, and the eye, see one lit, hazy battlefield — not terrain art with a translucent
+ *    weather sheet floating on top of it. Units draw on their own canvas ON TOP of this
+ *    afterward, which is what puts them correctly in front of ground-hugging haze/dust for
+ *    free, no explicit occlusion mask required.
+ *  - SkyAtmosphere owns its own canvas, stacked above the units layer: a soft world-space wash
+ *    (the atmosphere units stand "inside" rather than under), sparse foreground motes (the one
+ *    thing allowed to cross in front of a unit), bloom and final grading. Both mote fields use
+ *    a different fraction of the camera's pan delta (see MoteField's `parallax`) so the sky
+ *    layer visibly reads as sitting further back than the ground layer while still tracking the
+ *    map instead of the screen.
  *
- * Every uniform that positions something (u_resolution, u_panOffset, particle centers/radii)
- * is expressed in CSS pixels, never device pixels — the ratios in the vertex math cancel the
- * DPI out on their own, so the same numbers work at any canvas resolution. Only the actual
- * framebuffer/canvas allocations and gl.viewport calls use device pixels, for sharpness. */
+ * Neither renderer touches EffectsRenderer's elemental-FX state, and both can be switched off
+ * independently — atmosphereFxOn (haze/shafts/motes/bloom/sky-wash) and worldLightingOn (the
+ * ground multiply pass alone) — see BattleEngine. Every uniform that positions something is in
+ * CSS pixels, never device pixels; only FBO/canvas allocations and gl.viewport use device
+ * pixels, exactly EffectsRenderer's convention. */
 
 import { bindAttrib, createFbo, createFullscreenTri, createProgram, createUnitQuad, deleteFbo, resizeFbo, type Fbo } from "./glutil";
 import { buildNoiseTexture } from "./noiseTexture";
 import { FRAG_BLUR, FRAG_BRIGHTPASS, FRAG_PARTICLE, VERT_FULLSCREEN, VERT_QUAD } from "./shaders";
-import { FRAG_ATMOSPHERE_COMPOSITE, FRAG_ATMOSPHERE_MAIN } from "./atmosphereShaders";
-import { DEFAULT_ATMOSPHERE_PROFILE, type AtmosphereProfile } from "./atmosphereParams";
+import { FRAG_GROUND_HAZE, FRAG_LIGHT_SHAFTS, FRAG_SKY_COMPOSITE, FRAG_SKY_WASH, FRAG_WORLD_LIGHT_MULTIPLY } from "./atmosphereShaders";
+import { FOG_LEVEL_MULTIPLIER, type AtmosphereProfile, type ParticleKind, type WorldLight } from "./atmosphereParams";
 
 const BLOOM_SCALE = 0.4;
 
@@ -33,6 +41,10 @@ function uniformLocations<T extends readonly string[]>(
   return out;
 }
 
+function lerp3(a: [number, number, number], b: [number, number, number], t: number): [number, number, number] {
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+}
+
 interface Mote {
   x: number;
   y: number;
@@ -42,14 +54,272 @@ interface Mote {
   phase: number;
 }
 
-export class AtmosphereRenderer {
+/** Kind-appropriate initial drift so dust/ash/mist/snow/spores each read as themselves instead
+ * of five palette-swapped copies of the same particle. */
+function spawnVelocity(kind: ParticleKind, speed: number): { vx: number; vy: number } {
+  const angle = Math.random() * Math.PI * 2;
+  switch (kind) {
+    case "ash":
+      return { vx: Math.cos(angle) * speed * 0.3, vy: -Math.abs(Math.sin(angle)) * speed - speed * 0.3 };
+    case "snow":
+      return { vx: Math.sin(angle) * speed * 0.4, vy: Math.abs(Math.cos(angle)) * speed * 0.5 + speed * 0.3 };
+    case "mist":
+      return { vx: Math.cos(angle) * speed * 0.5, vy: Math.sin(angle) * speed * 0.15 };
+    case "spores":
+      return { vx: Math.cos(angle) * speed * 0.6, vy: Math.sin(angle) * speed * 0.6 - speed * 0.15 };
+    default:
+      return { vx: Math.cos(angle) * speed * 0.4, vy: Math.sin(angle) * speed * 0.4 };
+  }
+}
+
+/** A pool of screen-space motes that ride along with camera pans rather than sitting still on
+ * screen while the map moves under them (see BattleCanvas's earlier dust-mote fix). `parallax`
+ * scales how much of each frame's pan delta a field applies to itself: 1.0 glues it to the
+ * terrain plane, <1 makes it drift as if further back (sky wash), >1 as if nearer (foreground
+ * motes) — the standard depth cue, applied without any real depth buffer. */
+class MoteField {
+  motes: Mote[] = [];
+  private lastPan: { x: number; y: number } | null = null;
+
+  constructor(
+    private kind: ParticleKind,
+    private count: number,
+    private speed: number,
+    private size: number,
+    private parallax: number,
+  ) {}
+
+  setConfig(count: number, speed: number, size: number, kind: ParticleKind): void {
+    this.count = count;
+    this.speed = speed;
+    this.size = size;
+    this.kind = kind;
+  }
+
+  private spawn(cssW: number, cssH: number, anywhere: boolean): Mote {
+    const v = spawnVelocity(this.kind, this.speed);
+    return {
+      x: Math.random() * cssW,
+      y: anywhere ? Math.random() * cssH : this.kind === "snow" ? -8 : cssH + 8,
+      vx: v.vx,
+      vy: v.vy,
+      size: this.size * (0.6 + Math.random() * 0.8),
+      phase: Math.random() * Math.PI * 2,
+    };
+  }
+
+  update(dt: number, cssW: number, cssH: number, panX: number, panY: number): void {
+    while (this.motes.length < this.count) this.motes.push(this.spawn(cssW, cssH, true));
+    if (this.motes.length > this.count) this.motes.length = this.count;
+    const panDeltaX = this.lastPan ? (panX - this.lastPan.x) * this.parallax : 0;
+    const panDeltaY = this.lastPan ? (panY - this.lastPan.y) * this.parallax : 0;
+    this.lastPan = { x: panX, y: panY };
+    const margin = 24;
+    for (const m of this.motes) {
+      m.x += panDeltaX;
+      m.y += panDeltaY;
+      m.x += m.vx * dt;
+      m.y += m.vy * dt;
+      m.phase += dt;
+      m.x += Math.sin(m.phase * 0.6) * 5 * dt;
+      if (m.x < -margin) m.x = cssW + margin;
+      if (m.x > cssW + margin) m.x = -margin;
+      if (m.y < -margin || m.y > cssH + margin) {
+        Object.assign(m, this.spawn(cssW, cssH, false));
+      }
+    }
+  }
+}
+
+/** Draws a MoteField with the shared particle program — used identically by both renderers
+ * below (each owns its own program/buffer on its own GL context, so this only factors out the
+ * per-mote uniform/draw-call sequence, not any GL object). */
+function drawMotes(
+  gl: WebGL2RenderingContext,
+  program: WebGLProgram,
+  uniforms: Record<"u_resolution" | "u_center" | "u_radius" | "u_rotation" | "u_worldCenter" | "u_color" | "u_alpha", WebGLUniformLocation | null>,
+  quadBuf: WebGLBuffer,
+  field: MoteField,
+  cssW: number,
+  cssH: number,
+  color: [number, number, number],
+  baseAlpha: number,
+): void {
+  gl.useProgram(program);
+  bindAttrib(gl, quadBuf, 0, 2);
+  gl.uniform2f(uniforms.u_resolution, cssW, cssH);
+  gl.uniform3f(uniforms.u_color, color[0], color[1], color[2]);
+  for (const m of field.motes) {
+    gl.uniform2f(uniforms.u_center, m.x, m.y);
+    gl.uniform2f(uniforms.u_radius, m.size, m.size);
+    gl.uniform1f(uniforms.u_rotation, 0);
+    gl.uniform2f(uniforms.u_worldCenter, m.x, m.y);
+    gl.uniform1f(uniforms.u_alpha, (0.4 + 0.6 * (0.5 + 0.5 * Math.sin(m.phase))) * baseAlpha);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+}
+
+/** Ground/world depth plane — see the module comment. Shares its GL context with the ground
+ * canvas's own WebGL2DRenderer (a second `getContext("webgl2", …)` call on an already-live
+ * canvas returns the SAME context per spec, ignoring the attributes on that later call), so it
+ * needs no canvas or resize bookkeeping of its own: every render() call reads the live
+ * drawingBuffer size and the caller's own CSS dimensions fresh. */
+export class GroundAtmosphere {
   private gl: WebGL2RenderingContext;
   private triBuf: WebGLBuffer;
   private quadBuf: WebGLBuffer;
   private noiseTex: WebGLTexture;
 
-  private progMain: WebGLProgram;
-  private uMain;
+  private progLight: WebGLProgram;
+  private uLight;
+  private progHaze: WebGLProgram;
+  private uHaze;
+  private progShafts: WebGLProgram;
+  private uShafts;
+  private progParticle: WebGLProgram;
+  private uParticle;
+
+  private time = 0;
+  private motes = new MoteField("dust", 0, 10, 2, 1.0);
+
+  constructor(canvas: HTMLCanvasElement) {
+    const gl = canvas.getContext("webgl2", { antialias: true, alpha: true, stencil: true }) as WebGL2RenderingContext | null;
+    if (!gl) throw new Error("WebGL2 unavailable");
+    this.gl = gl;
+
+    this.triBuf = createFullscreenTri(gl);
+    this.quadBuf = createUnitQuad(gl);
+    this.noiseTex = buildNoiseTexture(gl, 256);
+
+    this.progLight = createProgram(gl, VERT_FULLSCREEN, FRAG_WORLD_LIGHT_MULTIPLY);
+    this.uLight = uniformLocations(gl, this.progLight, ["u_lightDir", "u_lightColor", "u_lightIntensity", "u_ambientColor", "u_ambientIntensity"] as const);
+
+    this.progHaze = createProgram(gl, VERT_FULLSCREEN, FRAG_GROUND_HAZE);
+    this.uHaze = uniformLocations(gl, this.progHaze, ["u_resolution", "u_panOffset", "u_time", "u_noiseTex", "u_density", "u_scale", "u_speed", "u_color"] as const);
+
+    this.progShafts = createProgram(gl, VERT_FULLSCREEN, FRAG_LIGHT_SHAFTS);
+    this.uShafts = uniformLocations(gl, this.progShafts, [
+      "u_resolution",
+      "u_panOffset",
+      "u_time",
+      "u_noiseTex",
+      "u_lightDir",
+      "u_elevation",
+      "u_intensity",
+      "u_speed",
+      "u_hazeDensity",
+      "u_color",
+    ] as const);
+
+    this.progParticle = createProgram(gl, VERT_QUAD, FRAG_PARTICLE);
+    this.uParticle = uniformLocations(gl, this.progParticle, ["u_resolution", "u_center", "u_radius", "u_rotation", "u_worldCenter", "u_color", "u_alpha"] as const);
+  }
+
+  /** Call right after BattleEngine.renderGround, before EffectsRenderer reads the canvas — see
+   * module comment. `fxEnabled` gates haze/shafts/motes; `lightingEnabled` gates ONLY the world-
+   * light multiply pass, independently, per the design brief's debug requirement. */
+  render(
+    dt: number,
+    cssW: number,
+    cssH: number,
+    panX: number,
+    panY: number,
+    profile: AtmosphereProfile,
+    light: WorldLight,
+    fxEnabled: boolean,
+    lightingEnabled: boolean,
+  ): void {
+    const gl = this.gl;
+    this.time += dt;
+    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    gl.disable(gl.STENCIL_TEST);
+    gl.colorMask(true, true, true, true);
+    gl.enable(gl.BLEND);
+
+    if (lightingEnabled) {
+      gl.blendFunc(gl.DST_COLOR, gl.ZERO);
+      gl.useProgram(this.progLight);
+      bindAttrib(gl, this.triBuf, 0, 2);
+      gl.uniform2f(this.uLight.u_lightDir, light.dirX, light.dirY);
+      gl.uniform3f(this.uLight.u_lightColor, light.color[0], light.color[1], light.color[2]);
+      gl.uniform1f(this.uLight.u_lightIntensity, light.intensity);
+      gl.uniform3f(this.uLight.u_ambientColor, light.ambientColor[0], light.ambientColor[1], light.ambientColor[2]);
+      gl.uniform1f(this.uLight.u_ambientIntensity, light.ambientIntensity);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+
+    if (fxEnabled) {
+      const density = profile.hazeDensity * FOG_LEVEL_MULTIPLIER[profile.fogLevel];
+      const hazeColor = lerp3(profile.hazeColor, light.color, 0.3);
+
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.useProgram(this.progHaze);
+      bindAttrib(gl, this.triBuf, 0, 2);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.noiseTex);
+      gl.uniform1i(this.uHaze.u_noiseTex, 0);
+      gl.uniform2f(this.uHaze.u_resolution, cssW, cssH);
+      gl.uniform2f(this.uHaze.u_panOffset, panX, panY);
+      gl.uniform1f(this.uHaze.u_time, this.time);
+      gl.uniform1f(this.uHaze.u_density, density);
+      gl.uniform1f(this.uHaze.u_scale, profile.hazeScale);
+      gl.uniform1f(this.uHaze.u_speed, profile.hazeSpeed);
+      gl.uniform3f(this.uHaze.u_color, hazeColor[0], hazeColor[1], hazeColor[2]);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+      const dirLen = Math.hypot(light.dirX, light.dirY);
+      if (profile.volumetricIntensity > 0 && light.intensity > 0 && dirLen > 0.0001) {
+        gl.blendFunc(gl.ONE, gl.ONE);
+        gl.useProgram(this.progShafts);
+        bindAttrib(gl, this.triBuf, 0, 2);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.noiseTex);
+        gl.uniform1i(this.uShafts.u_noiseTex, 0);
+        gl.uniform2f(this.uShafts.u_resolution, cssW, cssH);
+        gl.uniform2f(this.uShafts.u_panOffset, panX, panY);
+        gl.uniform1f(this.uShafts.u_time, this.time);
+        gl.uniform2f(this.uShafts.u_lightDir, light.dirX / dirLen, light.dirY / dirLen);
+        gl.uniform1f(this.uShafts.u_elevation, light.elevation);
+        gl.uniform1f(this.uShafts.u_intensity, profile.volumetricIntensity * light.intensity);
+        gl.uniform1f(this.uShafts.u_speed, profile.volumetricSpeed);
+        gl.uniform1f(this.uShafts.u_hazeDensity, density);
+        gl.uniform3f(this.uShafts.u_color, light.color[0], light.color[1], light.color[2]);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+
+      this.motes.setConfig(profile.groundParticleCount, profile.particleSpeed, profile.particleSize, profile.particleKind);
+      this.motes.update(dt, cssW, cssH, panX, panY);
+      gl.blendFunc(gl.ONE, gl.ONE);
+      drawMotes(gl, this.progParticle, this.uParticle, this.quadBuf, this.motes, cssW, cssH, profile.particleColor, 0.5);
+    }
+
+    // Leave blending in the state WebGL2DRenderer expects going into its next draw call.
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  }
+
+  dispose(): void {
+    const gl = this.gl;
+    gl.deleteTexture(this.noiseTex);
+    gl.deleteBuffer(this.triBuf);
+    gl.deleteBuffer(this.quadBuf);
+    gl.deleteProgram(this.progLight);
+    gl.deleteProgram(this.progHaze);
+    gl.deleteProgram(this.progShafts);
+    gl.deleteProgram(this.progParticle);
+  }
+}
+
+/** Sky/foreground depth plane — see the module comment. Owns its own canvas/context, stacked
+ * above the units layer, with its own reduced-resolution bloom chain (same technique as
+ * EffectsRenderer's, a separate set of FBOs). */
+export class SkyAtmosphere {
+  private gl: WebGL2RenderingContext;
+  private triBuf: WebGLBuffer;
+  private quadBuf: WebGLBuffer;
+  private noiseTex: WebGLTexture;
+
+  private progWash: WebGLProgram;
+  private uWash;
   private progParticle: WebGLProgram;
   private uParticle;
   private progBrightpass: WebGLProgram;
@@ -66,20 +336,14 @@ export class AtmosphereRenderer {
 
   private cssW = 1;
   private cssH = 1;
-  private dpr = 1;
   private fullW = 1;
   private fullH = 1;
-
   private time = 0;
-  private profile: AtmosphereProfile = DEFAULT_ATMOSPHERE_PROFILE;
-  private motes: Mote[] = [];
-  /** Last frame's panOffset, so render() can shift every mote by exactly this frame's camera
-   * delta before applying their own drift — see the panOffset comment on render() for why the
-   * haze/light-field pass doesn't need this (it samples world space directly) while the motes,
-   * which are simple 2D screen-space points, do: without it they'd sit still on screen while
-   * the camera pans, reading as drifting backward relative to the map instead of riding along
-   * with it. null until the first render() call establishes a baseline (no delta to apply yet). */
-  private lastPan: { x: number; y: number } | null = null;
+
+  // Sky/world-layer dust reads as sitting further back (parallax 0.6); foreground motes read as
+  // nearer than the terrain (parallax 1.3) — see MoteField's comment.
+  private skyMotes = new MoteField("dust", 0, 8, 2, 0.6);
+  private fgMotes = new MoteField("dust", 0, 14, 3.4, 1.3);
 
   constructor(private canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", { alpha: true, antialias: false, premultipliedAlpha: false });
@@ -90,38 +354,22 @@ export class AtmosphereRenderer {
     this.quadBuf = createUnitQuad(gl);
     this.noiseTex = buildNoiseTexture(gl, 256);
 
-    this.progMain = createProgram(gl, VERT_FULLSCREEN, FRAG_ATMOSPHERE_MAIN);
-    this.uMain = uniformLocations(gl, this.progMain, [
+    this.progWash = createProgram(gl, VERT_FULLSCREEN, FRAG_SKY_WASH);
+    this.uWash = uniformLocations(gl, this.progWash, [
       "u_resolution",
       "u_panOffset",
       "u_time",
       "u_noiseTex",
-      "u_ambientColor",
-      "u_ambientIntensity",
-      "u_exposure",
-      "u_lightFieldScale",
-      "u_lightFieldSpeed",
-      "u_lightFieldContrast",
-      "u_hazeDensity",
-      "u_hazeScale",
-      "u_hazeSpeed",
-      "u_hazeColor",
-      "u_volumetricIntensity",
-      "u_volumetricAngle",
-      "u_volumetricSpeed",
-      "u_volumetricColor",
+      "u_density",
+      "u_scale",
+      "u_speed",
+      "u_color",
+      "u_lightDir",
+      "u_lightIntensity",
     ] as const);
 
     this.progParticle = createProgram(gl, VERT_QUAD, FRAG_PARTICLE);
-    this.uParticle = uniformLocations(gl, this.progParticle, [
-      "u_resolution",
-      "u_center",
-      "u_radius",
-      "u_rotation",
-      "u_worldCenter",
-      "u_color",
-      "u_alpha",
-    ] as const);
+    this.uParticle = uniformLocations(gl, this.progParticle, ["u_resolution", "u_center", "u_radius", "u_rotation", "u_worldCenter", "u_color", "u_alpha"] as const);
 
     this.progBrightpass = createProgram(gl, VERT_FULLSCREEN, FRAG_BRIGHTPASS);
     this.uBrightpass = uniformLocations(gl, this.progBrightpass, ["u_src", "u_threshold"] as const);
@@ -129,15 +377,8 @@ export class AtmosphereRenderer {
     this.progBlur = createProgram(gl, VERT_FULLSCREEN, FRAG_BLUR);
     this.uBlur = uniformLocations(gl, this.progBlur, ["u_src", "u_texel", "u_direction"] as const);
 
-    this.progComposite = createProgram(gl, VERT_FULLSCREEN, FRAG_ATMOSPHERE_COMPOSITE);
-    this.uComposite = uniformLocations(gl, this.progComposite, [
-      "u_main",
-      "u_bloom",
-      "u_bloomStrength",
-      "u_contrast",
-      "u_saturation",
-      "u_vignette",
-    ] as const);
+    this.progComposite = createProgram(gl, VERT_FULLSCREEN, FRAG_SKY_COMPOSITE);
+    this.uComposite = uniformLocations(gl, this.progComposite, ["u_main", "u_bloom", "u_bloomStrength", "u_contrast", "u_saturation", "u_vignette", "u_tonalColor"] as const);
 
     this.mainFbo = createFbo(gl, 2, 2);
     this.brightFbo = createFbo(gl, 2, 2);
@@ -145,15 +386,9 @@ export class AtmosphereRenderer {
     this.blurFboB = createFbo(gl, 2, 2);
   }
 
-  setProfile(profile: AtmosphereProfile): void {
-    this.profile = profile;
-    this.restockMotes();
-  }
-
   resize(cssW: number, cssH: number, dpr: number): void {
     this.cssW = Math.max(1, cssW);
     this.cssH = Math.max(1, cssH);
-    this.dpr = dpr;
     const fullW = Math.max(1, Math.floor(this.cssW * dpr));
     const fullH = Math.max(1, Math.floor(this.cssH * dpr));
     if (this.canvas.width !== fullW) this.canvas.width = fullW;
@@ -167,37 +402,11 @@ export class AtmosphereRenderer {
     resizeFbo(gl, this.brightFbo, bw, bh);
     resizeFbo(gl, this.blurFboA, bw, bh);
     resizeFbo(gl, this.blurFboB, bw, bh);
-    this.restockMotes();
   }
 
-  /** Keeps the mote pool sized to the current profile and viewport — called on resize and on
-   * every profile change rather than every frame, since neither happens often. */
-  private restockMotes(): void {
-    const want = this.profile.particleCount;
-    while (this.motes.length < want) this.motes.push(this.spawnMote(true));
-    if (this.motes.length > want) this.motes.length = want;
-  }
-
-  private spawnMote(anywhere: boolean): Mote {
-    const speed = this.profile.particleSpeed;
-    const angle = Math.random() * Math.PI * 2;
-    return {
-      x: Math.random() * this.cssW,
-      y: anywhere ? Math.random() * this.cssH : this.cssH + 8,
-      vx: Math.cos(angle) * speed * 0.35,
-      vy: -Math.abs(Math.sin(angle)) * speed - speed * 0.25,
-      size: this.profile.particleSize * (0.6 + Math.random() * 0.8),
-      phase: Math.random() * Math.PI * 2,
-    };
-  }
-
-  /** Renders the whole pipeline on top of whatever BattleCanvas has already drawn this frame.
-   * `panOffset` is screen-minus-world in CSS px for hex (0,0) — see BattleEngine.effectAnchor,
-   * whose x/worldX (and y/worldY) difference is exactly this camera pan translation. `enabled`
-   * false clears the canvas and skips all work — the runtime AtmosphereFX toggle. */
-  render(dt: number, panOffsetX: number, panOffsetY: number, enabled: boolean): void {
+  render(dt: number, panX: number, panY: number, profile: AtmosphereProfile, light: WorldLight, fxEnabled: boolean): void {
     const gl = this.gl;
-    if (!enabled) {
+    if (!fxEnabled) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, this.fullW, this.fullH);
       gl.disable(gl.BLEND);
@@ -206,83 +415,44 @@ export class AtmosphereRenderer {
       return;
     }
     this.time += dt;
-    const p = this.profile;
+    const density = profile.hazeDensity * FOG_LEVEL_MULTIPLIER[profile.fogLevel];
 
-    // Dust/ash/mist motes drift in screen space (their own vx/vy, wrapping at the viewport
-    // edges) but ride along with camera pans rather than sitting still on screen while the map
-    // moves under them — see lastPan's comment for why that shift is applied here rather than
-    // sampled in world space like the haze/light-field pass below.
-    const panDeltaX = this.lastPan ? panOffsetX - this.lastPan.x : 0;
-    const panDeltaY = this.lastPan ? panOffsetY - this.lastPan.y : 0;
-    this.lastPan = { x: panOffsetX, y: panOffsetY };
-    const margin = 24;
-    for (const m of this.motes) {
-      m.x += panDeltaX;
-      m.y += panDeltaY;
-      m.x += m.vx * dt;
-      m.y += m.vy * dt;
-      m.phase += dt;
-      m.x += Math.sin(m.phase * 0.6) * 6 * dt;
-      if (m.x < -margin) m.x = this.cssW + margin;
-      if (m.x > this.cssW + margin) m.x = -margin;
-      if (m.y < -margin) {
-        m.y = this.cssH + margin;
-        m.x = Math.random() * this.cssW;
-      }
-      if (m.y > this.cssH + margin) {
-        m.y = -margin;
-        m.x = Math.random() * this.cssW;
-      }
-    }
-
-    // 1. Main pass: ambient + light field + haze + volumetric shafts, world-space.
+    // 1. Main pass: world-space sky wash, in world space so it drifts with the map (at reduced
+    //    parallax — see the module comment), plus the sky/foreground mote fields.
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.mainFbo.fbo);
     gl.viewport(0, 0, this.mainFbo.w, this.mainFbo.h);
     gl.disable(gl.BLEND);
-    gl.useProgram(this.progMain);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(this.progWash);
     bindAttrib(gl, this.triBuf, 0, 2);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.noiseTex);
-    gl.uniform1i(this.uMain.u_noiseTex, 0);
-    gl.uniform2f(this.uMain.u_resolution, this.cssW, this.cssH);
-    gl.uniform2f(this.uMain.u_panOffset, panOffsetX, panOffsetY);
-    gl.uniform1f(this.uMain.u_time, this.time);
-    gl.uniform3f(this.uMain.u_ambientColor, ...p.ambientColor);
-    gl.uniform1f(this.uMain.u_ambientIntensity, p.ambientIntensity);
-    gl.uniform1f(this.uMain.u_exposure, p.exposure);
-    gl.uniform1f(this.uMain.u_lightFieldScale, p.lightFieldScale);
-    gl.uniform1f(this.uMain.u_lightFieldSpeed, p.lightFieldSpeed);
-    gl.uniform1f(this.uMain.u_lightFieldContrast, p.lightFieldContrast);
-    gl.uniform1f(this.uMain.u_hazeDensity, p.hazeDensity);
-    gl.uniform1f(this.uMain.u_hazeScale, p.hazeScale);
-    gl.uniform1f(this.uMain.u_hazeSpeed, p.hazeSpeed);
-    gl.uniform3f(this.uMain.u_hazeColor, ...p.hazeColor);
-    gl.uniform1f(this.uMain.u_volumetricIntensity, p.volumetricIntensity);
-    gl.uniform1f(this.uMain.u_volumetricAngle, p.volumetricAngle);
-    gl.uniform1f(this.uMain.u_volumetricSpeed, p.volumetricSpeed);
-    gl.uniform3f(this.uMain.u_volumetricColor, ...p.volumetricColor);
+    gl.uniform1i(this.uWash.u_noiseTex, 0);
+    gl.uniform2f(this.uWash.u_resolution, this.cssW, this.cssH);
+    gl.uniform2f(this.uWash.u_panOffset, panX, panY);
+    gl.uniform1f(this.uWash.u_time, this.time);
+    gl.uniform1f(this.uWash.u_density, density);
+    gl.uniform1f(this.uWash.u_scale, profile.hazeScale);
+    gl.uniform1f(this.uWash.u_speed, profile.hazeSpeed);
+    gl.uniform3f(this.uWash.u_color, profile.hazeColor[0], profile.hazeColor[1], profile.hazeColor[2]);
+    gl.uniform2f(this.uWash.u_lightDir, light.dirX, light.dirY);
+    gl.uniform1f(this.uWash.u_lightIntensity, light.intensity);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-    // Motes ride on top of the same FBO, additive, so their bright cores also feed the bloom
-    // pass below.
-    gl.enable(gl.BLEND);
-    gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ZERO, gl.ONE);
-    gl.useProgram(this.progParticle);
-    bindAttrib(gl, this.quadBuf, 0, 2);
-    gl.uniform2f(this.uParticle.u_resolution, this.cssW, this.cssH);
-    gl.uniform3f(this.uParticle.u_color, ...p.particleColor);
-    for (const m of this.motes) {
-      gl.uniform2f(this.uParticle.u_center, m.x, m.y);
-      gl.uniform2f(this.uParticle.u_radius, m.size, m.size);
-      gl.uniform1f(this.uParticle.u_rotation, 0);
-      gl.uniform2f(this.uParticle.u_worldCenter, m.x, m.y);
-      gl.uniform1f(this.uParticle.u_alpha, 0.5 + 0.5 * Math.sin(m.phase));
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-    }
+    this.skyMotes.setConfig(profile.skyParticleCount, profile.particleSpeed, profile.particleSize, profile.particleKind);
+    this.fgMotes.setConfig(profile.foregroundParticleCount, profile.particleSpeed * 1.4, profile.particleSize, profile.particleKind);
+    this.skyMotes.update(dt, this.cssW, this.cssH, panX, panY);
+    this.fgMotes.update(dt, this.cssW, this.cssH, panX, panY);
+    gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    drawMotes(gl, this.progParticle, this.uParticle, this.quadBuf, this.skyMotes, this.cssW, this.cssH, profile.particleColor, 0.35);
+    drawMotes(gl, this.progParticle, this.uParticle, this.quadBuf, this.fgMotes, this.cssW, this.cssH, profile.particleColor, 0.55);
     gl.disable(gl.BLEND);
 
-    // 2. Bright-pass + separable blur, at reduced resolution — same technique as the
-    //    elemental FX bloom chain, just a separate set of FBOs.
+    // 2. Bright-pass + separable blur, reduced resolution — identical technique to
+    //    EffectsRenderer's bloom chain, a separate set of FBOs.
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.brightFbo.fbo);
     gl.viewport(0, 0, this.brightFbo.w, this.brightFbo.h);
     gl.useProgram(this.progBrightpass);
@@ -290,7 +460,7 @@ export class AtmosphereRenderer {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.mainFbo.tex);
     gl.uniform1i(this.uBrightpass.u_src, 0);
-    gl.uniform1f(this.uBrightpass.u_threshold, p.bloomThreshold);
+    gl.uniform1f(this.uBrightpass.u_threshold, profile.bloomThreshold);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     gl.useProgram(this.progBlur);
@@ -318,8 +488,8 @@ export class AtmosphereRenderer {
     }
     const bloomResult = this.blurFboA;
 
-    // 3. Composite: bloom added back on top of the main layer, then contrast/saturation/
-    //    vignette — straight onto the visible canvas.
+    // 3. Composite straight onto the visible canvas: bloom + final grading (see
+    //    FRAG_SKY_COMPOSITE), alpha-blended over whatever BattleCanvas has already drawn.
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.fullW, this.fullH);
     gl.disable(gl.BLEND);
@@ -333,10 +503,11 @@ export class AtmosphereRenderer {
     gl.bindTexture(gl.TEXTURE_2D, bloomResult.tex);
     gl.uniform1i(this.uComposite.u_main, 0);
     gl.uniform1i(this.uComposite.u_bloom, 1);
-    gl.uniform1f(this.uComposite.u_bloomStrength, p.bloomStrength);
-    gl.uniform1f(this.uComposite.u_contrast, p.contrast);
-    gl.uniform1f(this.uComposite.u_saturation, p.saturation);
-    gl.uniform1f(this.uComposite.u_vignette, p.vignette);
+    gl.uniform1f(this.uComposite.u_bloomStrength, profile.bloomStrength);
+    gl.uniform1f(this.uComposite.u_contrast, profile.contrast);
+    gl.uniform1f(this.uComposite.u_saturation, profile.saturation);
+    gl.uniform1f(this.uComposite.u_vignette, profile.vignette);
+    gl.uniform3f(this.uComposite.u_tonalColor, light.color[0], light.color[1], light.color[2]);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
@@ -347,7 +518,9 @@ export class AtmosphereRenderer {
     deleteFbo(gl, this.blurFboA);
     deleteFbo(gl, this.blurFboB);
     gl.deleteTexture(this.noiseTex);
-    gl.deleteProgram(this.progMain);
+    gl.deleteBuffer(this.triBuf);
+    gl.deleteBuffer(this.quadBuf);
+    gl.deleteProgram(this.progWash);
     gl.deleteProgram(this.progParticle);
     gl.deleteProgram(this.progBrightpass);
     gl.deleteProgram(this.progBlur);

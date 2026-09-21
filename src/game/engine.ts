@@ -39,7 +39,6 @@ import { sfxPlay } from "./audio";
 // below (the blade-sweep crescent) needs to build one it understands.
 import { Path2D } from "./gfx/WebGL2DRenderer";
 import type { ElementKind } from "./gfx/params";
-import { DEFAULT_ATMOSPHERE_PROFILE, type AtmosphereProfile } from "./gfx/atmosphereParams";
 import type {
   Bag,
   BattleSnapshot,
@@ -93,20 +92,20 @@ interface Particle {
 }
 
 const PARTICLE_CAP = 32;
-const ZOOM_RADII = [22, 34, 50, 72];
+export const ZOOM_RADII = [22, 34, 50, 72];
 
 /** Which WebGL elemental FX shader (see gfx/shaders.ts) a landed spell hit lights up on its
  * target tile(s), and how long that shader patch lingers (seconds) before it self-expires —
  * see EffectsRenderer.spawnEffect's `duration` option. Only spells with a clear elemental
  * theme are listed; anything absent here (melee skills, arrows, heals, ...) queues no FX. */
 const SPELL_ELEMENT_FX: Partial<Record<SpellKind, { kind: ElementKind; duration: number }>> = {
-  fireball: { kind: "fire", duration: 1.6 },
-  causticVenom: { kind: "acid", duration: 1.8 },
+  fireball: { kind: "fire", duration: 0.9 },
+  causticVenom: { kind: "acid", duration: 1.3 },
   // Lightning/Lightning Tier 3/Choque deliberately have NO entry here — per direct report,
   // the newer WebGL shader burst this table drives read as an odd "3D" pop layered on top
   // of the older, plain 2D bolt/spark cue (see emitLightningFx, still called separately for
   // all three in stepSpell) — that older cue is the only lightning FX any of them get now.
-  divineWrath: { kind: "holy", duration: 1.4 },
+  divineWrath: { kind: "holy", duration: 0.9 },
 };
 
 /** Seconds one step of a walk animation takes. Shared by the position and the
@@ -1069,15 +1068,6 @@ export class BattleEngine {
    * pause menu, applies to the very next step (mid-step changes aren't jarring since a
    * step is at most a quarter second). */
   speedMode: "slow" | "normal" | "fast" = "normal";
-  /** Runtime AtmosphereFX toggle — see atmosphereProfile below and AtmosphereRenderer.
-   * On by default: the point of the system is that a map looks different the instant it
-   * loads, with no setup. */
-  atmosphereFxOn = true;
-  /** DEFAULT_ATMOSPHERE_PROFILE merged with this mission's own `atmosphere` override, if any
-   * — computed once here rather than re-merged every frame. Every mission gets one, whether
-   * or not it defines an override, so BattleCanvas's atmosphere layer never has to ask "is
-   * there a profile" — only "is the toggle on". */
-  readonly atmosphereProfile: AtmosphereProfile;
   camX = 0;
   camY = 0;
   private viewW = 1;
@@ -1091,8 +1081,6 @@ export class BattleEngine {
   private frameShakeDy = 0;
   private queue: Seq[] = [];
   private active: Active | null = null;
-  /** A click on End Turn during an action is honoured as soon as that action's visual beat ends. */
-  private pendingEndTurn = false;
   private particles: Particle[] = Array.from({ length: PARTICLE_CAP }, blankParticle);
   private particleLive = 0;
   private levelUpFx: LevelUpSpark[] = Array.from({ length: LEVEL_UP_FX_CAP }, blankLevelUpSpark);
@@ -1145,7 +1133,6 @@ export class BattleEngine {
     this.tileRots = mission.tileRots ?? [];
     this.decorations = (mission.decorations ?? []).map((d) => ({ ...d }));
     this.elementalFxPlacements = (mission.elementalFx ?? []).map((p) => ({ ...p }));
-    this.atmosphereProfile = { ...DEFAULT_ATMOSPHERE_PROFILE, ...(mission.atmosphere ?? {}) };
     // A tile under a full-coverage water FX placement (water/water2) skips its own photo
     // tile art entirely — see renderGround. That art is one of 22 independently-centered
     // variants (assets.ts TILE_VARIANT_COUNT.water), so two neighboring water hexes almost
@@ -1371,7 +1358,6 @@ export class BattleEngine {
       targetPrompt: this.targetPrompt(),
       zoom: this.zoom,
       speedMode: this.speedMode,
-      atmosphereFxOn: this.atmosphereFxOn,
       tip: this.tip,
       inspected: inspected
         ? pub(inspected, this.isWebCell(inspected.x, inspected.y), this.movLeft(inspected))
@@ -1687,9 +1673,7 @@ export class BattleEngine {
     // right as it arrives now fires later. Ambient stuff below (particles, level-up sparks,
     // bob/breathing, fade) deliberately stays on the unscaled `cap` — slowing those down too
     // would make idle units look like they're moving through syrup for no reason.
-    // Keep visual FX close to real time. The pacing now comes primarily from the readable
-    // post-impact hold below, rather than making every travelling bolt crawl in slow mode.
-    const actionCap = cap * (this.speedMode === "fast" ? 1 : this.speedMode === "slow" ? 0.72 : 0.88);
+    const actionCap = cap * (this.speedMode === "fast" ? 1 : this.speedMode === "slow" ? 0.4 : 0.65);
     if (this.tip !== this.lastTipSeen) {
       this.lastTipSeen = this.tip;
       this.tipSetAt = this.time;
@@ -1841,10 +1825,6 @@ export class BattleEngine {
     }
     if (!this.active && this.queue.length) this.startSeq(this.queue.shift()!);
     if (this.active) this.stepActive(cap);
-    if (!this.active && this.queue.length === 0 && this.pendingEndTurn) {
-      this.pendingEndTurn = false;
-      this.endTurn();
-    }
     if (!this.result && !this.active && this.queue.length === 0) {
       const active = this.activeTurnUnit();
       const activeId = active?.id ?? null;
@@ -1894,7 +1874,6 @@ export class BattleEngine {
       // cut) — play whichever matches this move's own first step instead of the generic
       // footstep beep every other sprite uses.
       const mover = this.units.find((u) => u.id === step.id);
-      if (mover) this.centerOn(mover.drawX, mover.drawY);
       if (mover?.sprite === "cultist-v2" && step.path.length >= 2) {
         if (step.path[1]!.x < step.path[0]!.x) sfxPlay.cultistV2WalkLeft();
         else sfxPlay.cultistV2WalkRight();
@@ -1913,7 +1892,8 @@ export class BattleEngine {
       // starting view. That read as "the camera doesn't follow spells" even though it was
       // working fine — just only for the other side.
       if (attacker) {
-        this.centerOn(attacker.x, attacker.y);
+        this.ensureVisible(attacker.x, attacker.y);
+        this.ensureVisible(target.x, target.y);
       }
       this.active = {
         type: "combat",
@@ -1972,9 +1952,8 @@ export class BattleEngine {
         // ensureAreaVisible covers the whole blast/cone/line, not just its centroid, so a wide
         // AOE's far edge isn't left off-screen just because its middle fit.
         if (caster) {
-          // The cast itself is a beat worth seeing. Do not immediately frame the enemy area:
-          // hold on the caster until impact, then stepSpell transfers focus to the result.
-          this.centerOn(caster.x, caster.y);
+          this.ensureVisible(caster.x, caster.y);
+          this.ensureAreaVisible(step.tiles);
         }
       }
       this.banner = step.label ?? "";
@@ -2083,8 +2062,6 @@ export class BattleEngine {
       const k = easeOut(Math.min(1, a.t / dur));
       unit.drawX = from.x + (to.x - from.x) * k;
       unit.drawY = from.y + (to.y - from.y) * k;
-      // Follow the actor, not merely whichever edge of the viewport it happens to cross.
-      this.centerOn(unit.drawX, unit.drawY);
       if (a.t >= dur) {
         a.i += 1;
         a.t = 0;
@@ -2124,7 +2101,7 @@ export class BattleEngine {
     // are happy with it); "Normal" is deliberately slowed down some on its own, since this was
     // the direct, repeated report — the default pace read as too fast to actually see what
     // just happened; "Lenta" is slowed down a lot, enough to really watch a cast land.
-    const actionDt = dt * (this.speedMode === "fast" ? 1 : this.speedMode === "slow" ? 0.72 : 0.88);
+    const actionDt = dt * (this.speedMode === "fast" ? 1 : this.speedMode === "slow" ? 0.4 : 0.65);
     if (a.type === "combat") this.stepCombat(a, actionDt);
     if (a.type === "spell") this.stepSpell(a, actionDt);
     if (a.type === "heal") this.stepHeal(a, actionDt);
@@ -2315,20 +2292,13 @@ export class BattleEngine {
     }
     a.t += dt;
     const arrowSpell = a.spellKind === "longShot" || a.spellKind === "multiShot" || a.spellKind === "piercing";
-    const hitAt = arrowSpell ? ARROW_TRAVEL : a.spellKind === "magicMissile" || a.spellKind === "fireball" || a.spellKind === "causticVenom" ? MISSILE_HIT_AT : 0.28;
+    const hitAt = arrowSpell ? ARROW_TRAVEL : a.spellKind === "magicMissile" || a.spellKind === "fireball" || a.spellKind === "causticVenom" ? MISSILE_HIT_AT : 0.18;
     // Weapon-based skills routed through this same SpellAnim machinery for their multi-target
     // reach (bow shots, Cleave, Sweep, the two charge skills) are not magic — only the actual
     // spellcasters' kinds get the casting cue below.
     const meleeSkill = a.spellKind === "cleave" || a.spellKind === "sweep" || a.spellKind === "shoulderSmash" || a.spellKind === "stampede";
     if (!a.hit && a.t >= hitAt) {
       a.hit = true;
-      // The casting beat is over: now frame the spell's actual result and keep it there for
-      // finishCombat's presentation hold instead of racing on to the next initiative.
-      if (a.tiles.length) {
-        const focus = a.tiles[0]!;
-        this.centerOn(focus.x, focus.y);
-        this.ensureAreaVisible(a.tiles);
-      }
       if (a.spellKind === "webOfDreams") sfxPlay.dreamingWeb();
       else if (att.sprite === "cultist-v2") sfxPlay.cultistV2Spellcast();
       // Long Shot/Multi Shot/Piercing are bow skills — the blunt melee cue is wrong for them,
@@ -2798,7 +2768,6 @@ export class BattleEngine {
   }
 
   private finishCombat(att: Unit): void {
-    const completedSpell = this.active?.type === "spell";
     att.drawX = att.x;
     att.drawY = att.y;
     this.active = null;
@@ -2811,16 +2780,6 @@ export class BattleEngine {
     // which one it was, so clearing it here is the one place that actually covers all of
     // them instead of the banner sitting on screen until something unrelated overwrites it.
     this.banner = null;
-    // Hold the camera on the resolved action before the dispatcher can begin the next unit.
-    // This lets impact flashes, bloom and elemental light actually read on screen; it also
-    // gives the camera a stable target instead of snapping immediately to the next initiative.
-    // Ground spells leave a visible result behind (Fireball's flame, Caustic Venom, holy and
-    // lightning bloom). Keep their camera shot long enough to actually read that result;
-    // weapon hits retain the shorter beat so ordinary turns do not feel stalled.
-    const presentationHold = completedSpell
-      ? this.speedMode === "fast" ? 0.55 : this.speedMode === "slow" ? 1.55 : 1.1
-      : this.speedMode === "fast" ? 0.16 : this.speedMode === "slow" ? 0.52 : 0.36;
-    this.queue.unshift({ type: "delay", dur: presentationHold });
     this.evaluateEnd();
     if (this.result) {
       this.selectedId = null;
@@ -4440,22 +4399,6 @@ export class BattleEngine {
     return hexDef(this.tiles, this.cols, x, y, this.decorOverlay);
   }
 
-  /** Whether map geometry blocks a local spell light from one hex to another. We share the
-   * projectile sight rule with combat: raised walls, pillars and barricades cast a shadow;
-   * open terrain does not. Unlike a damage ray, this is only visual and never changes gameplay. */
-  lightOccludes(fromCol: number, fromRow: number, toCol: number, toRow: number): boolean {
-    if (fromCol === toCol && fromRow === toRow) return false;
-    if (!inBounds(fromCol, fromRow, this.cols, this.rows) || !inBounds(toCol, toRow, this.cols, this.rows)) return false;
-    return !clearShot(
-      { x: fromCol, y: fromRow },
-      { x: toCol, y: toRow },
-      this.tiles,
-      this.cols,
-      "bolt",
-      this.decorOverlay,
-    );
-  }
-
   /** Refold the decoration switches. Call after anything adds or removes a prop. */
   private refreshDecorOverlay(): void {
     this.decorOverlay = buildDecorOverlay(this.decorations, this.cols, this.rows, placedFootprint);
@@ -5858,39 +5801,15 @@ export class BattleEngine {
 
   /** "Fim do turno": passes whoever's turn it currently is (same as Esperar). */
   endTurn(): void {
-    // The post-action camera beat is presentation only. A second End Turn click is an explicit
-    // player choice to skip it, so never make them wait through an effect they have seen.
-    if (this.active?.type === "delay") {
-      this.active = null;
-      this.queue = [];
-    }
-    // A click during the non-skippable portion of an action (before the hit resolves) still
-    // commits immediately once gameplay has settled; it must not cancel damage or movement.
-    if (this.active || this.queue.length) {
-      this.pendingEndTurn = true;
-      return;
-    }
     const active = this.activeTurnUnit();
-    // A summon can be visibly selected during the one frame where an initiative rebuild has
-    // not yet exposed it through activeTurnUnit(). It is still a legitimate player turn, so
-    // use that selected living familiar as a narrow fallback instead of ignoring End Turn.
-    const selected = this.units.find((u) => u.id === this.selectedId);
-    const actor = active ?? (selected?.summoned && selected.side === "player" && selected.alive && !selected.moved ? selected : null);
-    if (!actor || actor.side !== "player" || this.result) return;
-    actor.moved = true;
-    actor.acted = true;
-    actor.x = Math.round(actor.drawX);
-    actor.y = Math.round(actor.drawY);
-    actor.drawX = actor.x;
-    actor.drawY = actor.y;
+    if (!active || active.side !== "player" || this.result) return;
+    active.moved = true;
+    active.x = Math.round(active.drawX);
+    active.y = Math.round(active.drawY);
+    active.drawX = active.x;
+    active.drawY = active.y;
     this.deselect(true);
-    // A multi-hex summon can leave the visual selection pointing at a different footprint
-    // than the turn cursor. Clear the cursor explicitly so the next tick must resolve the
-    // next unit, rather than treating the just-finished Familiar Titã as still active.
-    this.activeUnitId = null;
-    this.mode = "locked";
     sfxPlay.ui();
-    this.emit();
   }
 
   /** A random encounter can only be escaped by the hero whose turn it is, once that hero
@@ -6858,11 +6777,6 @@ export class BattleEngine {
     this.emit();
   }
 
-  setAtmosphereFx(on: boolean): void {
-    this.atmosphereFxOn = on;
-    this.emit();
-  }
-
   cycleZoom(dir: number): void {
     this.setZoom(this.zoom + (dir < 0 ? -1 : 1));
   }
@@ -7449,13 +7363,18 @@ export class BattleEngine {
   /** Tiles, decorations, terrain-rule overlays (walk/attack/spell range highlights, the
    * active-turn glow, the hover cursor) — everything at or below "ground level". Opens this
    * frame's screen-shake transform but does not close it here (see renderUnitsAndOverlays). */
-  renderGround(ctx: any, cssW: number, cssH: number, dpr: number): void {
+  /** Advances camera/visibility bookkeeping for this frame WITHOUT drawing anything — the
+   * non-drawing prefix renderGround always ran, factored out so an alternate renderer (see
+   * gfx/three/ThreeBattleRenderer.ts) can keep `layout`/visibility/camera state in sync without
+   * going through the Canvas2D-shim draw path. renderGround calls this too, so its own
+   * behavior is byte-for-byte unchanged. Returns the current zoom level's tile size, since
+   * every caller needs it right after anyway. */
+  updateCameraLayout(cssW: number, cssH: number): number {
     // Cheap no-op unless the party moved since the last frame — see refreshVisibility.
     // Sitting here means anything drawn, and anything the HUD reads off this engine,
     // is deciding against current sight rather than last turn's.
     this.refreshVisibility();
     const tile = ZOOM_RADII[this.zoom]!;
-    const { w: boardW, h: boardH } = this.boardSize(tile);
     this.viewW = cssW;
     this.viewH = cssH;
     if (!this.camReady) {
@@ -7469,6 +7388,13 @@ export class BattleEngine {
     const ox = -this.camX;
     const oy = -this.camY;
     this.layout = { ox, oy, tile, cols: this.cols, rows: this.rows };
+    return tile;
+  }
+
+  renderGround(ctx: any, cssW: number, cssH: number, dpr: number): void {
+    const tile = this.updateCameraLayout(cssW, cssH);
+    const { w: boardW, h: boardH } = this.boardSize(tile);
+    const { ox, oy } = this.layout;
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssW, cssH);
@@ -7799,14 +7725,24 @@ export class BattleEngine {
    * drawn on top of renderGround's output. Re-applies this frame's screen-shake offset (see
    * frameShakeDx/Dy) independently rather than sharing one still-open ctx.save() with
    * renderGround, since the two may be drawing onto two different canvases. */
-  /** getPointLight, when given, supplies the nearest live spell light for this sprite. It
-   * carries source position and colour, so the GPU sprite shader can light the near-facing
-   * surface rather than applying a flat brightness filter to the whole image. */
+  /** getLightAt, when given, answers "how much extra light falls on this screen point right
+   * now?" from actually-active spell casts (fire/acid/holy/darkness/webShot) — see
+   * EffectsRenderer.lightBoostAt, which BattleCanvas wires this to. Positive brightens a unit
+   * standing near a fire/holy/acid glow or a travelling web shot; negative (darkness) dims one.
+   * Omitted (the render() convenience path above, which has no EffectsRenderer of its own)
+   * simply skips the check — units draw exactly as if nothing were casting light nearby.
+   *
+   * skipGroundDecor, when true, skips the "ground"/"behind" drawDecorations calls below (the
+   * "front" one near the end still runs) — set by BattleCanvas when gfx/three/
+   * ThreeBattleRenderer is drawing the ground canvas instead of WebGL2DRenderer, since that
+   * renderer already draws those same two layers itself (see its own ensureDecorBuilt); without
+   * this every ground/behind prop would be drawn twice, once by each renderer. */
   renderUnitsAndOverlays(
     ctx: any,
     cssW: number,
     cssH: number,
-    getPointLight?: (px: number, py: number, col: number, row: number) => { x: number; y: number; boost: number; color: [number, number, number] } | null,
+    getLightAt?: (px: number, py: number) => number,
+    skipGroundDecor?: boolean,
   ): void {
     const tile = ZOOM_RADII[this.zoom]!;
     const sqrt3 = Math.sqrt(3);
@@ -7816,13 +7752,15 @@ export class BattleEngine {
       ctx.translate(this.frameShakeDx, this.frameShakeDy);
     }
 
-    // Ground decorations (trees, houses, rocks...) draw here, above the WebGL elemental FX
-    // canvas but below character sprites — the same relative order as when this used to
-    // happen in renderGround, just moved onto this (topmost) canvas so FX never covers them.
-    this.drawDecorations(ctx, tile, cssW, cssH);
-    // A rear parapet must remain visible over the ground and tactical highlights, while
-    // character sprites still pass in front of it.
-    this.drawDecorations(ctx, tile, cssW, cssH, "behind");
+    if (!skipGroundDecor) {
+      // Ground decorations (trees, houses, rocks...) draw here, above the WebGL elemental FX
+      // canvas but below character sprites — the same relative order as when this used to
+      // happen in renderGround, just moved onto this (topmost) canvas so FX never covers them.
+      this.drawDecorations(ctx, tile, cssW, cssH);
+      // A rear parapet must remain visible over the ground and tactical highlights, while
+      // character sprites still pass in front of it.
+      this.drawDecorations(ctx, tile, cssW, cssH, "behind");
+    }
     this.drawPortalFx(ctx, tile);
 
     // The mouse-selection hex outline is drawn here, on this (topmost) canvas rather than
@@ -8171,18 +8109,14 @@ export class BattleEngine {
         ctx.shadowColor = `rgba(${halo.core},${0.9 * u.healGlow})`;
         ctx.shadowBlur = w * (u.healGlowKind === "holyMedium" ? 0.48 : 0.32) * u.healGlow * pulse;
       }
-      const pointLight = getPointLight ? getPointLight(px, py, u.x, u.y) : null;
-      const lightBoost = pointLight?.boost ?? 0;
-      if (typeof ctx.setPointLight === "function") {
-        ctx.setPointLight(
-          pointLight ? pointLight.x - px : 0,
-          pointLight ? pointLight.y - (py - h * 0.5) : -1,
-          pointLight ? Math.min(0.5, pointLight.boost * 0.42) : 0,
-          pointLight?.color ?? [1, 1, 1],
-        );
-      }
+      // Real point-light influence from whatever's actually casting light nearby right now
+      // (a fire/holy/acid glow, a travelling web shot, darkness's own dimming) — see
+      // EffectsRenderer.lightBoostAt. Skipped entirely when a hit-flash is already driving
+      // the filter (a rare, deliberately much brighter flash that shouldn't be diluted by
+      // ambient spell light), and when nothing nearby is casting anything (the common case).
+      const lightBoost = getLightAt ? getLightAt(px, py) : 0;
       if (u.flash > 0) ctx.filter = `brightness(${1.8 + u.flash})`;
-      else if (Math.abs(lightBoost) > 0.03) ctx.filter = `brightness(${Math.max(0.3, 1 + lightBoost * 0.8)})`;
+      else if (Math.abs(lightBoost) > 0.03) ctx.filter = `brightness(${Math.max(0.35, 1 + lightBoost * 0.5)})`;
       if (img) ctx.drawImageLit(img, -w / 2, -h + cultistV2CastFootOffset, w, h);
       else {
         ctx.fillStyle = u.side === "player" ? "#8a97a1" : u.side === "neutral" ? "#5f8a58" : "#a35a4a";
