@@ -33,8 +33,8 @@
 
 import * as THREE from "three";
 import type { BattleEngine } from "../../engine";
-import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECORATIONS, HOUSE_DECOR_IDS, decorationFacing, decorationImage, placedFootprint } from "../../data";
-import { tileAt } from "../../pathfinding";
+import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECORATIONS, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, HOUSE_DECOR_IDS, decorationFacing, decorationImage, isBossClass, placedFootprint } from "../../data";
+import { tileAt, unitSize } from "../../pathfinding";
 import type { DecorationDef, DecorationPlacement, TerrainId } from "../../types";
 
 const SQRT3 = Math.sqrt(3);
@@ -147,6 +147,11 @@ interface DecorMeshEntry {
   placement: DecorationPlacement;
 }
 
+interface UnitMeshEntry {
+  mesh: THREE.Mesh;
+  img: HTMLImageElement | null;
+}
+
 export class ThreeBattleRenderer {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -169,6 +174,16 @@ export class ThreeBattleRenderer {
   private decorEntries: DecorMeshEntry[] = [];
   private builtDecorKey = "";
 
+  // Static-pose units (see THREEJS_MILESTONE1_HANDOFF.md's "Next step") — one persistent mesh
+  // per live unit id, repositioned/retextured every frame in syncUnits rather than rebuilt,
+  // since units (unlike terrain/decor) move and change art every frame. HP bars, hover/
+  // selection highlight, and portal FX stay on the old Canvas2D-shim units canvas on purpose
+  // (see BattleEngine.renderUnitsAndOverlays' skipUnitSprites param) — only the character
+  // sprite art itself moves here.
+  private unitGroup = new THREE.Group();
+  private unitMatCache = new Map<HTMLImageElement, THREE.MeshBasicMaterial>();
+  private unitEntries = new Map<string, UnitMeshEntry>();
+
   constructor(
     canvas: HTMLCanvasElement,
     private engine: BattleEngine,
@@ -179,6 +194,7 @@ export class ThreeBattleRenderer {
     this.camera.position.z = 100;
     this.scene.add(this.tileGroup);
     this.scene.add(this.decorGroup);
+    this.scene.add(this.unitGroup);
   }
 
   setSize(cssW: number, cssH: number, dpr: number): void {
@@ -369,6 +385,102 @@ export class ThreeBattleRenderer {
     }
   }
 
+  private unitMaterialFor(img: HTMLImageElement): THREE.MeshBasicMaterial {
+    const hit = this.unitMatCache.get(img);
+    if (hit) return hit;
+    const tex = new THREE.Texture(img);
+    tex.needsUpdate = true;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+    this.unitMatCache.set(img, mat);
+    return mat;
+  }
+
+  /** Static idle frame [0] only — no walk/attack/cast poses, no bob/sway/breath motion, no
+   * fade-in opacity — see THREEJS_MILESTONE1_HANDOFF.md's "Next step" for exactly what a first
+   * static-pose pass does and doesn't cover, and why (mid-move interpolation and pose-specific
+   * size corrections all key off state a static pass has no use for). Ported sizing keeps only
+   * the corrections that still apply to an idle frame (spriteScale, familiar2WidthMul,
+   * familiar3Scale, the base size-tier formula) — every walk/atk/cast-only correction in
+   * BattleEngine.renderUnitsAndOverlays is intentionally left out here. */
+  private syncUnits(tile: number): void {
+    const engine = this.engine;
+    const sqrt3 = SQRT3;
+    const cell = tile * sqrt3;
+    const seen = new Set<string>();
+
+    for (const u of engine.units) {
+      if (u.fade <= 0 || engine.unitHidden(u)) continue;
+      const idlePool = u.idleAlt ? (engine.art.idles2[u.sprite] ?? engine.art.idles[u.sprite]) : engine.art.idles[u.sprite];
+      const frames = idlePool ?? engine.art.sprites[u.sprite];
+      const img = frames?.[0];
+      if (!img || img.naturalWidth === 0) continue; // art still loading — picked up next frame
+
+      seen.add(u.id);
+      let entry = this.unitEntries.get(u.id);
+      if (!entry) {
+        const mesh = new THREE.Mesh(this.quadGeo, this.unitMaterialFor(img));
+        this.unitGroup.add(mesh);
+        entry = { mesh, img: null };
+        this.unitEntries.set(u.id, entry);
+      }
+      entry.mesh.visible = true;
+      if (entry.img !== img) {
+        entry.mesh.material = this.unitMaterialFor(img);
+        entry.img = img;
+      }
+
+      const s = unitSize(u);
+      const boss = isBossClass(u.classId);
+      const isBigCreatureFootprint = u.footprintOffsets === FOOTPRINT_TYPE_8 || u.footprintOffsets === FOOTPRINT_TYPE_7;
+      const isLancer = u.classId === "lancer" || u.sprite === "lancer" || u.sprite === "defaultLancer";
+      const isSandoval = u.classId === "sandoval" || u.sprite === "sandoval";
+      const isFamiliar = u.classId === "familiar" || u.sprite === "familiar";
+      const isKaelFinal = u.sprite === "kaelFinal";
+      const isCultistV2 = u.classId === "cultistV2" || u.sprite === "cultist-v2";
+      const spriteScale = isLancer ? 1.4 : isSandoval ? 1.2 : isFamiliar ? 0.5 : isKaelFinal ? 0.9 : isCultistV2 ? 0.98 : 1;
+      const familiar2WidthMul = u.sprite === "familiar2" ? 2.544 : 1;
+      const familiar3Scale = u.classId === "familiar3" ? 1.4 : 1;
+      const h = cell * (s >= 4 ? 3.35 : s === 2 ? 1.72 : boss ? 1.44 : 1.42) * 1.2 * (isBigCreatureFootprint ? 0.75 : 1) * spriteScale * familiar3Scale;
+      const w = cell * (s >= 4 ? 2.85 : s === 2 ? 1.85 : boss ? 1.12 : 1.11) * 1.2 * (isBigCreatureFootprint ? 0.75 : 1) * spriteScale * familiar2WidthMul * familiar3Scale;
+      const footY = s >= 4 ? tile * 0.9 : cell * 0.42;
+
+      // familiar/defaultWarrior's art is authored facing the opposite way from every other
+      // sprite's "facing 1 shows the sheet as drawn" convention — see the matching comment on
+      // defaultWarriorIdleOrWalkReversed in BattleEngine.renderUnitsAndOverlays (always true
+      // here since a static pose has no atk pose to exempt).
+      const facing = u.classId === "familiar" || u.sprite === "defaultWarrior" ? -u.facing : u.facing;
+
+      const anchor = engine.effectAnchor(u.drawX, u.drawY);
+      // footY is measured DOWN from the anchor (screen/world Y-down convention, same as
+      // Canvas2D) to the sprite's feet; the quad's own local Y=0 is its vertical CENTER, so
+      // the center sits h/2 further down (still Y-down) than the feet.
+      const wy = anchor.worldY + footY - h / 2;
+      // Y negated and Z derived from row — see module comment on the Y-flip and
+      // ensureDecorBuilt's own comment on z ordering vs decorations (z=1) and tiles (z=0).
+      entry.mesh.position.set(anchor.worldX, -wy, 2 + u.drawY * 0.001);
+      // Mirrors like a decoration's own-art facing does (negative scale.x) rather than
+      // rotating — see ensureDecorBuilt's identical pattern.
+      entry.mesh.scale.set(facing === -1 ? -w : w, h, 1);
+    }
+
+    for (const [id, entry] of this.unitEntries) {
+      if (seen.has(id)) continue;
+      if (engine.units.some((u) => u.id === id)) {
+        // Still exists (just off-screen/out of sight/faded this frame) — hide, don't discard,
+        // so it doesn't need rebuilding the instant it's visible again.
+        entry.mesh.visible = false;
+      } else {
+        this.unitGroup.remove(entry.mesh);
+        this.unitEntries.delete(id);
+      }
+    }
+  }
+
   /** Fog-of-war visibility, rechecked every frame without touching geometry — cheap, and most
    * missions have `fog` off entirely (see Mission.fog), in which case this is a no-op loop that
    * only ever sets `visible = true`. */
@@ -393,6 +505,7 @@ export class ThreeBattleRenderer {
     this.syncDirtyTiles();
     this.ensureDecorBuilt(tile);
     this.syncDecorVisibility();
+    this.syncUnits(tile);
     // The camera moves; the tiles never do — see module comment. This is the one line that
     // has to run every frame for panning/zooming to work. Y is `-camY - cssH` to match the
     // mesh placement's own Y-negation (see module comment) — verified numerically to
@@ -410,6 +523,10 @@ export class ThreeBattleRenderer {
       mat.dispose();
     }
     for (const mat of this.decorMatCache.values()) {
+      mat.map?.dispose();
+      mat.dispose();
+    }
+    for (const mat of this.unitMatCache.values()) {
       mat.map?.dispose();
       mat.dispose();
     }

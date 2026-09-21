@@ -4266,8 +4266,9 @@ export class BattleEngine {
   }
 
   /** Whether a unit is hidden from the player: any cell of its footprint in sight
-   * reveals the whole of it, so a big body never half-appears. */
-  private unitHidden(u: Unit): boolean {
+   * reveals the whole of it, so a big body never half-appears. Public because
+   * ThreeBattleRenderer needs this same fog-of-war gate for its own unit meshes. */
+  unitHidden(u: Unit): boolean {
     if (!this.fogged || u.side === "player") return false;
     return !footprint(u).some((p) => this.visible(p.x, p.y));
   }
@@ -7743,6 +7744,12 @@ export class BattleEngine {
     cssH: number,
     getLightAt?: (px: number, py: number) => number,
     skipGroundDecor?: boolean,
+    // ThreeBattleRenderer draws unit sprites itself once it has them (see its own
+    // ensureUnitsBuilt/syncUnits) — this skips just the character-image draw calls below so
+    // they don't double-draw, while everything else in this loop (shadow, HP bar, level/heal
+    // glow, status FX) keeps rendering on this canvas exactly as before, per
+    // THREEJS_MILESTONE1_HANDOFF.md's scoping of what stays here vs what moves.
+    skipUnitSprites?: boolean,
   ): void {
     const tile = ZOOM_RADII[this.zoom]!;
     const sqrt3 = Math.sqrt(3);
@@ -8117,7 +8124,10 @@ export class BattleEngine {
       const lightBoost = getLightAt ? getLightAt(px, py) : 0;
       if (u.flash > 0) ctx.filter = `brightness(${1.8 + u.flash})`;
       else if (Math.abs(lightBoost) > 0.03) ctx.filter = `brightness(${Math.max(0.35, 1 + lightBoost * 0.5)})`;
-      if (img) ctx.drawImageLit(img, -w / 2, -h + cultistV2CastFootOffset, w, h);
+      if (skipUnitSprites) {
+        // ThreeBattleRenderer already drew this unit's sprite on its own canvas, at the same
+        // world position — see the param doc above.
+      } else if (img) ctx.drawImageLit(img, -w / 2, -h + cultistV2CastFootOffset, w, h);
       else {
         ctx.fillStyle = u.side === "player" ? "#8a97a1" : u.side === "neutral" ? "#5f8a58" : "#a35a4a";
         ctx.fillRect(-w / 2, -h, w, h);
@@ -8125,12 +8135,12 @@ export class BattleEngine {
       // A second glow pass on top of the sprite (shadowBlur alone, no offset, mimics an outer
       // rim glow following the art's own alpha edges) so the effect reads as coming off the
       // character rather than just floating behind it.
-      if (u.levelGlow > 0 && img) {
+      if (!skipUnitSprites && u.levelGlow > 0 && img) {
         const pulse = 0.75 + Math.sin(this.time * 7) * 0.25;
         ctx.shadowBlur = w * 0.55 * u.levelGlow * pulse;
         ctx.drawImage(img, -w / 2, -h + cultistV2CastFootOffset, w, h);
       }
-      if (u.healGlow > 0 && img) {
+      if (!skipUnitSprites && u.healGlow > 0 && img) {
         const pulse = 0.8 + Math.sin(this.time * 5) * 0.2;
         const halo = this.healHaloRgb(u.healGlowKind);
         ctx.shadowColor = `rgba(${halo.core},${0.88 * u.healGlow})`;

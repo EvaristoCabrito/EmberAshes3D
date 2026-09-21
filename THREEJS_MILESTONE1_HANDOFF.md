@@ -20,15 +20,22 @@ particles yet — those come after.
 Do not rewrite gameplay systems (combat, pathfinding, AI, hex math, editor data) — this is a
 rendering-layer swap only.
 
-## Old atmosphere system — superseded, do not extend
+## Old atmosphere system — unwired again, do not re-enable
 
-`src/game/gfx/AtmosphereRenderer.ts`, `atmosphereShaders.ts`, `atmosphereParams.ts` are
-fullscreen-2D-overlay code from before this migration decision. The user explicitly rejected
-that approach ("does not convincingly occupy the game world... flat image with a moving filter
-over it") and redirected to Three.js instead. These three files are left in the tree
-unreferenced (harmless dead code) — do not wire them into anything, do not spend time improving
+`src/game/gfx/AtmosphereRenderer.ts`, `atmosphereShaders.ts`, `atmosphereParams.ts` are a
+fullscreen-2D-overlay global lighting system (ambient wash, drifting light field, procedural
+haze, volumetric shafts, dust, bloom, grading) from before this migration decision — separate
+from the Three.js work above. The user explicitly rejected the overlay approach on visual
+grounds ("does not convincingly occupy the game world... flat image with a moving filter over
+it") when redirecting to Three.js instead; it later got built and shipped anyway as `AtmosphereFX`
+(commit `06a6319` on), then reported to break the game badly enough in play that every reference
+to it — the `atmosphereFxOn` HUD toggle, its Options-menu button, and the point-light shader
+plumbing in `WebGL2DRenderer`/`EffectsRenderer` that fed it — was stripped back out. The three
+files themselves are kept in the tree on purpose, unreferenced (the user does not want them
+deleted, just never wired back in) — do not wire them into anything, do not spend time improving
 them. Milestones 2/3 will use Three.js's own `DirectionalLight`, fog, and particle systems
-instead, built fresh against the new scene from this migration.
+instead, built fresh against the new scene from this migration — do not resurrect the old overlay
+approach for those.
 
 ## Where things stand right now
 
@@ -57,13 +64,53 @@ Playwright, NOT the live browser — see the memory note below on why):**
   the original Canvas2D path's behavior is byte-for-byte unchanged.
 - `ZOOM_RADII` in `engine.ts` is now `export`ed (was module-private) — needed by anything outside
   engine.ts that wants tile size per zoom level.
+- **Static-pose unit sprites** now render in `ThreeBattleRenderer` too (`syncUnits()`, called
+  every frame from `render()` — units move/change art far more often than tiles/decor, so unlike
+  `ensureBuilt`/`ensureDecorBuilt` there's no "build once" cache, just a persistent mesh per live
+  unit id that's repositioned/retextured each frame). Only the idle frame `[0]` — no walk, attack,
+  cast, counter poses, no bob/sway/breath motion, no fade-in opacity, and boss/multi-hex
+  footprints anchor on `effectAnchor(u.drawX, u.drawY)` (a plain single-hex position) rather than
+  the real footprint centroid `unitPixel` uses internally — see `unitPixel`'s doc and the
+  `footprintCentroid` gap noted below in "Known gaps". Ported sizing keeps only the corrections
+  that still apply to a static idle frame (`spriteScale`, `familiar2WidthMul`, `familiar3Scale`,
+  the base size-tier `h`/`w` formula) — every walk/atk/cast-only correction in
+  `BattleEngine.renderUnitsAndOverlays` (there are many — cultistV2 atk/cast scales, Malrec's
+  walk/atk scales, the `atk-27` one-off, etc.) is intentionally left out, since none of them apply
+  to an idle pose.
+- `BattleEngine.unitHidden` is now public (was private) — `ThreeBattleRenderer.syncUnits` needs
+  the same fog-of-war gate `renderUnitsAndOverlays` already applied internally.
+- `BattleEngine.renderUnitsAndOverlays` got a second new param, `skipUnitSprites` (after
+  `skipGroundDecor`), gating only the three `drawImageLit`/`drawImage` calls that paint the
+  character art itself (the main draw plus the two glow-outline re-draws) — `BattleCanvas.tsx`
+  passes `!!rendererThree` for this too now. Everything else in that per-unit loop (cast shadow,
+  HP bar, level/heal glow backgrounds, status FX icons, the hover/selection hex outline, portal
+  FX) is unaffected and keeps rendering on the old canvas exactly as before — see that param's
+  doc comment in engine.ts for why each of those stays put.
+- Verified visually via headless Playwright (not the live browser — see the testing section
+  below): same mission (`Wisp Forest`, via Modo Teste → Debug → Classic Tactical), screenshotted
+  once with `?renderer=three` and once without — unit count, formation, relative spacing, sprite
+  scale, and facing all matched between the two renderers.
 
-**Not done yet — units are the rest of Milestone 1:**
+**Not done yet — the rest of Milestone 1:**
 
-Units, HP bars, the hover/selection hex outline, portal FX, and "front"-layer decorations still
-render entirely through the old Canvas2D-shim `unitsCanvas` (`WebGL2DRenderer`), stacked above
-the Three.js ground canvas — unchanged, and currently correct/working since that layer was never
-broken.
+Unit **animation** (walk cycles, attack/cast/counter poses, the per-pose size corrections listed
+above, bob/sway/breath idle motion, move interpolation, fade-in/out opacity) still only exists in
+the old Canvas2D-shim path — units in the Three.js scene are static/idle-only right now, and
+`skipUnitSprites` means the old canvas no longer draws them at all when `?renderer=three` is on,
+so this is the visible gap if you compare the two renderers mid-combat rather than at rest. HP
+bars, the hover/selection hex outline, portal FX, and "front"-layer decorations still render
+entirely through the old Canvas2D-shim `unitsCanvas` (`WebGL2DRenderer`) on purpose — see the
+`skipUnitSprites` bullet above — stacked above the Three.js canvas, unchanged, and currently
+correct/working since that layer was never broken.
+
+**Known gaps in the static-pose unit port (acceptable for this pass, not yet fixed):**
+
+- Boss/multi-hex footprints (Troll, Horror, Asherah, ...) anchor slightly differently than the
+  Canvas2D renderer's `footprintCentroid` (front-row average) — `effectAnchor` gives a plain
+  single-hex position instead. Minor positional drift only on those few large-footprint units.
+- No mid-move interpolation: `effectAnchor(u.drawX, u.drawY)` still reads the live
+  animated draw position each frame, so a unit *slides* correctly, but its pose stays the static
+  idle frame throughout — no walk cycle plays while it's sliding.
 
 ## The critical gotcha already found — do not reintroduce it
 
@@ -90,72 +137,64 @@ Knock-on effects of this Y-negation, already handled, to remember if you add mor
   back-facing/culled under this camera setup — see `buildHexGeometry`'s comment on the
   `(0, i%6+1, i)` index order.
 
-## Next step: static-pose units
+## Next step: unit animation (walk/attack/cast/counter poses)
 
-Was mid-read of `BattleEngine.renderUnitsAndOverlays` (`src/game/engine.ts`, roughly lines
-7734-8100+) when this session paused. What's there:
+Static-pose units are done (see the bullet list under "Where things stand right now" above) —
+`ThreeBattleRenderer.syncUnits()` in `src/game/gfx/three/ThreeBattleRenderer.ts` is the place to
+extend. What's left to reach real parity with `BattleEngine.renderUnitsAndOverlays`
+(`src/game/engine.ts`, ~line 7740 on):
 
-- `unitPixel(u)` (private, ~line 7115) gives the unit's current screen position, including move-
-  animation interpolation via `u.drawX/drawY`. It's private, but `effectAnchor(col, row)`
-  (public) gives the same world position for a plain single-hex unit — use
-  `engine.effectAnchor(u.drawX, u.drawY)` for the new renderer instead of touching engine.ts
-  again. This will be slightly wrong for multi-hex boss footprints (`unitPixel` averages a
-  footprint centroid via `footprintCentroid`, which `effectAnchor` doesn't) — acceptable known
-  gap for a first static-pose pass, flag it rather than silently fixing it by widening engine.ts
-  private API further.
-- `unitSize(u)` — exported from `src/game/pathfinding.ts`, just `Math.max(1, u.size || 1)`.
-- Sprite box `w`/`h` (lines ~8005-8030 as of this session) is `cell * <size/boss multiplier> *
-  1.2 * <big-creature correction> * spriteScale * <a long cascade of per-pose corrections>`. The
-  per-pose corrections (`cultistV2Cast*`, `malrecWalk*`, `malrecAtk*`, `familiar2WalkScale`,
-  `cultistV2WalkScale`, the `atk-27` one-off, etc.) all key off `atk`/`walk`/`casting` — **all
-  false/null for a static idle pose**, so none of those apply yet. What DOES still apply
-  regardless of pose, and needs porting: `spriteScale` (lancer 1.4, sandoval 1.2, familiar 0.5,
-  kaelFinal 0.9, cultistV2 0.98, else 1), `familiar2WidthMul` (2.544 for sprite === "familiar2",
-  else 1), `familiar3Scale` (1.4 for classId === "familiar3"), and the base
-  `cell * (s>=4?3.35:s===2?1.72:boss?1.44:1.42) * 1.2 * (isBigCreatureFootprint?0.75:1)` (h) /
-  the analogous `w` formula just above it in engine.ts.
-- Facing/flip: `u.facing` (1|-1), with the `familiar`/`defaultWarrior` special-case negation
-  (search `defaultWarriorIdleOrWalkReversed` near line 8065) — port as a mesh `scale.x` sign,
-  same trick already used for decoration mirroring in `ensureDecorBuilt`.
-- Art for a static idle frame: `u.idleAlt ? (art.idles2[u.sprite] ?? art.idles[u.sprite]) :
-  art.idles[u.sprite]`, then just use frame `[0]` (or reuse `engine`'s existing `idleFrame(u, n)`
-  if it's accessible — check before duplicating animation timing logic; a single static frame is
-  fine for this first pass either way).
-- Ground anchor / vertical offset: `footY = s >= 4 ? tile * 0.9 : cell * 0.42` (search `footY`),
-  applied as `ctx.translate(px, py + footY + bob - lift)` — bob/lift are live idle-motion
-  animation (`liveMotion`), fine to skip for a static first pass (use `footY` only).
-- Depth sort vs decorations/other units: original code sorts by `u.drawY` then `u.drawX`
-  (`sorted = [...this.units].sort(...)`, ~line 7791) before drawing back-to-front. In Three.js,
-  don't sort — just give each unit mesh a Z derived from its row (e.g.
-  `z = 2 + row * 0.001`, decorations are already at `z = 1`, tiles at `z = 0`) and let the depth
-  buffer handle it, same pattern as decorations already use.
-- **Units must end up on the SAME depth plane as ground/behind decorations** (i.e. added to
-  `ThreeBattleRenderer`'s scene, not left on the old units canvas) for this to actually be
-  "Milestone 1 done" — remember to also update `renderUnitsAndOverlays` again (another
-  `skip...` bool, same pattern as `skipGroundDecor`) so units aren't double-drawn once they move
-  here, and decide what happens to "front"-layer decorations (they need to stay above units, so
-  either also move them into the Three scene at a higher Z once units are there, or leave them on
-  the old canvas permanently — old canvas is transparent and stacks above the Three canvas, so
-  leaving them there still occludes correctly even after units move).
-- HP bars, hover/selection hex outline, portal FX: out of scope for "unit sprite parity" — can
-  stay on the old canvas indefinitely unless the user asks for them explicitly; they're UI/overlay
-  elements, not "asset positions."
+- **Pose selection**: `syncUnits` currently always reads the idle pool's frame `[0]`. The
+  Canvas2D version picks `atk`/`cast`/`counter`/`walk`/`idle` pools based on `engine.attackPose(u)`
+  (private), `this.active` (whether a move/spell/heal/combat action is live for this unit),
+  and `u.idleAlt`/`u.facing` — see the `frames`/`fi`/`img` computation around what's now
+  engine.ts's `renderUnitsAndOverlays`. Most of that state (`this.active`, `attackPose`) is
+  private to `BattleEngine`; either add narrow public accessors (same pattern as `unitHidden`)
+  or a single public method that returns "what pose/frame index is this unit on right now" so
+  `ThreeBattleRenderer` doesn't have to duplicate the animation-timing logic (`walkFrame`,
+  `idleFrame`, `attackPose` are all private and non-trivial — reuse them, don't reimplement).
+- **The per-pose size corrections** intentionally left out of the static pass (see "Known gaps"
+  above): `cultistV2CastHeightMul`/`WidthMul`, `cultistV2AtkScale`, `malrecWalkHeightScale`/
+  `WidthScale`, `malrecAtkScale`, `malrecAtkFrame27WidthScale`, `cultistV2WalkScale`,
+  `familiar2WalkScale`, `cultistV2CastFootOffset` — all keyed off `atk`/`walk`/`casting`/`fi`,
+  ported verbatim from the same block in `renderUnitsAndOverlays` once pose selection exists.
+- **Live idle motion** (`bob`/`sway`/`breath` via `this.liveMotion(u, cell)`, private) and
+  **move interpolation pose** (a unit sliding between hexes should play its walk cycle, not just
+  slide while idle) — `unitLift` (high-ground lift) is the other private piece already skipped.
+- Once poses/animation are ported, re-verify the "Known gaps" list above (footprint centroid,
+  fade opacity) is still the full list of remaining deltas — don't let a new gap join it unnoticed.
+- HP bars, hover/selection hex outline, portal FX: still out of scope — stay on the old canvas
+  indefinitely unless the user asks for them explicitly; they're UI/overlay elements, not
+  "asset positions."
 
 ## Testing — do not use the live browser
 
 See the saved memory (`feedback_no_live_browser` in the memory system) — the user was explicit
 and heated about this ("this is the last time you ever use my browser," "the browser does not
 serve you as game testing tool," "the user will do it himself not I"). Always verify with a
-throwaway headless Playwright script instead, following the pattern already used earlier this
-session: `page.evaluate()` importing `/src/game/assets.ts`, `/src/game/engine.ts`,
-`/src/game/data.ts` (for `TILE_CHAR`), and `/src/game/gfx/three/ThreeBattleRenderer.ts` directly,
-constructing a minimal `BattleEngine` + mission by hand (see the git history of this session's
-now-deleted `debug-three.mjs`/`debug-decor.mjs` scripts for the exact working pattern — they were
-cleaned up after use, but the pattern is: create a detached `<canvas>`, construct the renderer,
-call `.render()` a few times, then either `elementHandle.screenshot()` to a PNG under
-`screenshots/` and read it, or draw the canvas into an offscreen 2D canvas and sample pixels via
-`getImageData` for numeric assertions). Delete throwaway debug scripts/screenshots from the repo
-root after use — don't leave them committed.
+throwaway headless Playwright script instead — the script must live under the project root (or
+be copied there before running) so Node resolves the `playwright` package from its
+`node_modules`; running it from an outside scratch directory fails with `ERR_MODULE_NOT_FOUND`.
+
+Two patterns have worked so far, pick whichever fits what's being checked:
+
+1. **Hand-built engine** (used for terrain/decor in an earlier session — see git history of this
+   session's now-deleted `debug-three.mjs`/`debug-decor.mjs` scripts for the exact pattern):
+   `page.evaluate()` importing `/src/game/assets.ts`, `/src/game/engine.ts`, `/src/game/data.ts`,
+   and `/src/game/gfx/three/ThreeBattleRenderer.ts` directly, constructing a minimal
+   `BattleEngine` + mission by hand, a detached `<canvas>`, calling `.render()` a few times, then
+   either `elementHandle.screenshot()` to a PNG and reading it, or sampling pixels via
+   `getImageData` for numeric assertions. More precise for numeric checks, more setup.
+2. **Drive the real UI** (used this session to verify units — much less setup, good for a visual
+   parity check): navigate to `http://127.0.0.1:8080/?renderer=three` (or without the param for
+   the Canvas2D path to compare against), click through `Modo teste` (bottom-left corner of the
+   title screen) → `Debug` → `Classic Tactical` → click a mission pin with combat (the Inn pin
+   has no `Entrar em combate` button — pick a different one, e.g. `Wisp Forest`) → `Entrar em
+   combate`, wait ~2.5s for the battle to mount, then screenshot. Compare screenshots between
+   `?renderer=three` and no param for the same mission pin to check parity directly.
+
+Delete throwaway debug scripts/screenshots from the repo root after use — don't leave them
+committed.
 
 The dev server should already be running on `http://127.0.0.1:8080/` (`npm run dev`, per
 `AGENTS.md`/`startup.sh` conventions) — check with `curl -s -o /dev/null -w "%{http_code}" ...`

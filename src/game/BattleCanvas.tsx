@@ -258,8 +258,10 @@ export function BattleCanvas({
           wrap.clientWidth,
           wrap.clientHeight,
           fx ? (px: number, py: number) => fx.lightBoostAt(px, py, (col, row) => engine.effectAnchor(col, row)) : undefined,
-          // ThreeBattleRenderer already draws ground/behind decorations itself — see its
-          // module comment and renderUnitsAndOverlays' skipGroundDecor doc.
+          // ThreeBattleRenderer already draws ground/behind decorations AND unit sprites
+          // itself — see its module comment and renderUnitsAndOverlays' skipGroundDecor/
+          // skipUnitSprites docs.
+          !!rendererThree,
           !!rendererThree,
         );
       }

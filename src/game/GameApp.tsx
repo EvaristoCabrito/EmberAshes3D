@@ -272,7 +272,6 @@ function hudBlank(): HudSnapshot {
     targetPrompt: null,
     zoom: 1,
     speedMode: "normal",
-    atmosphereFxOn: true,
     tip: null,
     inspected: null,
     pendingFoe: null,
@@ -1277,13 +1276,6 @@ export function GameApp() {
     setScreen("mapChoice");
   }, []);
 
-  // The Inn is entered from an already-running map session. Returning from it must preserve
-  // that map (and work the same in campaign and debug), not bounce through MapChoice where
-  // its Back button deliberately leads to the title/test menu.
-  const returnFromInn = useCallback(() => {
-    setScreen(mapMode === "rpg" ? "overworldMap" : "worldMap");
-  }, [mapMode]);
-
   const leaveBoot = useCallback(() => {
     // Entering the world map is a hard music boundary: do not leave intro.mp3 under it.
     playTheme("worldMap");
@@ -1715,7 +1707,7 @@ export function GameApp() {
             unlockAudio();
             setMutedUi((v) => !v);
           }}
-          onLeave={returnFromInn}
+          onLeave={goToMap}
           onBuyWeapon={(hero: string, weaponId: string) => {
             const rec = readMapSave();
             const w = WEAPONS[weaponId];
@@ -6122,14 +6114,13 @@ function BattleScreen({
 
   const unit: UnitPublic | null = hud.selected ?? hud.pendingFoe ?? hud.inspected;
   const statusUnit: UnitPublic | null = (browseId ? engine.publicUnit(browseId) : null) ?? unit;
-  const statusIsSummon = !!statusUnit && isSummonClass(statusUnit.classId);
-  const statusAllocation = statusUnit && !statusIsSummon
+  const statusAllocation = statusUnit
     ? (playtest ? playtestStatPointAllocations[statusUnit.name] ?? {} : save.statPointAllocations[statusUnit.name] ?? {})
     : {};
-  const unspentStatusPoints = statusUnit && !statusIsSummon
+  const unspentStatusPoints = statusUnit
     ? Math.max(0, (statusUnit.level - 1) * STAT_POINTS_PER_LEVEL - Object.values(statusAllocation).reduce((total, value) => total + (value ?? 0), 0))
     : 0;
-  const adjustStatusPoint = statusUnit?.side === "player" && !statusIsSummon
+  const adjustStatusPoint = statusUnit?.side === "player"
     ? (stat: StatPointAttribute, delta: 1 | -1) => {
         const unit = statusUnit;
         if (!playtest) return onAdjustStatPoint?.(unit.name, unit.id, stat, delta) ?? false;
@@ -6550,7 +6541,7 @@ function BattleScreen({
                 <img
                   src={portraitFor(unit.sprite).src}
                   alt=""
-                  className={portraitFor(unit.sprite).framed || isSummonClass(unit.classId) ? "h-16 w-12 sm:h-20 sm:w-14 object-cover rounded-md" : "h-14 w-14 object-contain"}
+                  className={portraitFor(unit.sprite).framed ? "h-16 w-12 sm:h-20 sm:w-14 object-cover rounded-md" : "h-14 w-14 object-contain"}
                 />
                 {unit.side === "player" && <HungerBar name={unit.name} value={unit.fullness} />}
               </button>
@@ -6779,15 +6770,6 @@ function BattleScreen({
                   {mode === "slow" ? "Lenta" : mode === "normal" ? "Normal" : "Rápida"}
                 </Button>
               ))}
-            </div>
-            <p className="text-xs uppercase tracking-[0.18em] text-muted mb-2">AtmosphereFX</p>
-            <div className="grid grid-cols-2 gap-1 mb-4">
-              <Button size="sm" variant={hud.atmosphereFxOn ? undefined : "quiet"} onClick={() => engine.setAtmosphereFx(true)}>
-                Ligado
-              </Button>
-              <Button size="sm" variant={!hud.atmosphereFxOn ? undefined : "quiet"} onClick={() => engine.setAtmosphereFx(false)}>
-                Desligado
-              </Button>
             </div>
             <div className="mb-4 border-t border-border pt-3">
               <button
@@ -7162,7 +7144,6 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
   const familiar1 = unit.classId === "familiar";
   const familiar2 = unit.classId === "familiar2";
   const familiar3 = unit.classId === "familiar3";
-  const familiar = familiar1 || familiar2 || familiar3;
   const condition = characterCondition(unit);
 
   return (
@@ -7279,7 +7260,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
           </div>
         </div>
 
-        {unit.side === "player" && !familiar && onAdjustStatPoint && (
+        {unit.side === "player" && onAdjustStatPoint && (
           <div className="mb-4 flex items-center gap-3 rounded-lg border border-accent/40 bg-bg px-3 py-2.5">
             <img src="/game/icons/stat-points-001.png" alt="" className="size-10 shrink-0 object-contain" />
             <div className="min-w-0">
@@ -7306,7 +7287,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
               ) : (
                 <p className="text-xs font-medium tabular-nums">{value}</p>
               )}
-              {stat && !familiar && onAdjustStatPoint ? (
+              {stat && onAdjustStatPoint ? (
                 <div className="mt-0.5 flex items-center justify-center gap-0.5">
                   <button
                     type="button"
