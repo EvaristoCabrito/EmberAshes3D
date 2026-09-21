@@ -73,6 +73,13 @@ export class AtmosphereRenderer {
   private time = 0;
   private profile: AtmosphereProfile = DEFAULT_ATMOSPHERE_PROFILE;
   private motes: Mote[] = [];
+  /** Last frame's panOffset, so render() can shift every mote by exactly this frame's camera
+   * delta before applying their own drift — see the panOffset comment on render() for why the
+   * haze/light-field pass doesn't need this (it samples world space directly) while the motes,
+   * which are simple 2D screen-space points, do: without it they'd sit still on screen while
+   * the camera pans, reading as drifting backward relative to the map instead of riding along
+   * with it. null until the first render() call establishes a baseline (no delta to apply yet). */
+  private lastPan: { x: number; y: number } | null = null;
 
   constructor(private canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", { alpha: true, antialias: false, premultipliedAlpha: false });
@@ -201,11 +208,17 @@ export class AtmosphereRenderer {
     this.time += dt;
     const p = this.profile;
 
-    // Dust/ash/mist motes drift in plain screen space and wrap at the edges — the point is a
-    // steady, automatic distribution across whatever the player is currently looking at, not
-    // a simulation pinned to the battlefield itself (see class doc for what IS world-space).
+    // Dust/ash/mist motes drift in screen space (their own vx/vy, wrapping at the viewport
+    // edges) but ride along with camera pans rather than sitting still on screen while the map
+    // moves under them — see lastPan's comment for why that shift is applied here rather than
+    // sampled in world space like the haze/light-field pass below.
+    const panDeltaX = this.lastPan ? panOffsetX - this.lastPan.x : 0;
+    const panDeltaY = this.lastPan ? panOffsetY - this.lastPan.y : 0;
+    this.lastPan = { x: panOffsetX, y: panOffsetY };
     const margin = 24;
     for (const m of this.motes) {
+      m.x += panDeltaX;
+      m.y += panDeltaY;
       m.x += m.vx * dt;
       m.y += m.vy * dt;
       m.phase += dt;
