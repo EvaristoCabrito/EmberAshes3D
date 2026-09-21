@@ -536,6 +536,18 @@ export function BattleCanvas({
     };
   }, [engine, onHud, paused]);
 
+  // Mission.mistType === "vignette" (Map Editor's "Tipo de névoa") turns this from the always-on
+  // subtle diorama edge shading into an author-controlled hazy corner effect, driven by the same
+  // Névoa slider/intensity that would otherwise drive the world-space mist systems — see
+  // ThreeAtmosphere.ts's own comment on why "vignette" forces both of those to zero instead of
+  // stacking with this. Screen-space, tied to the viewport rather than world position, so the
+  // center (where the actual battle happens) is always guaranteed clear by construction — it
+  // never grows past clearRadius no matter how high intensity goes.
+  const isVignetteMist = engine.mission.mistType === "vignette";
+  const vignetteIntensity = engine.mission.mistIntensity ?? 0.5;
+  const vignetteAlpha = isVignetteMist ? Math.min(0.92, 0.18 + vignetteIntensity * 0.7) : 0.4;
+  const vignetteClearRadius = isVignetteMist ? Math.max(38, 62 - vignetteIntensity * 20) : 52;
+
   return (
     <div ref={wrapRef} className="relative h-full w-full min-h-0 touch-none">
       <canvas ref={canvasRef} className="block h-full w-full touch-none" />
@@ -557,7 +569,7 @@ export function BattleCanvas({
       <div
         className="pointer-events-none absolute inset-0"
         style={{
-          background: "radial-gradient(130% 130% at 50% 42%, transparent 52%, rgba(4,5,10,0.4) 100%)",
+          background: `radial-gradient(130% 130% at 50% 42%, transparent ${vignetteClearRadius}%, rgba(4,5,10,${vignetteAlpha}) 100%)`,
           mixBlendMode: "multiply",
         }}
       />

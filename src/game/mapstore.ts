@@ -52,6 +52,24 @@ export interface MapDraft {
   /** True to play this map under fog of war — see Mission.fog. Absent on every map
    * saved before fog existed, which reads as off. */
   fog?: boolean;
+  /** See Mission.environment/sunIntensity/ambientIntensity — real-3D-renderer lighting
+   * controls, author-tunable per map so the editor is the one place these live, not a
+   * source-code table only a developer can touch. */
+  environment?: "outdoor" | "indoor";
+  sunIntensity?: number;
+  ambientIntensity?: number;
+  /** See Mission.mistIntensity. */
+  mistIntensity?: number;
+  /** See Mission.mistType. */
+  mistType?: "mist2" | "mist3" | "vignette";
+  /** See Mission.mistSpeed. */
+  mistSpeed?: number;
+  /** See Mission.wispIntensity. */
+  wispIntensity?: number;
+  /** See Mission.wispSpeed. */
+  wispSpeed?: number;
+  /** See Mission.wispColor. */
+  wispColor?: number;
   /** Which world map location this map hangs off, by WorldLocation.id — "" for a map
    * that shouldn't appear on the map at all. A map already reachable through its
    * scenario's own location keeps showing up there whatever this says; this is what
@@ -180,6 +198,15 @@ export function draftToMission(d: MapDraft): Mission {
     hub: d.hub || undefined,
     autoTactics: d.autoTactics ? undefined : false,
     fog: d.fog ? true : undefined,
+    environment: d.environment === "indoor" ? "indoor" : undefined,
+    sunIntensity: typeof d.sunIntensity === "number" ? d.sunIntensity : undefined,
+    ambientIntensity: typeof d.ambientIntensity === "number" ? d.ambientIntensity : undefined,
+    mistIntensity: typeof d.mistIntensity === "number" ? d.mistIntensity : undefined,
+    mistSpeed: typeof d.mistSpeed === "number" ? d.mistSpeed : undefined,
+    mistType: d.mistType === "mist3" || d.mistType === "vignette" ? d.mistType : undefined,
+    wispIntensity: typeof d.wispIntensity === "number" ? d.wispIntensity : undefined,
+    wispSpeed: typeof d.wispSpeed === "number" ? d.wispSpeed : undefined,
+    wispColor: typeof d.wispColor === "number" ? d.wispColor : undefined,
     introDialog: d.introDialog,
     introDialogEnabled: d.introDialogEnabled,
     outroDialog: d.outroDialog,

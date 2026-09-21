@@ -355,6 +355,49 @@ export interface Mission {
    * every mission shipped before fog existed plays exactly as it always did — the
    * flag is for dungeon levels built around not seeing what is coming. */
   fog?: boolean;
+  /** "indoor" softens the sun to a flat ambient wash (no strong directional shadows) — for
+   * missions set inside buildings/dungeons where a raking outdoor sun makes no sense. Missions
+   * without this set play "outdoor" (today's default look), so nothing shipped changes. */
+  environment?: "outdoor" | "indoor";
+  /** DirectionalLight ("sun") intensity override, for the Three renderer only. Undefined uses
+   * the renderer's own default. Author-tunable per mission because "how strong should the light
+   * and its shadows read" turned out to need a per-map answer, not one global constant. */
+  sunIntensity?: number;
+  /** HemisphereLight (sky/ground fill) intensity override, same reasoning as sunIntensity —
+   * undefined uses the renderer's own default. */
+  ambientIntensity?: number;
+  /** Ground-mist peak opacity, Three renderer only (see ThreeAtmosphere.ts) — undefined or 0
+   * means no mist at all, which is every mission shipped before this existed. Deliberately not
+   * exposed above a modest ceiling in the editor (see GameApp.tsx's slider max) — a real,
+   * author-controlled value now, not a hardcoded per-mission-id table. */
+  mistIntensity?: number;
+  /** Which mist implementation this mission uses:
+   *  - "mist2" (default): real Three.js world-space planes using a smooth pre-baked noise
+   *    texture, spread across the whole battlefield (see ThreeAtmosphere.ts's GroundMist).
+   *  - "mist3": the earlier real Three.js world-space InstancedMesh "puff" implementation
+   *    (large soft drifting circles) — kept available as its own selectable option, not
+   *    deleted, per direct instruction (see ThreeAtmosphere.ts's GroundMistPuffs).
+   *  - "vignette": a screen-space haze concentrated at the four corners only, center always
+   *    clear (see BattleCanvas.tsx's corner-vignette CSS div, extended to read
+   *    mistIntensity/mistColor when this is set).
+   * Undefined defaults to "mist2", so nothing shipped changes by default. */
+  mistType?: "mist2" | "mist3" | "vignette";
+  /** Speed multiplier for the mist's drift — 1.0 is the renderer's own default pace, same
+   * reasoning as wispSpeed: never needs a code change to retune again. */
+  mistSpeed?: number;
+  /** 0-1 dial for the rising-ember "wisp" particle count, Three renderer only (see
+   * ThreeAtmosphere.ts) — 0 or undefined means none, every mission shipped before this existed.
+   * A dial, not a raw instance count, so the editor slider stays meaningful regardless of how
+   * the renderer scales it internally. */
+  wispIntensity?: number;
+  /** Speed multiplier for the wisp rise/drift/fade cycle — 1.0 is the renderer's own default
+   * pace, lower is slower, higher is faster. Author-controlled so "how fast should this feel"
+   * never needs a code change again. */
+  wispSpeed?: number;
+  /** Fixed wisp color (0xRRGGBB) — no automatic mixing toward the sun/ambient light color, on
+   * direct instruction: the author picks the exact color, full stop. Undefined uses the
+   * renderer's own default (a warm ember orange). */
+  wispColor?: number;
   /** Which art variant to use per tile, row-major, same indexing as layout flattened.
    * Missing/undefined index or omitted array entirely means variant 0 (the default) —
    * existing missions never set this and keep rendering exactly as before. */

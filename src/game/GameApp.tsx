@@ -5,6 +5,7 @@ import { loadGameArt, portraitFor, TILE_VARIANT_COUNT, tileVariantName, tileVari
 import { getAudioVolumes, installAudioUnlock, playFile, playMenuMusic, playTheme, resumeAudio, setCutsceneVolume, setMusicVolume, setMuted, setSfxVolume, sfxPlay, stopMusic, unlockAudio } from "./audio";
 import { BattleCanvas } from "./BattleCanvas";
 import { ELEMENT_LABELS, PLACEABLE_ELEMENT_KINDS, type PlaceableElementKind } from "./gfx/params";
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from "./gfx/three/ThreeBattleRenderer";
 import { InnScreen } from "./InnScreen";
 import { PartyInventoryOverlay, ItemTip } from "./InventoryScreens";
 import { DialogOverlay } from "./DialogOverlay";
@@ -2861,6 +2862,15 @@ function blankDraft(): MapDraft {
     hub: false,
     autoTactics: true,
     fog: false,
+    environment: "outdoor",
+    sunIntensity: DEFAULT_SUN_INTENSITY,
+    ambientIntensity: DEFAULT_AMBIENT_INTENSITY,
+    mistIntensity: 0.5,
+    mistSpeed: 1,
+    mistType: "mist2",
+    wispIntensity: 0.3,
+    wispSpeed: 1,
+    wispColor: 0xffa552,
     locationId: "",
     cols: EDITOR_COLS_DEFAULT,
     rows: EDITOR_ROWS_DEFAULT,
@@ -2905,6 +2915,15 @@ function missionToDraft(m: Mission): MapDraft {
     hub: !!m.hub,
     autoTactics: m.autoTactics !== false,
     fog: m.fog === true,
+    environment: m.environment === "indoor" ? "indoor" : "outdoor",
+    sunIntensity: m.sunIntensity ?? DEFAULT_SUN_INTENSITY,
+    ambientIntensity: m.ambientIntensity ?? DEFAULT_AMBIENT_INTENSITY,
+    mistIntensity: m.mistIntensity ?? 0.5,
+    mistSpeed: m.mistSpeed ?? 1,
+    mistType: m.mistType ?? "mist2",
+    wispIntensity: m.wispIntensity ?? 0.3,
+    wispSpeed: m.wispSpeed ?? 1,
+    wispColor: m.wispColor ?? 0xffa552,
     locationId: locationForMission(m.id)?.id ?? "",
     cols: m.cols,
     rows: m.rows,
@@ -4695,6 +4714,126 @@ function MapEditorScreen({
             />
             <span className="text-muted">Névoa de guerra</span>
           </label>
+        </div>
+
+        <div className="flex flex-col gap-2 mt-3 p-3 rounded-md border border-border bg-bg/40">
+          <span className="text-xs uppercase tracking-wide text-muted">Iluminação</span>
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-muted w-28 shrink-0">Ambiente</span>
+            <select
+              className="bg-bg border border-border rounded-md px-2 py-1 flex-1"
+              value={draft.environment ?? "outdoor"}
+              onChange={(e) => {
+                const environment = e.target.value === "indoor" ? "indoor" : "outdoor";
+                setDraft((d) => ({ ...d, environment }));
+              }}
+            >
+              <option value="outdoor">Externo (sol forte, sombras marcadas)</option>
+              <option value="indoor">Interno (luz suave, sem sol direto)</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm" title="Força da luz do sol e de suas sombras — vai até um extremo de propósito">
+            <span className="text-muted w-28 shrink-0">Intensidade do sol</span>
+            <input
+              type="range"
+              min={0}
+              max={6}
+              step={0.1}
+              className="flex-1"
+              value={draft.sunIntensity ?? DEFAULT_SUN_INTENSITY}
+              onChange={(e) => setDraft((d) => ({ ...d, sunIntensity: Number(e.target.value) }))}
+            />
+            <span className="text-muted text-xs w-10 text-right">{(draft.sunIntensity ?? DEFAULT_SUN_INTENSITY).toFixed(2)}</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm" title="Luz de preenchimento geral — vai até um extremo de propósito">
+            <span className="text-muted w-28 shrink-0">Luz ambiente</span>
+            <input
+              type="range"
+              min={0}
+              max={4}
+              step={0.1}
+              className="flex-1"
+              value={draft.ambientIntensity ?? DEFAULT_AMBIENT_INTENSITY}
+              onChange={(e) => setDraft((d) => ({ ...d, ambientIntensity: Number(e.target.value) }))}
+            />
+            <span className="text-muted text-xs w-10 text-right">{(draft.ambientIntensity ?? DEFAULT_AMBIENT_INTENSITY).toFixed(2)}</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm" title="Qual implementação de névoa esta missão usa">
+            <span className="text-muted w-28 shrink-0">Tipo de névoa</span>
+            <select
+              className="bg-bg border border-border rounded-md px-2 py-1 flex-1"
+              value={draft.mistType ?? "mist2"}
+              onChange={(e) => setDraft((d) => ({ ...d, mistType: e.target.value as "mist2" | "mist3" | "vignette" }))}
+            >
+              <option value="mist2">Névoa 2 (textura suave, mundo inteiro)</option>
+              <option value="mist3">Névoa 3 (nuvens grandes flutuantes)</option>
+              <option value="vignette">Vinheta (só nos cantos, centro sempre limpo)</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm" title="Névoa, só na batalha real (não aparece nesta prévia) — 1.0 é bem pesada de propósito">
+            <span className="text-muted w-28 shrink-0">Névoa</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.02}
+              className="flex-1"
+              value={draft.mistIntensity ?? 0}
+              onChange={(e) => setDraft((d) => ({ ...d, mistIntensity: Number(e.target.value) }))}
+            />
+            <span className="text-muted text-xs w-10 text-right">{(draft.mistIntensity ?? 0).toFixed(2)}</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm" title="Velocidade da deriva da névoa — 1.0 é o ritmo padrão">
+            <span className="text-muted w-28 shrink-0">Vel. da névoa</span>
+            <input
+              type="range"
+              min={0.1}
+              max={4}
+              step={0.05}
+              className="flex-1"
+              value={draft.mistSpeed ?? 1}
+              onChange={(e) => setDraft((d) => ({ ...d, mistSpeed: Number(e.target.value) }))}
+            />
+            <span className="text-muted text-xs w-10 text-right">{(draft.mistSpeed ?? 1).toFixed(2)}</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm" title="Partículas de brasa/wisp subindo, só na batalha real — 1.0 é uma tempestade delas de propósito">
+            <span className="text-muted w-28 shrink-0">Wisps</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.02}
+              className="flex-1"
+              value={draft.wispIntensity ?? 0}
+              onChange={(e) => setDraft((d) => ({ ...d, wispIntensity: Number(e.target.value) }))}
+            />
+            <span className="text-muted text-xs w-10 text-right">{(draft.wispIntensity ?? 0).toFixed(2)}</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm" title="Velocidade da subida/deriva/desaparecimento dos wisps — 1.0 é o ritmo padrão">
+            <span className="text-muted w-28 shrink-0">Velocidade</span>
+            <input
+              type="range"
+              min={0.1}
+              max={4}
+              step={0.05}
+              className="flex-1"
+              value={draft.wispSpeed ?? 1}
+              onChange={(e) => setDraft((d) => ({ ...d, wispSpeed: Number(e.target.value) }))}
+            />
+            <span className="text-muted text-xs w-10 text-right">{(draft.wispSpeed ?? 1).toFixed(2)}</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm" title="Cor exata dos wisps — sem mistura automática com a luz da cena">
+            <span className="text-muted w-28 shrink-0">Cor dos wisps</span>
+            <input
+              type="color"
+              className="h-8 w-14 bg-bg border border-border rounded-md p-0.5"
+              value={`#${(draft.wispColor ?? 0xffa552).toString(16).padStart(6, "0")}`}
+              onChange={(e) => setDraft((d) => ({ ...d, wispColor: Number.parseInt(e.target.value.slice(1), 16) }))}
+            />
+          </label>
+          <p className="text-xs text-muted">
+            Estes controles só valem para a batalha de verdade (ou "Testar"/Playtest) — esta prévia usa o renderizador 2D antigo e não muda com eles.
+          </p>
         </div>
 
         <div className="flex items-center gap-2 text-sm">

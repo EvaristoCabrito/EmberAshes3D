@@ -6,10 +6,13 @@
  * ground/terrain canvas and everything meant to draw under a unit, never anything meant to draw
  * in front of one (see BattleCanvas.tsx).
  *
- * MILESTONE 2 (in progress) — real DirectionalLight + AmbientLight-ish HemisphereLight, and real
- * cast shadows from invisible per-unit/per-decoration boxes with a synthetic elevation (see
- * shadowCasterMaterial/updateSun and THREEJS_MILESTONE2_HANDOFF.md) — no fog, no bloom, no
- * particles yet, those are later milestones.
+ * MILESTONE 2 (done) — real DirectionalLight + AmbientLight-ish HemisphereLight, and real cast
+ * shadows from invisible per-unit/per-decoration boxes with a synthetic elevation (see
+ * shadowCasterMaterial/updateSun and THREEJS_MILESTONE2_HANDOFF.md).
+ *
+ * MILESTONE 3 (in progress) — real world-space ground mist + GPU-instanced drift particles (see
+ * ThreeAtmosphere.ts, which owns this entirely — this file only constructs it, syncs it once per
+ * frame, and disposes it). No bloom/post-processing yet, that's Milestone 4.
  *
  * ARCHITECTURE: every tile mesh is built ONCE at its fixed WORLD position (the same formula
  * BattleEngine.effectAnchor already uses for worldX/worldY) and never moves again. Camera
@@ -39,6 +42,7 @@ import type { BattleEngine } from "../../engine";
 import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECORATIONS, HOUSE_DECOR_IDS, decorationFacing, decorationImage, placedFootprint } from "../../data";
 import { tileAt } from "../../pathfinding";
 import type { DecorationDef, DecorationPlacement, TerrainId } from "../../types";
+import { ThreeAtmosphere } from "./ThreeAtmosphere";
 
 const SQRT3 = Math.sqrt(3);
 /** Must match BattleEngine's private boardPad() (tile * 2.4) — duplicated here rather than
@@ -63,6 +67,20 @@ const DECOR_SHADOW_HEIGHT_SCALE = 0.9;
  * desired (0.6H, -0.8H) offset with dir.z=-1 gives dir.x=0.6, dir.y=-0.8 exactly. */
 const SUN_DIRECTION = new THREE.Vector3(0.6, -0.8, -1).normalize();
 const SUN_DISTANCE = 2000;
+
+/** Default sun/ambient intensities, used whenever a mission doesn't set its own
+ * `sunIntensity`/`ambientIntensity` (see types.ts) — also what the Map Editor's "Iluminação"
+ * sliders default a new/untouched map to (see GameApp.tsx), so the editor's default and the
+ * renderer's fallback can never drift apart. Lowered from the original 1.8/0.45 after the user
+ * found the shadow contrast "too intense" in play — still readable, less harsh. */
+export const DEFAULT_SUN_INTENSITY = 1.1;
+export const DEFAULT_AMBIENT_INTENSITY = 0.5;
+/** "indoor" environment preset (see Mission.environment): a raking outdoor sun makes no sense
+ * inside a building, so indoor missions get a much weaker directional light and a much stronger
+ * ambient fill instead — flatter, but not fully unlit. Only applied when the mission doesn't
+ * also set an explicit sunIntensity/ambientIntensity of its own. */
+const INDOOR_SUN_INTENSITY = 0.35;
+const INDOOR_AMBIENT_INTENSITY = 0.65;
 
 /** Same formula as BattleEngine.effectAnchor's worldX/worldY — a hex's position independent of
  * camera pan. Duplicated (not imported) because effectAnchor is keyed to the engine's live
@@ -211,9 +229,9 @@ export class ThreeBattleRenderer {
   // decorations) live on shadowCasterGroup — visible=true (required: WebGLShadowMap skips
   // object.visible===false entirely, so this can't be used to hide them — see
   // shadowCasterMaterial's own comment for how invisibility is actually achieved instead).
-  // Intensities tuned so the sun's shadow actually reads against the terrain art instead of
-  // disappearing into it — at the original 0.7/0.55 the whole board rendered near-black and the
-  // cast shadows were indistinguishable from unlit ground (see chat thread that caught this).
+  // Intensity args here are placeholders — the constructor immediately overrides both from
+  // Mission.sunIntensity/ambientIntensity (or DEFAULT_SUN_INTENSITY/DEFAULT_AMBIENT_INTENSITY),
+  // see that assignment's own comment.
   private hemiLight = new THREE.HemisphereLight(0xfff2df, 0x14110d, 0.45);
   private sunLight = new THREE.DirectionalLight(0xfff0d6, 1.8);
   private shadowCasterGroup = new THREE.Group();
@@ -267,6 +285,13 @@ export class ThreeBattleRenderer {
   private unitTexCache = new Map<HTMLImageElement, THREE.Texture>();
   private unitEntries = new Map<string, UnitMeshEntry>();
 
+  // MILESTONE 3 — real world-space ground mist + drift particles, owned end-to-end by
+  // ThreeAtmosphere (see that file's header comment for why scene.fog isn't used and why this
+  // sits at Z > 3, strictly above every mesh above). lastFrameTime is only for this: nothing
+  // else in the file needs a real dt (render() takes cssW/cssH only, see its own comment).
+  private atmosphere = new ThreeAtmosphere();
+  private lastFrameTime = performance.now();
+
   constructor(
     canvas: HTMLCanvasElement,
     private engine: BattleEngine,
@@ -279,6 +304,13 @@ export class ThreeBattleRenderer {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.camera = new THREE.OrthographicCamera(0, 1, 0, 1, 0.1, 2000);
     this.camera.position.z = 100;
+    // Author-controlled lighting (Mission.environment/sunIntensity/ambientIntensity, editable in
+    // the Map Editor's "Iluminação" section — see GameApp.tsx) — an explicit sunIntensity/
+    // ambientIntensity always wins; otherwise "indoor" gets its own flatter preset, and anything
+    // else (including missing/"outdoor") gets the renderer's own default.
+    const indoor = engine.mission.environment === "indoor";
+    this.sunLight.intensity = engine.mission.sunIntensity ?? (indoor ? INDOOR_SUN_INTENSITY : DEFAULT_SUN_INTENSITY);
+    this.hemiLight.intensity = engine.mission.ambientIntensity ?? (indoor ? INDOOR_AMBIENT_INTENSITY : DEFAULT_AMBIENT_INTENSITY);
     this.sunLight.castShadow = true;
     // 2048, not 1024 — casters are small boxes (a fraction of a unit's own width), so a coarser
     // map under-resolves them into faint/noisy blobs even at full light intensity.
@@ -292,6 +324,7 @@ export class ThreeBattleRenderer {
     this.scene.add(this.overlayGroup);
     this.scene.add(this.decorGroup);
     this.scene.add(this.unitGroup);
+    this.scene.add(this.atmosphere.group);
   }
 
   /** Aims the sun so its fixed-direction shadow follows whatever's actually on screen (camera
@@ -718,6 +751,13 @@ export class ThreeBattleRenderer {
     this.syncDecorVisibility();
     this.syncOverlay(tile);
     this.syncUnits(tile);
+    // MILESTONE 3 — dt derived locally (render() itself only ever receives cssW/cssH, see this
+    // method's own comment) since the mist noise drift and particle GPU animation are the only
+    // things in this file that need real elapsed time rather than per-frame engine state.
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - this.lastFrameTime) / 1000);
+    this.lastFrameTime = now;
+    this.atmosphere.sync(this.engine, tile, dt, this.sunLight, this.hemiLight);
     // The camera moves; the tiles never do — see module comment. This is the one line that
     // has to run every frame for panning/zooming to work. Y is `-camY - cssH` to match the
     // mesh placement's own Y-negation (see module comment) — verified numerically to
@@ -730,6 +770,7 @@ export class ThreeBattleRenderer {
   }
 
   dispose(): void {
+    this.atmosphere.dispose();
     this.hexGeo.dispose();
     this.quadGeo.dispose();
     this.fallbackMaterial.dispose();

@@ -4422,6 +4422,15 @@ export class BattleEngine {
     return hexDef(this.tiles, this.cols, x, y, this.decorOverlay);
   }
 
+  /** Real elevation for the Three renderer's terrain mesh — the same consolidated
+   * high-ground flag (painted `hill` terrain or a decoration's `yieldsHighGround` switch,
+   * see hexprops.ts) every combat/LOS rule already reads through hexAt, exposed read-only
+   * so terrain geometry can be generated FROM this gameplay data instead of a second,
+   * possibly-drifting copy of it. */
+  hexElevated(x: number, y: number): boolean {
+    return !!this.hexAt(x, y).height;
+  }
+
   /** Refold the decoration switches. Call after anything adds or removes a prop. */
   private refreshDecorOverlay(): void {
     this.decorOverlay = buildDecorOverlay(this.decorations, this.cols, this.rows, placedFootprint);
