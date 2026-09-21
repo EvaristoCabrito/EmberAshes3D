@@ -445,7 +445,13 @@ const MIST4_FRAGMENT = /* glsl */ `
     vec2 distFromCenter = abs(vWorldXY - uBoardCenter);
     vec2 distFromEdge = uBoardHalfSize - distFromCenter; // positive = inside the board
     float minDistFromEdge = min(distFromEdge.x, distFromEdge.y);
-    float borderMask = 1.0 - smoothstep(0.0, uBorderThickness, minDistFromEdge);
+    // pow() on top of the smoothstep — a plain smoothstep still reads as a defined edge ("an
+    // invisible wall", direct feedback) because most of its ramp happens over a short middle
+    // stretch. Squaring pushes the falloff into a long, gradual tail instead, and the final
+    // 0.55 multiply caps how strong it ever gets even right at the true edge — weak and natural,
+    // not a wall, per direct instruction.
+    float rawMask = 1.0 - smoothstep(0.0, uBorderThickness, minDistFromEdge);
+    float borderMask = pow(rawMask, 2.2) * 0.55;
 
     // Swirl: rotate the noise-sampling UV by an angle that depends on distance-from-edge and
     // time — real spiraling motion, strongest right at the edge, fading out with the mask.
@@ -503,17 +509,27 @@ class GroundMist4 {
       const { w, h } = boardSize(cols, rows, tile);
       const cx = w / 2;
       const cy = h / 2;
+      // THE BUG: boardSize()'s h includes an empty top-only padding strip (boardPad = tile *
+      // BOARD_PAD_MUL, above row 0 — there's no equivalent bottom pad) that isn't real terrain
+      // at all. Using cy/h/2 as the mask's vertical center/half-size treated that empty strip as
+      // part of the "interior", which is why the border showed up sitting over a void gap
+      // instead of hugging the actual edge of the playable hexes ("a whole void hex on top",
+      // direct feedback). trueTopY/trueHalfHeightY below are computed from the REAL terrain
+      // extent instead, excluding that padding.
+      const trueTopY = tile * BOARD_PAD_MUL;
+      const trueCenterY = (trueTopY + h) / 2;
+      const trueHalfHeightY = (h - trueTopY) / 2;
       // Overscan is much larger than Mist 2/3's 1.15x — the visible fog only ever lives in the
       // outer border band anyway (masked in-shader), so this just needs to comfortably cover
       // that band at any board size, not hug the board tightly.
       this.mesh.scale.set(w * 1.6, h * 1.6, 1);
       this.mesh.position.set(cx, -cy, GroundMist4.BASE_Z + tier.mistHeight * 0.3);
-      (this.material.uniforms.uBoardCenter!.value as THREE.Vector2).set(cx, -cy);
-      (this.material.uniforms.uBoardHalfSize!.value as THREE.Vector2).set(w / 2, h / 2);
-      // ~2.5 hex-widths deep, scaling with zoom (tile) but NOT with board size — this is what
-      // keeps the band genuinely thin on any map, large or small (see the fragment shader's own
-      // comment on the bug this replaces).
-      this.material.uniforms.uBorderThickness!.value = tile * 2.5;
+      (this.material.uniforms.uBoardCenter!.value as THREE.Vector2).set(cx, -trueCenterY);
+      (this.material.uniforms.uBoardHalfSize!.value as THREE.Vector2).set(w / 2, trueHalfHeightY);
+      // Widened from 2.5x to 5x tile — combined with the fragment shader's now-squared falloff
+      // curve, this spreads the fade over a much longer, gentler stretch instead of a short,
+      // defined band that read as a hard edge. Still scales with zoom (tile), not board size.
+      this.material.uniforms.uBorderThickness!.value = tile * 5;
     }
     (this.material.uniforms.uColor!.value as THREE.Color).setHex(tier.mistColor);
     this.material.uniforms.uAlpha!.value = tier.mistIntensity;
