@@ -60,38 +60,37 @@ export interface AtmosphereProfile {
   vignette: number;
 }
 
-/** Deliberately exaggerated per the first-implementation-test requirement: this must be
- * obvious the instant a map loads, with no spell cast and nothing manually placed. Once the
- * system reads correctly, a map can dial its own `atmosphere` override toward something
- * subtler without touching this shared default. */
+/** Subtle by default: the point is a battlefield that feels alive at a glance, not a wash of
+ * fog over the map. A mission can push its own `atmosphere` override stronger (storm, ash-fall,
+ * heavy fog) without touching this shared default. */
 export const DEFAULT_ATMOSPHERE_PROFILE: AtmosphereProfile = {
   ambientColor: [0.55, 0.62, 0.86],
-  ambientIntensity: 0.4,
-  exposure: 1.2,
+  ambientIntensity: 0.08,
+  exposure: 1.0,
 
   lightFieldScale: 0.85,
   lightFieldSpeed: 0.045,
-  lightFieldContrast: 0.6,
+  lightFieldContrast: 0.25,
 
-  hazeDensity: 0.55,
+  hazeDensity: 0.12,
   hazeScale: 1.7,
   hazeSpeed: 0.1,
   hazeColor: [0.78, 0.82, 0.92],
 
-  volumetricIntensity: 0.5,
+  volumetricIntensity: 0.12,
   volumetricAngle: 0.4,
   volumetricSpeed: 0.05,
   volumetricColor: [1.0, 0.93, 0.78],
 
-  particleCount: 140,
+  particleCount: 60,
   particleSpeed: 16,
-  particleSize: 2.4,
+  particleSize: 2.0,
   particleColor: [0.92, 0.92, 0.88],
 
-  bloomThreshold: 0.32,
-  bloomStrength: 1.7,
+  bloomThreshold: 0.75,
+  bloomStrength: 0.35,
 
-  contrast: 1.08,
-  saturation: 1.04,
-  vignette: 0.3,
+  contrast: 1.03,
+  saturation: 1.02,
+  vignette: 0.12,
 };
