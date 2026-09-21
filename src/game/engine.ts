@@ -7743,10 +7743,13 @@ export class BattleEngine {
     this.renderBoardOverlays(ctx, cssW, cssH);
   }
 
-  /** See renderGround's call site for why this is a separate method: it used to be the tail
-   * end of renderGround, inlined, but ThreeBattleRenderer replaces renderGround wholesale
-   * instead of calling it, and needs this part on its own dedicated overlay canvas (units still
-   * have to render on top of the reach/attack highlight, same as the Canvas2D path). */
+  /** Canvas2D drawing for the movement/attack/spell-range highlight + active-turn ring — used
+   * by the legacy `?renderer=legacy` path only (via renderGround's call site below). Split out
+   * of renderGround as its own method because it used to be that function's inlined tail end,
+   * and the actual cell/color decisions now live in boardOverlayLayers/activeTurnHighlight so
+   * ThreeBattleRenderer can render the same highlight as real world-space geometry instead
+   * (see ThreeBattleRenderer.syncOverlay) — this method is just the Canvas2D fill+glow+stroke
+   * treatment on top of that shared data. */
   renderBoardOverlays(ctx: any, cssW: number, cssH: number): void {
     const { tile } = this.layout;
     const shake = this.frameShakeDx !== 0 || this.frameShakeDy !== 0;
@@ -7760,15 +7763,7 @@ export class BattleEngine {
     // breathes (same sine pulse as the active-turn-unit ring above) rather than sitting
     // static, the classic tactics-RPG "selectable tile" look.
     const glowPulse = this.reducedMotion ? 1 : 0.72 + Math.sin(this.time * 3.2) * 0.28;
-    // `glow` defaults on for every existing caller. Dreaming Web's own persistent floor
-    // patch (a separate WebGL layer, see BattleCanvas's webFloorIds sync) already lights a
-    // webbed hex with its own breathing glow — stacking this overlay's full shadowBlur+bright
-    // rim on top of that, on every hex of a zone that can easily be a dozen-plus hexes and
-    // sits lit for several whole rounds (unlike a one-shot spell flash that's gone before
-    // anyone can really look at it), is what read as the movement highlight suddenly
-    // "blowing out" right after casting it. Passing false keeps the flat fill — still marks
-    // the hex as walkable — but drops the glow that was doubling up on the web's own.
-    const overlay = (cells: Iterable<Point>, fill: string, glow = true) => {
+    const drawLayer = (cells: Point[], fill: string, glow: boolean) => {
       const rgb = /rgba?\(([^),]+),([^),]+),([^),]+)/.exec(fill);
       const [r, g, b] = rgb ? [rgb[1]!.trim(), rgb[2]!.trim(), rgb[3]!.trim()] : ["255", "255", "255"];
       ctx.save();
@@ -7785,164 +7780,12 @@ export class BattleEngine {
       }
       ctx.restore();
     };
-
-    for (const zone of this.auraZones) {
-      const cells = [...zone.cells].map((k) => {
-        const [x, y] = k.split(",").map(Number);
-        return { x: x!, y: y! };
-      });
-      overlay(cells, zone.kind === "protection" ? "rgba(150,210,255,0.3)" : "rgba(220,90,70,0.3)");
-    }
-
-    if (this.mode === "idle" && this.threat.length) overlay(this.threat, "rgba(220,120,90,0.5)");
-
-    if (this.mode === "awaitPotion") {
-      const selected = this.units.find((u) => u.id === this.selectedId);
-      if (selected) {
-        const range = [{ x: selected.x, y: selected.y }, ...hexNeighbors(selected.x, selected.y)].filter((c) =>
-          this.validPotionTarget(selected, c),
-        );
-        overlay(range, "rgba(150,210,170,0.45)");
-        const cell = this.hover;
-        if (cell && this.validPotionTarget(selected, cell)) overlay([cell], "rgba(170,230,180,0.55)");
-      }
-    }
-
-    if (this.mode === "awaitSpell") {
-      const selected = this.units.find((u) => u.id === this.selectedId);
-      if (selected && this.spellKind === "fireball") {
-        overlay(fireballRangeTiles(selected, this.cols, this.rows), "rgba(235,140,70,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && manhattan(selected, cell) <= FIREBALL.range) {
-          overlay(fireballTiles(fireballOrigin(cell, this.cols, this.rows), this.cols, this.rows), "rgba(235,140,70,0.55)");
-        }
-      } else if (selected && this.spellKind === "causticVenom") {
-        overlay(this.healRangeTiles(selected, CAUSTIC_VENOM.range), "rgba(200,210,90,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && manhattan(selected, cell) <= CAUSTIC_VENOM.range) {
-          overlay(hexAreaTiles(fireballOrigin(cell, this.cols, this.rows), CAUSTIC_VENOM.size, this.cols, this.rows), "rgba(200,210,90,0.55)");
-        }
-      } else if (selected && this.spellKind === "sweep") {
-        overlay(this.sweepTiles(selected), "rgba(220,150,70,0.5)");
-      } else if (selected && this.spellKind === "longShot") {
-        const reach: Point[] = [];
-        const max = this.longMax(selected);
-        for (let y = 0; y < this.rows; y++) {
-          for (let x = 0; x < this.cols; x++) {
-            const d = manhattan(selected, { x, y });
-            if (d >= selected.minRange && d <= max) reach.push({ x, y });
-          }
-        }
-        overlay(reach, "rgba(210,190,90,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(230,200,100,0.55)");
-      } else if (selected && this.spellKind === "piercing") {
-        overlay(allAxisRays(selected, this.cols, this.rows), "rgba(220,160,70,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        const line = cell ? this.piercingRay(selected, cell) : null;
-        if (line) overlay(line, "rgba(235,170,80,0.55)");
-      } else if (selected && this.spellKind === "piercingThrust") {
-        overlay(this.healRangeTiles(selected, selected.maxRange + 1), "rgba(220,160,80,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        const line = cell ? this.piercingThrustRay(selected, cell) : null;
-        if (line) overlay(line, "rgba(235,175,90,0.55)");
-      } else if (selected && (this.spellKind === "doubleStrike" || this.spellKind === "trip" || this.spellKind === "lifeDrain")) {
-        overlay(this.healRangeTiles(selected, selected.maxRange), "rgba(220,120,80,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(235,120,80,0.55)");
-      } else if (selected && this.spellKind === "cleave") {
-        overlay(hexNeighbors(selected.x, selected.y), "rgba(220,120,80,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        const arc = cell ? cleaveHexes(selected, cell, CLEAVE.hexes, this.cols, this.rows) : [];
-        if (arc.length) overlay(arc, "rgba(235,120,80,0.55)");
-      } else if (selected && this.spellKind === "summonFamiliar") {
-        overlay(this.healRangeTiles(selected, SUMMON_FAMILIAR.range), "rgba(180,150,235,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(200,170,245,0.55)");
-      } else if (selected && this.spellKind === "summonFamiliar2") {
-        overlay(this.healRangeTiles(selected, SUMMON_FAMILIAR2.range), "rgba(180,150,235,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(200,170,245,0.55)");
-      } else if (selected && this.spellKind === "summonFamiliar3") {
-        overlay(this.healRangeTiles(selected, SUMMON_FAMILIAR3.range), "rgba(180,150,235,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        // Preview the full 6-hex silhouette he'd actually land on, not just the anchor tile.
-        if (cell && this.spellAimValid(selected, cell)) overlay(footprint({ x: cell.x, y: cell.y, size: CLASSES.familiar3!.size, footprintOffsets: CLASSES.familiar3!.footprintOffsets }), "rgba(200,170,245,0.55)");
-      } else if (selected && this.spellKind === "webOfDreams") {
-        overlay(this.healRangeTiles(selected, WEB_OF_DREAMS.range), "rgba(170,140,230,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && manhattan(selected, cell) <= WEB_OF_DREAMS.range) {
-          overlay(hexAreaTiles(cell, webOfDreamsSize(selected.level), this.cols, this.rows), "rgba(185,155,240,0.55)");
-        }
-      } else if (selected && this.spellKind === "lightning") {
-        overlay(this.healRangeTiles(selected, LIGHTNING.range), "rgba(140,200,245,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(160,215,255,0.55)");
-      } else if (selected && this.spellKind === "lightningTier3") {
-        overlay(this.healRangeTiles(selected, LIGHTNING_T3.range), "rgba(120,210,255,0.5)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(180,235,255,0.65)");
-      } else if (selected && this.spellKind === "magicMissile") {
-        overlay(this.healRangeTiles(selected, MAGIC_MISSILE.range), "rgba(180,150,235,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(200,170,245,0.55)");
-      } else if (selected && this.spellKind === "phantasmalForce") {
-        overlay(this.healRangeTiles(selected, PHANTASMAL_FORCE.range), "rgba(180,150,235,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(200,170,245,0.55)");
-      } else if (selected && this.isHeal(this.spellKind)) {
-        overlay(this.healRangeTiles(selected, CURES[this.spellKind].range), "rgba(150,210,170,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && this.validHealTarget(selected, cell)) overlay([cell], "rgba(170,230,180,0.55)");
-      } else if (selected && this.spellKind === "cureDisease") {
-        overlay(this.healRangeTiles(selected, CURE_DISEASE.range), "rgba(150,210,170,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && this.validCureDiseaseTarget(selected, cell)) overlay([cell], "rgba(170,230,180,0.55)");
-      } else if (selected && this.spellKind === "multiShot") {
-        overlay(this.healRangeTiles(selected, selected.maxRange + MULTI_SHOT.rangeBonus), "rgba(210,190,90,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        if (cell && this.spellAimValid(selected, cell)) overlay([cell], "rgba(230,200,100,0.55)");
-      } else if (selected && this.spellKind === "divineWrath") {
-        overlay(this.healRangeTiles(selected, DIVINE_WRATH.range), "rgba(255,225,140,0.4)");
-        const cell = this.hover ?? this.spellAim;
-        const line = cell ? this.wrathRay(selected, cell, DIVINE_WRATH.range) : null;
-        if (line) overlay(line, "rgba(255,225,140,0.6)");
-      } else if (selected && this.spellKind === "shoulderSmash") {
-        overlay(hexNeighbors(selected.x, selected.y), "rgba(220,120,80,0.45)");
-        const cell = this.hover ?? this.spellAim;
-        const arc = cell ? cleaveHexes(selected, cell, shoulderSmashPower(selected.level).hexes, this.cols, this.rows) : [];
-        if (arc.length) overlay(arc, "rgba(235,120,80,0.55)");
-      } else if (selected && this.spellKind === "stampede") {
-        overlay(this.healRangeTiles(selected, STAMPEDE.range), "rgba(200,90,60,0.4)");
-        const cell = this.hover ?? this.spellAim;
-        const line = cell ? this.wrathRay(selected, cell, STAMPEDE.range) : null;
-        if (line) overlay(line, "rgba(200,90,60,0.6)");
-      }
-    }
-
-    if (this.mode === "selected" || this.mode === "awaitAttack" || this.mode === "awaitAction") {
-      if (this.mode === "selected") {
-        const reachable = [...this.reach.values()];
-        const inWeb = reachable.filter((c) => this.isWebCell(c.x, c.y));
-        const clear = inWeb.length ? reachable.filter((c) => !this.isWebCell(c.x, c.y)) : reachable;
-        overlay(clear, "rgba(140,200,245,0.5)");
-        if (inWeb.length) overlay(inWeb, "rgba(140,200,245,0.5)", false);
-      }
-      const selected = this.units.find((u) => u.id === this.selectedId);
-      const atkTiles: Point[] = [];
-      for (const foe of this.units) {
-        if (!foe.alive || foe.side === "player") continue;
-        if (this.mode === "selected" && this.attackFrom.has(foe.id)) atkTiles.push(...footprint(foe));
-        if ((this.mode === "awaitAttack" || this.mode === "awaitAction") && selected && canHitFrom(selected, selected, foe, this.tiles, this.cols, this.decorOverlay)) {
-          atkTiles.push(...footprint(foe));
-        }
-      }
-      overlay(atkTiles, "rgba(230,120,85,0.55)");
-      if (this.pendingFoeId) {
-        const foe = this.units.find((u) => u.id === this.pendingFoeId);
-        if (foe) overlay(footprint(foe), "rgba(245,95,65,0.6)");
-      }
-    }
+    // Which cells are highlighted, and in what color, is decided once in boardOverlayLayers —
+    // shared with ThreeBattleRenderer, which turns each layer into a real world-space hex mesh
+    // ordered between terrain and decorations, instead of a Canvas2D fill — so the cell/color
+    // logic (the mode/spell switch that used to live inline here) can never drift between the
+    // two renderers. This method only knows how to paint a layer once it has one.
+    for (const layer of this.boardOverlayLayers()) drawLayer(layer.cells, layer.fill, layer.glow);
 
     // Whose turn it is, drawn last (after the walkable/attack overlays above) so it's never
     // washed out underneath them — the active unit always stands on its own reach overlay,
@@ -7966,6 +7809,202 @@ export class BattleEngine {
     }
 
     if (shake) ctx.restore();
+  }
+
+  /** Pure data: which cells are highlighted right now (walkable range, attack range, an aimed
+   * spell/AoE, an aura zone, the idle threat preview, ...) and what color each group gets —
+   * every `overlay(cells, fill, glow)` call that used to live inline in renderBoardOverlays,
+   * unchanged in behavior, just collected instead of drawn immediately. Shared by
+   * renderBoardOverlays (Canvas2D fill + glow/blur/stroke) and ThreeBattleRenderer (a flat
+   * translucent hex mesh per cell, positioned between terrain and decorations in world space)
+   * so the two can never disagree about which cells light up or in what color. */
+  boardOverlayLayers(): { cells: Point[]; fill: string; glow: boolean }[] {
+    const layers: { cells: Point[]; fill: string; glow: boolean }[] = [];
+    // `glow` defaults on for every existing caller. Dreaming Web's own persistent floor patch
+    // (a separate WebGL layer, see BattleCanvas's webFloorIds sync) already lights a webbed hex
+    // with its own breathing glow — stacking this overlay's full shadowBlur+bright rim on top
+    // of that, on every hex of a zone that can easily be a dozen-plus hexes and sits lit for
+    // several whole rounds (unlike a one-shot spell flash that's gone before anyone can really
+    // look at it), is what read as the movement highlight suddenly "blowing out" right after
+    // casting it. Passing false keeps the flat fill — still marks the hex as walkable — but
+    // drops the glow that was doubling up on the web's own.
+    const push = (cells: Iterable<Point>, fill: string, glow = true) => {
+      const arr = Array.isArray(cells) ? cells : [...cells];
+      if (arr.length) layers.push({ cells: arr, fill, glow });
+    };
+
+    for (const zone of this.auraZones) {
+      const cells = [...zone.cells].map((k) => {
+        const [x, y] = k.split(",").map(Number);
+        return { x: x!, y: y! };
+      });
+      push(cells, zone.kind === "protection" ? "rgba(150,210,255,0.3)" : "rgba(220,90,70,0.3)");
+    }
+
+    if (this.mode === "idle" && this.threat.length) push(this.threat, "rgba(220,120,90,0.5)");
+
+    if (this.mode === "awaitPotion") {
+      const selected = this.units.find((u) => u.id === this.selectedId);
+      if (selected) {
+        const range = [{ x: selected.x, y: selected.y }, ...hexNeighbors(selected.x, selected.y)].filter((c) =>
+          this.validPotionTarget(selected, c),
+        );
+        push(range, "rgba(150,210,170,0.45)");
+        const cell = this.hover;
+        if (cell && this.validPotionTarget(selected, cell)) push([cell], "rgba(170,230,180,0.55)");
+      }
+    }
+
+    if (this.mode === "awaitSpell") {
+      const selected = this.units.find((u) => u.id === this.selectedId);
+      if (selected && this.spellKind === "fireball") {
+        push(fireballRangeTiles(selected, this.cols, this.rows), "rgba(235,140,70,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && manhattan(selected, cell) <= FIREBALL.range) {
+          push(fireballTiles(fireballOrigin(cell, this.cols, this.rows), this.cols, this.rows), "rgba(235,140,70,0.55)");
+        }
+      } else if (selected && this.spellKind === "causticVenom") {
+        push(this.healRangeTiles(selected, CAUSTIC_VENOM.range), "rgba(200,210,90,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && manhattan(selected, cell) <= CAUSTIC_VENOM.range) {
+          push(hexAreaTiles(fireballOrigin(cell, this.cols, this.rows), CAUSTIC_VENOM.size, this.cols, this.rows), "rgba(200,210,90,0.55)");
+        }
+      } else if (selected && this.spellKind === "sweep") {
+        push(this.sweepTiles(selected), "rgba(220,150,70,0.5)");
+      } else if (selected && this.spellKind === "longShot") {
+        const reach: Point[] = [];
+        const max = this.longMax(selected);
+        for (let y = 0; y < this.rows; y++) {
+          for (let x = 0; x < this.cols; x++) {
+            const d = manhattan(selected, { x, y });
+            if (d >= selected.minRange && d <= max) reach.push({ x, y });
+          }
+        }
+        push(reach, "rgba(210,190,90,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.spellAimValid(selected, cell)) push([cell], "rgba(230,200,100,0.55)");
+      } else if (selected && this.spellKind === "piercing") {
+        push(allAxisRays(selected, this.cols, this.rows), "rgba(220,160,70,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        const line = cell ? this.piercingRay(selected, cell) : null;
+        if (line) push(line, "rgba(235,170,80,0.55)");
+      } else if (selected && this.spellKind === "piercingThrust") {
+        push(this.healRangeTiles(selected, selected.maxRange + 1), "rgba(220,160,80,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        const line = cell ? this.piercingThrustRay(selected, cell) : null;
+        if (line) push(line, "rgba(235,175,90,0.55)");
+      } else if (selected && (this.spellKind === "doubleStrike" || this.spellKind === "trip" || this.spellKind === "lifeDrain")) {
+        push(this.healRangeTiles(selected, selected.maxRange), "rgba(220,120,80,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.spellAimValid(selected, cell)) push([cell], "rgba(235,120,80,0.55)");
+      } else if (selected && this.spellKind === "cleave") {
+        push(hexNeighbors(selected.x, selected.y), "rgba(220,120,80,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        const arc = cell ? cleaveHexes(selected, cell, CLEAVE.hexes, this.cols, this.rows) : [];
+        if (arc.length) push(arc, "rgba(235,120,80,0.55)");
+      } else if (selected && this.spellKind === "summonFamiliar") {
+        push(this.healRangeTiles(selected, SUMMON_FAMILIAR.range), "rgba(180,150,235,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.spellAimValid(selected, cell)) push([cell], "rgba(200,170,245,0.55)");
+      } else if (selected && this.spellKind === "summonFamiliar2") {
+        push(this.healRangeTiles(selected, SUMMON_FAMILIAR2.range), "rgba(180,150,235,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.spellAimValid(selected, cell)) push([cell], "rgba(200,170,245,0.55)");
+      } else if (selected && this.spellKind === "summonFamiliar3") {
+        push(this.healRangeTiles(selected, SUMMON_FAMILIAR3.range), "rgba(180,150,235,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        // Preview the full 6-hex silhouette he'd actually land on, not just the anchor tile.
+        if (cell && this.spellAimValid(selected, cell)) push(footprint({ x: cell.x, y: cell.y, size: CLASSES.familiar3!.size, footprintOffsets: CLASSES.familiar3!.footprintOffsets }), "rgba(200,170,245,0.55)");
+      } else if (selected && this.spellKind === "webOfDreams") {
+        push(this.healRangeTiles(selected, WEB_OF_DREAMS.range), "rgba(170,140,230,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && manhattan(selected, cell) <= WEB_OF_DREAMS.range) {
+          push(hexAreaTiles(cell, webOfDreamsSize(selected.level), this.cols, this.rows), "rgba(185,155,240,0.55)");
+        }
+      } else if (selected && this.spellKind === "lightning") {
+        push(this.healRangeTiles(selected, LIGHTNING.range), "rgba(140,200,245,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.spellAimValid(selected, cell)) push([cell], "rgba(160,215,255,0.55)");
+      } else if (selected && this.spellKind === "lightningTier3") {
+        push(this.healRangeTiles(selected, LIGHTNING_T3.range), "rgba(120,210,255,0.5)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.spellAimValid(selected, cell)) push([cell], "rgba(180,235,255,0.65)");
+      } else if (selected && this.spellKind === "magicMissile") {
+        push(this.healRangeTiles(selected, MAGIC_MISSILE.range), "rgba(180,150,235,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.spellAimValid(selected, cell)) push([cell], "rgba(200,170,245,0.55)");
+      } else if (selected && this.spellKind === "phantasmalForce") {
+        push(this.healRangeTiles(selected, PHANTASMAL_FORCE.range), "rgba(180,150,235,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.spellAimValid(selected, cell)) push([cell], "rgba(200,170,245,0.55)");
+      } else if (selected && this.isHeal(this.spellKind)) {
+        push(this.healRangeTiles(selected, CURES[this.spellKind].range), "rgba(150,210,170,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.validHealTarget(selected, cell)) push([cell], "rgba(170,230,180,0.55)");
+      } else if (selected && this.spellKind === "cureDisease") {
+        push(this.healRangeTiles(selected, CURE_DISEASE.range), "rgba(150,210,170,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.validCureDiseaseTarget(selected, cell)) push([cell], "rgba(170,230,180,0.55)");
+      } else if (selected && this.spellKind === "multiShot") {
+        push(this.healRangeTiles(selected, selected.maxRange + MULTI_SHOT.rangeBonus), "rgba(210,190,90,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.spellAimValid(selected, cell)) push([cell], "rgba(230,200,100,0.55)");
+      } else if (selected && this.spellKind === "divineWrath") {
+        push(this.healRangeTiles(selected, DIVINE_WRATH.range), "rgba(255,225,140,0.4)");
+        const cell = this.hover ?? this.spellAim;
+        const line = cell ? this.wrathRay(selected, cell, DIVINE_WRATH.range) : null;
+        if (line) push(line, "rgba(255,225,140,0.6)");
+      } else if (selected && this.spellKind === "shoulderSmash") {
+        push(hexNeighbors(selected.x, selected.y), "rgba(220,120,80,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        const arc = cell ? cleaveHexes(selected, cell, shoulderSmashPower(selected.level).hexes, this.cols, this.rows) : [];
+        if (arc.length) push(arc, "rgba(235,120,80,0.55)");
+      } else if (selected && this.spellKind === "stampede") {
+        push(this.healRangeTiles(selected, STAMPEDE.range), "rgba(200,90,60,0.4)");
+        const cell = this.hover ?? this.spellAim;
+        const line = cell ? this.wrathRay(selected, cell, STAMPEDE.range) : null;
+        if (line) push(line, "rgba(200,90,60,0.6)");
+      }
+    }
+
+    if (this.mode === "selected" || this.mode === "awaitAttack" || this.mode === "awaitAction") {
+      if (this.mode === "selected") {
+        const reachable = [...this.reach.values()];
+        const inWeb = reachable.filter((c) => this.isWebCell(c.x, c.y));
+        const clear = inWeb.length ? reachable.filter((c) => !this.isWebCell(c.x, c.y)) : reachable;
+        push(clear, "rgba(140,200,245,0.5)");
+        if (inWeb.length) push(inWeb, "rgba(140,200,245,0.5)", false);
+      }
+      const selected = this.units.find((u) => u.id === this.selectedId);
+      const atkTiles: Point[] = [];
+      for (const foe of this.units) {
+        if (!foe.alive || foe.side === "player") continue;
+        if (this.mode === "selected" && this.attackFrom.has(foe.id)) atkTiles.push(...footprint(foe));
+        if ((this.mode === "awaitAttack" || this.mode === "awaitAction") && selected && canHitFrom(selected, selected, foe, this.tiles, this.cols, this.decorOverlay)) {
+          atkTiles.push(...footprint(foe));
+        }
+      }
+      push(atkTiles, "rgba(230,120,85,0.55)");
+      if (this.pendingFoeId) {
+        const foe = this.units.find((u) => u.id === this.pendingFoeId);
+        if (foe) push(footprint(foe), "rgba(245,95,65,0.6)");
+      }
+    }
+
+    return layers;
+  }
+
+  /** The active-turn unit's pulsing gold/red ring, as one more cell+color — kept separate from
+   * boardOverlayLayers because the Canvas2D path draws it with its own bespoke size/glow (see
+   * renderBoardOverlays' own active-turn block), not the generic drawLayer treatment.
+   * ThreeBattleRenderer uses this instead, to get the same cell and color without duplicating
+   * BattleEngine's turn-order logic. */
+  activeTurnHighlight(): { x: number; y: number; fill: string } | null {
+    const active = this.activeTurnUnit();
+    if (!active) return null;
+    const pulse = 0.75 + Math.sin(this.time * 4) * 0.25;
+    const glowColor = active.side === "enemy" ? "230,120,90" : "255,215,140";
+    return { x: active.x, y: active.y, fill: `rgba(${glowColor},${(0.34 + 0.18 * pulse).toFixed(3)})` };
   }
 
   /** Units, HP bars, particles, projectiles, banners, and the foreground decoration layer —

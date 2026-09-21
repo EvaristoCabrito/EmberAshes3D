@@ -238,6 +238,21 @@ export class ThreeBattleRenderer {
   private decorEntries: DecorMeshEntry[] = [];
   private builtDecorKey = "";
 
+  // Movement/attack/spell-range highlight + the active-turn ring (see
+  // BattleEngine.boardOverlayLayers/activeTurnHighlight) — real world-space hex meshes at
+  // z=0.5, between flat terrain (z=0, opaque, drawn first) and decorations (z=1, transparent).
+  // Three draws transparent objects back-to-front by camera distance regardless of draw order,
+  // so this lands the highlight visually ABOVE terrain but BELOW decorations and units (z=2+)
+  // for free, the same depth trick tiles/decor/units already rely on — a blocking house or a
+  // unit standing on a highlighted hex always stays legible instead of the highlight's tint
+  // painting over it. Pooled rather than rebuilt (see syncOverlay): the highlighted set rarely
+  // changes frame to frame, only its glow pulse does, well below this — which skips the pulse
+  // entirely and just uses each layer's flat fill alpha (see boardOverlayLayers' own comment on
+  // why that's the part that matters, not the canvas-only shadowBlur halo).
+  private overlayGroup = new THREE.Group();
+  private overlayMatCache = new Map<string, THREE.MeshBasicMaterial>();
+  private overlayMeshPool: THREE.Mesh[] = [];
+
   // Animated units (see THREEJS_MILESTONE1_HANDOFF.md) — one persistent mesh per live unit id,
   // repositioned/retextured/rescaled every frame in syncUnits rather than rebuilt, since units
   // (unlike terrain/decor) change position, pose and art every frame. HP bars, hover/selection
@@ -274,6 +289,7 @@ export class ThreeBattleRenderer {
     this.scene.add(this.sunLight.target);
     this.scene.add(this.shadowCasterGroup);
     this.scene.add(this.tileGroup);
+    this.scene.add(this.overlayGroup);
     this.scene.add(this.decorGroup);
     this.scene.add(this.unitGroup);
   }
@@ -639,6 +655,58 @@ export class ThreeBattleRenderer {
     }
   }
 
+  /** rgba(r,g,b[,a]) -> a cached, unlit, transparent material — one per exact fill string
+   * (color AND alpha both baked into the cache key, since neither animates once resolved: see
+   * overlayGroup's own comment on why the canvas-only glow pulse is skipped here). */
+  private overlayMaterialFor(fill: string): THREE.MeshBasicMaterial {
+    const hit = this.overlayMatCache.get(fill);
+    if (hit) return hit;
+    const m = /rgba?\(([^,]+),([^,]+),([^,]+)(?:,([^)]+))?\)/.exec(fill);
+    const r = m ? Number(m[1]) / 255 : 1;
+    const g = m ? Number(m[2]) / 255 : 1;
+    const b = m ? Number(m[3]) / 255 : 1;
+    const a = m && m[4] !== undefined ? Number(m[4]) : 1;
+    const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(r, g, b), transparent: true, opacity: a, depthWrite: false });
+    this.overlayMatCache.set(fill, mat);
+    return mat;
+  }
+
+  /** Movement/attack/spell-range highlight + the active-turn ring, from the same cell/color
+   * data renderBoardOverlays (Canvas2D path) draws from — see overlayGroup's own comment for
+   * why this renders as real geometry instead of a 2D fill. Pool index reused across frames
+   * (see overlayMeshPool): cheaper than tearing down and rebuilding a THREE.Mesh per cell every
+   * single frame for what is usually the same handful of cells frame to frame. */
+  private syncOverlay(tile: number): void {
+    const engine = this.engine;
+    let idx = 0;
+    const place = (x: number, y: number, fill: string) => {
+      let mesh = this.overlayMeshPool[idx];
+      if (!mesh) {
+        mesh = new THREE.Mesh(this.hexGeo, this.overlayMaterialFor(fill));
+        this.overlayGroup.add(mesh);
+        this.overlayMeshPool.push(mesh);
+      } else {
+        mesh.material = this.overlayMaterialFor(fill);
+        mesh.visible = true;
+      }
+      const { wx, wy } = hexWorld(x, y, tile);
+      // 1.84 = 2 * 0.92, matching the Canvas2D path's hexPath(ctx, cx, cy, tile * 0.92) radius
+      // (see buildHexGeometry's comment on why *2 turns this geometry's own radius-0.5 shape
+      // into a `tile`-radius hex).
+      mesh.scale.set(tile * 1.84, tile * 1.84, 1);
+      // Y negated, z=0.5 — see module comment on the Y-flip and overlayGroup's own comment on
+      // why this sits between tiles (z=0) and decorations (z=1).
+      mesh.position.set(wx, -wy, 0.5);
+      idx++;
+    };
+    for (const layer of engine.boardOverlayLayers()) {
+      for (const c of layer.cells) place(c.x, c.y, layer.fill);
+    }
+    const active = engine.activeTurnHighlight();
+    if (active) place(active.x, active.y, active.fill);
+    for (; idx < this.overlayMeshPool.length; idx++) this.overlayMeshPool[idx]!.visible = false;
+  }
+
   /** Call once per frame in place of BattleEngine.renderGround — updateCameraLayout runs the
    * exact same camera/visibility bookkeeping renderGround always did (see that method's own
    * comment), just without drawing through the Canvas2D shim afterward. */
@@ -648,6 +716,7 @@ export class ThreeBattleRenderer {
     this.syncDirtyTiles();
     this.ensureDecorBuilt(tile);
     this.syncDecorVisibility();
+    this.syncOverlay(tile);
     this.syncUnits(tile);
     // The camera moves; the tiles never do — see module comment. This is the one line that
     // has to run every frame for panning/zooming to work. Y is `-camY - cssH` to match the
@@ -674,6 +743,7 @@ export class ThreeBattleRenderer {
     }
     for (const tex of this.unitTexCache.values()) tex.dispose();
     for (const entry of this.unitEntries.values()) entry.material.dispose();
+    for (const mat of this.overlayMatCache.values()) mat.dispose();
     this.shadowCasterGeo.dispose();
     this.shadowCasterMaterial.dispose();
     this.renderer.dispose();

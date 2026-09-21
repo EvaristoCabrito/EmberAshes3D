@@ -11,22 +11,49 @@ just the next step.
 **Milestone 1 is fully done and verified**: `ThreeBattleRenderer` (`src/game/gfx/three/`)
 replaces the ground/terrain canvas with real hex geometry, ground/behind-layer decorations, and
 now fully animated unit sprites (walk/attack/cast/counter poses, live idle motion, fade
-opacity) — pixel-parity with the existing Canvas2D-shim renderer, opt-in via `?renderer=three`,
-verified by `npm run typecheck && npm run build && npm run test` plus headless-Playwright visual
-checks. Nothing else changed for a player who doesn't pass that query param.
+opacity) — pixel-parity with the existing Canvas2D-shim renderer, verified by
+`npm run typecheck && npm run build && npm run test` plus headless-Playwright visual checks.
+**Three.js is now the default ground renderer** (`?renderer=legacy` opts back out to the old
+Canvas2D-shim path for comparison) — it started opt-in via `?renderer=three`, flipped to default
+once Milestone 1 was confirmed.
 
-**Milestone 2 is implemented and gate-clean, but not yet user-confirmed**: `ThreeBattleRenderer`
-now has a real `DirectionalLight` + `HemisphereLight`, terrain uses `MeshLambertMaterial` so it
-can receive shadows, and every unit/decoration gets an invisible per-instance shadow-caster box
-(synthetic elevation, see `UNIT_SHADOW_HEIGHT_SCALE`/`DECOR_SHADOW_HEIGHT_SCALE`) whose shadow
-lands in the exact same screen-space direction the old fake Canvas2D ellipse shadow used (see
-`SUN_DIRECTION`'s comment) — that fake ellipse is now skipped under `?renderer=three` only (new
-`skipUnitShadow` param, default Canvas2D path unchanged). Verified two ways: (1) a stress test
-(elevation/intensity cranked way up) produced unmistakable, correctly-angled cast shadows,
-proving the mechanism works; (2) dialed back down to conservative default intensities, which are
-intentionally subtle per the caution below. **Not yet confirmed in the user's own browser** — per
-the testing section, that sign-off is required before this milestone counts as done and before
-Milestone 3 starts. All three gate commands pass clean.
+**Milestone 2 is implemented and gate-clean, but STILL not yet user-confirmed**:
+`ThreeBattleRenderer` now has a real `DirectionalLight` + `HemisphereLight`, terrain uses
+`MeshLambertMaterial` so it can receive shadows, and every unit/decoration gets an invisible
+per-instance shadow-caster box (synthetic elevation, see
+`UNIT_SHADOW_HEIGHT_SCALE`/`DECOR_SHADOW_HEIGHT_SCALE`) whose shadow lands in the exact same
+screen-space direction the old fake Canvas2D ellipse shadow used (see `SUN_DIRECTION`'s comment)
+— that fake ellipse is now skipped under the Three renderer only (`skipUnitShadow` param, legacy
+Canvas2D path unchanged). Verified two ways: (1) a stress test (elevation/intensity cranked way
+up) produced unmistakable, correctly-angled cast shadows, proving the mechanism works; (2) dialed
+back down to conservative default intensities, which are intentionally subtle per the caution
+below. All three gate commands pass clean.
+
+**2026-09-21 session: user checked it in their own browser and found three real bugs, all now
+fixed** (see git log — "Fix Three.js renderer: zoom-scaled terrain and missing move/attack grid"):
+1. **Terrain froze at its old scale/position on zoom, decorations and units didn't** —
+   `ensureBuilt`'s rebuild check only compared `cols`/`rows`/`missionId`, not `tile` (which
+   changes with zoom), while `ensureDecorBuilt` already keyed on `tile`. Reported as "tiles
+   disappear when I zoom in" / "it's like all props change position as I zoom in". Fixed: `tile`
+   is now part of `ensureBuilt`'s rebuild identity too.
+2. **No movement/attack/spell-range grid at all under the Three renderer.** That highlight (plus
+   the active-turn glow) was never a thing of its own — it was the tail end of `renderGround`,
+   drawn straight onto the ground canvas, which `ThreeBattleRenderer` replaces with a WebGL
+   context (a canvas can't host both a WebGL and a 2D context). Fixed: extracted into
+   `BattleEngine.renderBoardOverlays(ctx, cssW, cssH)`, called by `BattleCanvas.tsx` against a new
+   dedicated transparent canvas stacked between the ground canvas and the units canvas (so units
+   still draw on top of the highlight, same order as the legacy path).
+3. **Screen shake (`trauma`) was silently dead under the Three renderer** — found while fixing
+   #2, not user-reported yet. The random per-frame shake offset was only ever rolled inside
+   `renderGround`, which `renderUnitsAndOverlays` read back out via `frameShakeDx/Dy` — fine on
+   the legacy path, but `renderGround` never runs under Three, so those stayed frozen at their
+   last (or default 0) value. Fixed: the randomization moved into `updateCameraLayout`, which both
+   render paths call every frame.
+
+**Still true**: this milestone has not had a clean user sign-off yet — the three bugs above were
+found on the user's own first look. The next session should confirm with the user whether they've
+now checked it and it looks right before treating Milestone 2 as actually done and starting
+Milestone 3.
 
 **A real Three.js gotcha found along the way (see its own section below)**: this Three.js
 version's `WebGLShadowMap` filters shadow-casters using the *main viewing camera's* `layers`, not
@@ -65,10 +92,10 @@ trying (and failing) to fake — do not resurrect the overlay approach instead o
 
 `src/game/gfx/three/ThreeBattleRenderer.ts` replaces the ground/terrain canvas AND now draws
 animated unit sprites too (walk/attack/cast/counter poses, live idle motion, correct fade
-opacity) — full parity with the Canvas2D-shim renderer it's meant to replace. Toggle: append
-`?renderer=three` to the app URL (see `useThreeGroundRenderer()` in `src/game/BattleCanvas.tsx`).
-Without the query param, nothing changes — the original `WebGL2DRenderer` path is untouched and
-still the default. HP bars, hover/selection hex outline, portal FX, and "front"-layer decorations
+opacity) — full parity with the Canvas2D-shim renderer it's meant to replace. Now the default
+renderer (see `useThreeGroundRenderer()` in `src/game/BattleCanvas.tsx`); append `?renderer=legacy`
+to the app URL to fall back to the original `WebGL2DRenderer` path for comparison. HP bars,
+hover/selection hex outline, portal FX, and "front"-layer decorations
 still render on the old Canvas2D-shim `unitsCanvas`, stacked above the Three.js canvas — that's
 deliberate, not a gap (see `BattleEngine.renderUnitsAndOverlays`' `skipGroundDecor`/
 `skipUnitSprites` params).
@@ -219,8 +246,8 @@ Two patterns have worked so far, pick whichever fits what's being checked:
    calling `.render()` a few times, then either `elementHandle.screenshot()` to a PNG and reading
    it, or sampling pixels via `getImageData` for numeric assertions. More precise for numeric
    checks (e.g. "is this pixel actually darker where a shadow should fall"), more setup.
-2. **Drive the real UI**: navigate to `http://127.0.0.1:8080/?renderer=three` (or without the
-   param for the Canvas2D path to compare against), click through `Modo teste` (bottom-left
+2. **Drive the real UI**: navigate to `http://127.0.0.1:8080/` (Three is now default;
+   `?renderer=legacy` for the Canvas2D path to compare against), click through `Modo teste` (bottom-left
    corner of the title screen) → `Debug` → `Classic Tactical` → click a mission pin with combat
    (the Inn pin has no `Entrar em combate` button — pick a different one, e.g. `Wisp Forest`) →
    `Entrar em combate`, wait ~2.5s for the battle to mount, then screenshot.

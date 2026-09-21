@@ -17,7 +17,7 @@
  * answer, and a flag that is on can only add. Neither can make a barricade walkable
  * or take height off a hill.
  */
-import { TERRAIN, WEAPONS } from "./data.ts";
+import { BIG_HOUSE_DECOR_IDS, HOUSE_DECOR_IDS, TERRAIN, WEAPONS } from "./data.ts";
 import type { DecorationPlacement, TerrainDef, TerrainId, Unit } from "./types.ts";
 
 export const HEX_BLOCKED = 1;
@@ -52,7 +52,13 @@ export function buildDecorOverlay(
 ): DecorOverlay {
   const overlay = new Uint8Array(cols * rows);
   for (const p of decorations) {
-    const bits = (p.blocksPath ? HEX_BLOCKED : 0) | (p.yieldsHighGround ? HEX_HIGH : 0);
+    // A house is a real building — nothing should be able to walk through one, whether or
+    // not the map author remembered to check "Bloquear caminho" for this particular
+    // placement. Folded in here (not just defaulted at editor placement time, the way
+    // BARRICADE_LIKE_DECOR is) so it also covers every house already placed on an existing
+    // map, not only new placements going forward.
+    const isHouse = HOUSE_DECOR_IDS.has(p.id) || BIG_HOUSE_DECOR_IDS.has(p.id);
+    const bits = (p.blocksPath || isHouse ? HEX_BLOCKED : 0) | (p.yieldsHighGround ? HEX_HIGH : 0);
     if (!bits) continue;
     for (const { dx, dy } of cellsOf(p)) {
       const x = p.x + dx;
