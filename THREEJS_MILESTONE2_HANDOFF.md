@@ -15,11 +15,28 @@ opacity) — pixel-parity with the existing Canvas2D-shim renderer, opt-in via `
 verified by `npm run typecheck && npm run build && npm run test` plus headless-Playwright visual
 checks. Nothing else changed for a player who doesn't pass that query param.
 
-**What's next**: Milestone 2 (real lighting/shadows) — scoped below, not yet started. This
-session ran out of room to implement it, so the architecture research is written up instead of
-code. Milestones 3 (world-space fog/particles) and 4 (bloom/post-processing) come after, and are
-only sketched at the level the user originally specified them, since neither has been designed in
-detail yet.
+**Milestone 2 is implemented and gate-clean, but not yet user-confirmed**: `ThreeBattleRenderer`
+now has a real `DirectionalLight` + `HemisphereLight`, terrain uses `MeshLambertMaterial` so it
+can receive shadows, and every unit/decoration gets an invisible per-instance shadow-caster box
+(synthetic elevation, see `UNIT_SHADOW_HEIGHT_SCALE`/`DECOR_SHADOW_HEIGHT_SCALE`) whose shadow
+lands in the exact same screen-space direction the old fake Canvas2D ellipse shadow used (see
+`SUN_DIRECTION`'s comment) — that fake ellipse is now skipped under `?renderer=three` only (new
+`skipUnitShadow` param, default Canvas2D path unchanged). Verified two ways: (1) a stress test
+(elevation/intensity cranked way up) produced unmistakable, correctly-angled cast shadows,
+proving the mechanism works; (2) dialed back down to conservative default intensities, which are
+intentionally subtle per the caution below. **Not yet confirmed in the user's own browser** — per
+the testing section, that sign-off is required before this milestone counts as done and before
+Milestone 3 starts. All three gate commands pass clean.
+
+**A real Three.js gotcha found along the way (see its own section below)**: this Three.js
+version's `WebGLShadowMap` filters shadow-casters using the *main viewing camera's* `layers`, not
+the light's own `shadow.camera.layers` — so the common "put invisible shadow-only objects on a
+layer the shadow camera alone enables" trick silently excludes them from the shadow map entirely,
+with no error. The fix used here: `colorWrite: false, depthWrite: false` on the caster's material
+instead of layers (see `shadowCasterMaterial`'s comment in `ThreeBattleRenderer.ts`).
+
+Milestones 3 (world-space fog/particles) and 4 (bloom/post-processing) remain only sketched at
+the level the user originally specified them — no design work done yet.
 
 ## Goal (user's explicit directive — do not drift from this)
 
@@ -63,7 +80,24 @@ decorations)" and "Complete Three.js Milestone 1: animated units with correct an
 fade". All three gates (`npm run typecheck && npm run build && npm run test`) passed clean as of
 both.
 
-## The critical gotcha already found — do not reintroduce it
+## The critical gotchas already found — do not reintroduce them
+
+**MILESTONE 2: shadow-casters can't be hidden from the main pass with layers, in this Three.js
+version.** The obvious way to have an object cast a shadow without ever being drawn is to put it
+on a layer only the light's `shadow.camera` enables. That does **not** work here — read
+`node_modules/three/src/renderers/webgl/WebGLShadowMap.js`'s `renderObject` function yourself if
+in doubt: the per-object `object.layers.test(camera.layers)` check uses the `camera` argument
+threaded through from `this.render(lights, scene, camera)`, which is the **main viewing camera**
+passed to `renderer.render()`, not the light's own shadow camera — so `shadow.camera.layers` is
+never consulted for this at all. A caster on an exclusive layer just silently never casts,
+regardless of light intensity (cost a good while to find, since raising intensity to absurd
+levels still produced nothing — the mechanism looked broken, not just excluded). The actual fix,
+in place now: give the caster's material `colorWrite: false, depthWrite: false` instead (mesh
+stays `visible: true`, required — `WebGLShadowMap` skips `object.visible === false` outright).
+This writes nothing to the main color or depth buffer, while the shadow pass — which builds its
+own separate `MeshDepthMaterial` per object and never reads `colorWrite`/`depthWrite` from the
+source material — still renders it normally. See `shadowCasterMaterial`'s comment in
+`ThreeBattleRenderer.ts`.
 
 **An orthographic camera with an inverted frustum (`top < bottom`) renders NOTHING in this
 Three.js version (0.186)** — confirmed empirically with isolated Playwright tests: identical

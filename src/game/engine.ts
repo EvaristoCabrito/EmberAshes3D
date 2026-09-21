@@ -7968,6 +7968,12 @@ export class BattleEngine {
     // glow, status FX) keeps rendering on this canvas exactly as before, per
     // THREEJS_MILESTONE1_HANDOFF.md's scoping of what stays here vs what moves.
     skipUnitSprites?: boolean,
+    // MILESTONE 2 — ThreeBattleRenderer now casts a real shadow from an invisible per-unit box
+    // (see its own shadowCasterMaterial/updateSun); this skips just this fake ellipse so the two
+    // don't visibly double up under ?renderer=three. Independent of skipUnitSprites: the fake
+    // shadow is keyed to the sprite's own screen position/pose (px, sway, lift, breath, foot),
+    // not to whether the sprite image itself still draws here.
+    skipUnitShadow?: boolean,
   ): void {
     const tile = ZOOM_RADII[this.zoom]!;
     const sqrt3 = Math.sqrt(3);
@@ -8055,7 +8061,7 @@ export class BattleEngine {
       const { bob, sway, breath, lift, img, w, h, footY, scaleX, scaleY, footOffset } = this.computeUnitVisual(u, cell, tile);
       ctx.save();
       ctx.globalAlpha = u.fade * (u.moved && u.side === "player" && this.phase === "player" ? 0.8 : 1);
-      {
+      if (!skipUnitShadow) {
         // A soft cast shadow instead of a flat dark puddle: a radial gradient (center dark,
         // fading fully transparent at the edge) offset toward shadowDir so it reads as light
         // falling across the board rather than an ambient-occlusion blob glued to every unit's

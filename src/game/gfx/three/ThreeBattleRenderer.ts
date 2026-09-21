@@ -1,12 +1,15 @@
-/** MILESTONE 1 — rendering parity only. Draws the battlefield's terrain grid through a real
- * Three.js scene instead of the Canvas2D-shim WebGL renderer, as the first slice of migrating
- * the battlefield to a genuine spatial rendering environment (see the architecture note below).
- * No lighting, no atmosphere, no fog, no bloom, no particles here — those are later milestones,
- * built once this foundation is confirmed solid. Ground/behind-layer decorations (trees,
- * houses, rubble, ...) render here too (see ensureDecorBuilt); "front"-layer/foreground props
- * and every unit sprite still render through the existing Canvas2D-shim units canvas,
- * unchanged, stacked on top — this renderer replaces the ground/terrain canvas and the props
- * that belong under a unit, never anything meant to draw in front of one (see BattleCanvas.tsx).
+/** MILESTONE 1 (done) — terrain, ground/behind-layer decorations, and animated unit sprites all
+ * render through a real Three.js scene instead of the Canvas2D-shim WebGL renderer, as the first
+ * slice of migrating the battlefield to a genuine spatial rendering environment (see the
+ * architecture note below). "Front"-layer/foreground props still render through the existing
+ * Canvas2D-shim units canvas, unchanged, stacked on top — this renderer replaces the
+ * ground/terrain canvas and everything meant to draw under a unit, never anything meant to draw
+ * in front of one (see BattleCanvas.tsx).
+ *
+ * MILESTONE 2 (in progress) — real DirectionalLight + AmbientLight-ish HemisphereLight, and real
+ * cast shadows from invisible per-unit/per-decoration boxes with a synthetic elevation (see
+ * shadowCasterMaterial/updateSun and THREEJS_MILESTONE2_HANDOFF.md) — no fog, no bloom, no
+ * particles yet, those are later milestones.
  *
  * ARCHITECTURE: every tile mesh is built ONCE at its fixed WORLD position (the same formula
  * BattleEngine.effectAnchor already uses for worldX/worldY) and never moves again. Camera
@@ -41,6 +44,25 @@ const SQRT3 = Math.sqrt(3);
 /** Must match BattleEngine's private boardPad() (tile * 2.4) — duplicated here rather than
  * exposed because it's one number, not worth widening engine.ts's public surface for. */
 const BOARD_PAD_MUL = 2.4;
+
+/** Fraction of a unit/decoration's drawn height used as its invisible shadow-casting elevation.
+ * The visible art stays flat billboards (see module comment) — this is a synthetic "how tall
+ * would this actually stand" number for the light alone, not a real 3D height. Kept modest on
+ * purpose (see the AtmosphereFX caution in THREEJS_MILESTONE2_HANDOFF.md) — tune after checking
+ * screenshots, not blindly. */
+const UNIT_SHADOW_HEIGHT_SCALE = 0.85;
+const DECOR_SHADOW_HEIGHT_SCALE = 0.9;
+
+/** Direction the sun travels (not where it sits) — X/Y chosen so a shadow cast from height H
+ * lands at world offset (0.6H, -0.8H), i.e. the exact same (0.6, 0.8) screen-space direction
+ * (down-right; world Y is negated, see module comment) the old fake Canvas2D ellipse shadow
+ * already used (see engine.ts's shadowDirX/shadowDirY) — so the sun's on-screen angle doesn't
+ * visibly change when the fake shadow is eventually retired. Z=-1 (travelling toward -Z, i.e.
+ * from the elevated shadow-caster boxes down onto the z=0 ground plane) derived alongside that:
+ * a point at height H casts onto z=0 at (x - H*dir.x/dir.z, y - H*dir.y/dir.z) — solving for the
+ * desired (0.6H, -0.8H) offset with dir.z=-1 gives dir.x=0.6, dir.y=-0.8 exactly. */
+const SUN_DIRECTION = new THREE.Vector3(0.6, -0.8, -1).normalize();
+const SUN_DISTANCE = 2000;
 
 /** Same formula as BattleEngine.effectAnchor's worldX/worldY — a hex's position independent of
  * camera pan. Duplicated (not imported) because effectAnchor is keyed to the engine's live
@@ -79,6 +101,9 @@ function buildHexGeometry(): THREE.BufferGeometry {
   geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(indices);
+  // Needed for MILESTONE 2's MeshLambertMaterial (unlit MeshBasicMaterial never reads normals) —
+  // every vertex lies in the same z=0 plane facing the camera, so this is just (0,0,1) everywhere.
+  geo.computeVertexNormals();
   return geo;
 }
 
@@ -145,6 +170,9 @@ function decorSize(id: string, def: DecorationDef, tile: number): { w: number; h
 interface DecorMeshEntry {
   mesh: THREE.Mesh;
   placement: DecorationPlacement;
+  /** MILESTONE 2 — invisible (colorWrite/depthWrite off, see shadowCasterMaterial) box that
+   * casts this prop's real shadow. */
+  shadowMesh: THREE.Mesh;
 }
 
 interface UnitMeshEntry {
@@ -152,6 +180,9 @@ interface UnitMeshEntry {
   /** Owned (not shared) per unit — see unitTexCache's comment on why opacity needs this. */
   material: THREE.MeshBasicMaterial;
   img: HTMLImageElement | null;
+  /** MILESTONE 2 — invisible (colorWrite/depthWrite off, see shadowCasterMaterial) box that
+   * casts this unit's real shadow. */
+  shadowMesh: THREE.Mesh;
 }
 
 export class ThreeBattleRenderer {
@@ -160,12 +191,39 @@ export class ThreeBattleRenderer {
   private camera: THREE.OrthographicCamera;
   private tileGroup = new THREE.Group();
   private tileMeshes = new Map<number, TileMeshEntry>();
-  private materialCache = new Map<string, THREE.MeshBasicMaterial>();
-  private fallbackMaterial = new THREE.MeshBasicMaterial({ color: 0x1e1b18 });
+  // MeshLambertMaterial (not MeshBasicMaterial) — MILESTONE 2 terrain needs to actually receive
+  // light/shadow. Decor and unit sprites deliberately stay MeshBasicMaterial (unlit) below, so
+  // their art is untouched by this — only the ground gets the uniform lit tint (see the
+  // architecture note in THREEJS_MILESTONE2_HANDOFF.md on why a flat scene can only tint, not
+  // per-object shade).
+  private materialCache = new Map<string, THREE.MeshLambertMaterial>();
+  private fallbackMaterial = new THREE.MeshLambertMaterial({ color: 0x1e1b18 });
   private hexGeo = buildHexGeometry();
   private builtCols = -1;
   private builtRows = -1;
   private builtMissionId = "";
+
+  // MILESTONE 2 — lighting/shadows. hemiLight is a soft sky/ground fill so unlit-facing surfaces
+  // don't go fully black (a single DirectionalLight alone would do that — see handoff doc);
+  // sunLight is the one real shadow-casting light, aimed by updateSun() every frame to track the
+  // camera (see SUN_DIRECTION's comment for why its direction is fixed). Shadow casters (units,
+  // decorations) live on shadowCasterGroup — visible=true (required: WebGLShadowMap skips
+  // object.visible===false entirely, so this can't be used to hide them — see
+  // shadowCasterMaterial's own comment for how invisibility is actually achieved instead).
+  private hemiLight = new THREE.HemisphereLight(0xfff2df, 0x14110d, 0.7);
+  private sunLight = new THREE.DirectionalLight(0xfff0d6, 0.55);
+  private shadowCasterGroup = new THREE.Group();
+  private shadowCasterGeo = new THREE.BoxGeometry(1, 1, 1);
+  // colorWrite/depthWrite both false — NOT layers (verified against this Three.js version's own
+  // WebGLShadowMap source: the per-object shadow-cast filter tests object.layers against the
+  // MAIN camera's layers, not the light's own shadow.camera.layers, so a caster-only layer would
+  // need enabling on the main camera too — which would make it draw in the normal color pass as
+  // well, defeating the point). This way the box renders nothing and touches no buffer in the
+  // normal pass, while the shadow pass (which builds its own separate MeshDepthMaterial per
+  // object, ignoring colorWrite/depthWrite entirely) still sees it fine.
+  private shadowCasterMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+  private lastShadowFrustumW = -1;
+  private lastShadowFrustumH = -1;
 
   // Ground/behind-layer decorations only (trees, houses, rubble, ...) — see ensureDecorBuilt's
   // comment for why "front"-layer/foreground props stay on the existing Canvas2D-shim units
@@ -196,11 +254,52 @@ export class ThreeBattleRenderer {
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     this.renderer.setClearColor(0x000000, 1);
+    this.renderer.shadowMap.enabled = true;
+    // PCFSoftShadowMap was removed from this Three.js version (falls back to PCFShadowMap with a
+    // console warning) — request PCFShadowMap directly instead.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.camera = new THREE.OrthographicCamera(0, 1, 0, 1, 0.1, 2000);
     this.camera.position.z = 100;
+    this.sunLight.castShadow = true;
+    // 2048, not 1024 — casters are small boxes (a fraction of a unit's own width), so a coarser
+    // map under-resolves them into faint/noisy blobs even at full light intensity.
+    this.sunLight.shadow.mapSize.set(2048, 2048);
+    this.sunLight.shadow.bias = -0.0015;
+    this.scene.add(this.hemiLight);
+    this.scene.add(this.sunLight);
+    this.scene.add(this.sunLight.target);
+    this.scene.add(this.shadowCasterGroup);
     this.scene.add(this.tileGroup);
     this.scene.add(this.decorGroup);
     this.scene.add(this.unitGroup);
+  }
+
+  /** Aims the sun so its fixed-direction shadow follows whatever's actually on screen (camera
+   * pans; the shadow-caster geometry doesn't move relative to the world, so the light has to
+   * instead) — same reasoning as why tiles are built once and only the camera moves (see module
+   * comment). The shadow camera's frustum SIZE only depends on viewport size, so that part is
+   * cached and skipped most frames; target/position are cheap vector math, recomputed every
+   * frame unconditionally. */
+  private updateSun(cssW: number, cssH: number, camX: number, camY: number): void {
+    const centerX = camX + cssW / 2;
+    const centerY = -camY - cssH / 2;
+    this.sunLight.target.position.set(centerX, centerY, 0);
+    this.sunLight.position.set(centerX, centerY, 0).addScaledVector(SUN_DIRECTION, -SUN_DISTANCE);
+    if (cssW === this.lastShadowFrustumW && cssH === this.lastShadowFrustumH) return;
+    this.lastShadowFrustumW = cssW;
+    this.lastShadowFrustumH = cssH;
+    // Half-diagonal (plus margin for shadow-caster elevation reach) rather than half-width/
+    // height: the shadow camera looks along SUN_DIRECTION, not straight down -Z like the main
+    // camera, so it needs to cover the visible box from an angle, not just match its footprint.
+    const half = Math.hypot(cssW, cssH) * 0.65 + 250;
+    const shadowCam = this.sunLight.shadow.camera as THREE.OrthographicCamera;
+    shadowCam.left = -half;
+    shadowCam.right = half;
+    shadowCam.top = half;
+    shadowCam.bottom = -half;
+    shadowCam.near = 10;
+    shadowCam.far = SUN_DISTANCE * 2.2;
+    shadowCam.updateProjectionMatrix();
   }
 
   setSize(cssW: number, cssH: number, dpr: number): void {
@@ -213,7 +312,7 @@ export class ThreeBattleRenderer {
     this.camera.updateProjectionMatrix();
   }
 
-  private materialFor(id: TerrainId, variant: number): THREE.MeshBasicMaterial {
+  private materialFor(id: TerrainId, variant: number): THREE.MeshLambertMaterial {
     const key = `${id}:${variant}`;
     const hit = this.materialCache.get(key);
     if (hit) return hit;
@@ -231,7 +330,7 @@ export class ThreeBattleRenderer {
     tex.magFilter = THREE.LinearFilter;
     tex.wrapS = THREE.ClampToEdgeWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
-    const mat = new THREE.MeshBasicMaterial({ map: tex });
+    const mat = new THREE.MeshLambertMaterial({ map: tex });
     this.materialCache.set(key, mat);
     return mat;
   }
@@ -266,6 +365,9 @@ export class ThreeBattleRenderer {
         // Z-rotation would appear CCW on screen — the opposite of ctx.rotate()'s CW-positive
         // screen convention — unless flipped here.
         if (rot) mesh.rotation.z = (-rot * Math.PI) / 3;
+        // MILESTONE 2 — the ground is the one surface real shadows land on (see handoff doc);
+        // it never casts (stays flat, castShadow defaults to false).
+        mesh.receiveShadow = true;
         this.tileGroup.add(mesh);
         this.tileMeshes.set(key, { mesh, id, variant, rot });
       }
@@ -338,7 +440,10 @@ export class ThreeBattleRenderer {
     const engine = this.engine;
     const key = `${engine.mission.id}:${engine.decorations.length}:${tile}`;
     if (key === this.builtDecorKey) return;
-    for (const entry of this.decorEntries) this.decorGroup.remove(entry.mesh);
+    for (const entry of this.decorEntries) {
+      this.decorGroup.remove(entry.mesh);
+      this.shadowCasterGroup.remove(entry.shadowMesh);
+    }
     this.decorEntries = [];
     this.builtDecorKey = key;
 
@@ -363,7 +468,8 @@ export class ThreeBattleRenderer {
       const n = def.footprint.length;
       const { w, h, dy: liftY } = decorSize(p.id, def, tile);
       const wx = sumWx / n;
-      const wy = sumWy / n + liftY;
+      const groundWy = sumWy / n; // ground contact, before decorSize's liftY visual offset
+      const wy = groundWy + liftY;
 
       const mat = this.decorMaterialFor(fileId, img);
       const mesh = new THREE.Mesh(this.quadGeo, mat);
@@ -387,7 +493,18 @@ export class ThreeBattleRenderer {
         mesh.rotation.z = (-facing.step * Math.PI) / 3;
       }
       this.decorGroup.add(mesh);
-      this.decorEntries.push({ mesh, placement: p });
+
+      // MILESTONE 2 — invisible box, real elevation (see UNIT/DECOR_SHADOW_HEIGHT_SCALE's
+      // comment), positioned at ground contact (not wy, which already includes decorSize's
+      // liftY visual nudge) so the shadow lands where the prop actually stands.
+      const elevation = Math.max(1, h * DECOR_SHADOW_HEIGHT_SCALE);
+      const shadowMesh = new THREE.Mesh(this.shadowCasterGeo, this.shadowCasterMaterial);
+      shadowMesh.castShadow = true;
+      shadowMesh.scale.set(Math.max(1, w * 0.5), Math.max(1, w * 0.35), elevation);
+      shadowMesh.position.set(wx, -groundWy, elevation / 2);
+      this.shadowCasterGroup.add(shadowMesh);
+
+      this.decorEntries.push({ mesh, placement: p, shadowMesh });
     }
   }
 
@@ -430,7 +547,12 @@ export class ThreeBattleRenderer {
         const material = new THREE.MeshBasicMaterial({ map: this.unitTextureFor(img), transparent: true, depthWrite: false });
         const mesh = new THREE.Mesh(this.quadGeo, material);
         this.unitGroup.add(mesh);
-        entry = { mesh, material, img: null };
+        // MILESTONE 2 — invisible box, real elevation (see UNIT_SHADOW_HEIGHT_SCALE's comment),
+        // repositioned every frame below alongside the visible sprite.
+        const shadowMesh = new THREE.Mesh(this.shadowCasterGeo, this.shadowCasterMaterial);
+        shadowMesh.castShadow = true;
+        this.shadowCasterGroup.add(shadowMesh);
+        entry = { mesh, material, img: null, shadowMesh };
         this.unitEntries.set(u.id, entry);
       }
       entry.mesh.visible = true;
@@ -459,6 +581,17 @@ export class ThreeBattleRenderer {
       // ensureDecorBuilt's own comment on z ordering vs decorations (z=1) and tiles (z=0).
       entry.mesh.position.set(wx, -wy, 2 + u.drawY * 0.001);
       entry.mesh.scale.set(v.scaleX * v.w, v.scaleY * v.h, 1);
+
+      // MILESTONE 2 — shadow caster tracks the sprite's ground-contact point (anchor + footY,
+      // ignoring bob/lift so a mid-step/high-ground unit's shadow stays anchored to the real
+      // ground instead of floating with the visual lift trick — see decorSize's groundWy for the
+      // same idea applied to props). Elevation grows a little with lift, echoing the fake
+      // shadow's own "raised = slightly longer shadow" stretch (see engine.ts's shadowDirX/Y
+      // block) without trying to match it exactly.
+      const elevation = Math.max(1, v.h * UNIT_SHADOW_HEIGHT_SCALE + v.lift * 0.6);
+      entry.shadowMesh.scale.set(Math.max(1, v.w * 0.4), Math.max(1, v.w * 0.28), elevation);
+      entry.shadowMesh.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY), elevation / 2);
+      entry.shadowMesh.visible = true;
     }
 
     for (const [id, entry] of this.unitEntries) {
@@ -467,8 +600,10 @@ export class ThreeBattleRenderer {
         // Still exists (just off-screen/out of sight/faded this frame) — hide, don't discard,
         // so it doesn't need rebuilding the instant it's visible again.
         entry.mesh.visible = false;
+        entry.shadowMesh.visible = false;
       } else {
         this.unitGroup.remove(entry.mesh);
+        this.shadowCasterGroup.remove(entry.shadowMesh);
         entry.material.dispose(); // owned per-unit — see unitTexCache's comment; the texture itself is shared, kept
         this.unitEntries.delete(id);
       }
@@ -481,12 +616,13 @@ export class ThreeBattleRenderer {
   private syncDecorVisibility(): void {
     const engine = this.engine;
     if (!engine.fogged) {
-      for (const entry of this.decorEntries) entry.mesh.visible = true;
+      for (const entry of this.decorEntries) entry.mesh.visible = entry.shadowMesh.visible = true;
       return;
     }
     for (const entry of this.decorEntries) {
       const p = entry.placement;
-      entry.mesh.visible = placedFootprint(p).some((f) => engine.explored(p.x + f.dx, p.y + f.dy));
+      const visible = placedFootprint(p).some((f) => engine.explored(p.x + f.dx, p.y + f.dy));
+      entry.mesh.visible = entry.shadowMesh.visible = visible;
     }
   }
 
@@ -505,6 +641,9 @@ export class ThreeBattleRenderer {
     // mesh placement's own Y-negation (see module comment) — verified numerically to
     // reproduce BattleEngine's cx/cy screen-pixel formula exactly.
     this.camera.position.set(this.engine.camX, -this.engine.camY - cssH, 100);
+    // MILESTONE 2 — the sun has to re-aim every frame too, for the same reason the camera does:
+    // the shadow-caster boxes are fixed in world space, only the view of them pans.
+    this.updateSun(cssW, cssH, this.engine.camX, this.engine.camY);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -522,6 +661,8 @@ export class ThreeBattleRenderer {
     }
     for (const tex of this.unitTexCache.values()) tex.dispose();
     for (const entry of this.unitEntries.values()) entry.material.dispose();
+    this.shadowCasterGeo.dispose();
+    this.shadowCasterMaterial.dispose();
     this.renderer.dispose();
   }
 }

@@ -260,7 +260,9 @@ export function BattleCanvas({
           fx ? (px: number, py: number) => fx.lightBoostAt(px, py, (col, row) => engine.effectAnchor(col, row)) : undefined,
           // ThreeBattleRenderer already draws ground/behind decorations AND unit sprites
           // itself — see its module comment and renderUnitsAndOverlays' skipGroundDecor/
-          // skipUnitSprites docs.
+          // skipUnitSprites docs. It now casts a real shadow too (MILESTONE 2) — skip the old
+          // fake ellipse so the two don't double up (see skipUnitShadow's own doc).
+          !!rendererThree,
           !!rendererThree,
           !!rendererThree,
         );
