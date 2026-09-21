@@ -38,6 +38,11 @@
  * only the intermediate Three.js coordinates carry the flip, nothing outside this file does. */
 
 import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import type { BattleEngine } from "../../engine";
 import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECORATIONS, HOUSE_DECOR_IDS, decorationFacing, decorationImage, placedFootprint } from "../../data";
 import { tileAt } from "../../pathfinding";
@@ -71,16 +76,32 @@ const SUN_DISTANCE = 2000;
 /** Default sun/ambient intensities, used whenever a mission doesn't set its own
  * `sunIntensity`/`ambientIntensity` (see types.ts) — also what the Map Editor's "Iluminação"
  * sliders default a new/untouched map to (see GameApp.tsx), so the editor's default and the
- * renderer's fallback can never drift apart. Lowered from the original 1.8/0.45 after the user
- * found the shadow contrast "too intense" in play — still readable, less harsh. */
-export const DEFAULT_SUN_INTENSITY = 1.1;
-export const DEFAULT_AMBIENT_INTENSITY = 0.5;
+ * renderer's fallback can never drift apart. Set to match the exact values the user tuned by
+ * hand on "O Vau" (saved as vau016.json) and asked to be the standard daytime look for every
+ * outdoor mission ("the basic setup for every daytime map... everything but caves"). */
+export const DEFAULT_SUN_INTENSITY = 5;
+export const DEFAULT_AMBIENT_INTENSITY = 2;
 /** "indoor" environment preset (see Mission.environment): a raking outdoor sun makes no sense
  * inside a building, so indoor missions get a much weaker directional light and a much stronger
  * ambient fill instead — flatter, but not fully unlit. Only applied when the mission doesn't
  * also set an explicit sunIntensity/ambientIntensity of its own. */
 const INDOOR_SUN_INTENSITY = 0.35;
 const INDOOR_AMBIENT_INTENSITY = 0.65;
+
+/** MILESTONE 4 — real post-processing (UnrealBloomPass on the actual rendered scene, via
+ * EffectComposer), not a CSS/canvas filter pretending to be one. Matches the user's own tuned
+ * "O Vau" setup (vau016.json), the standard daytime default — see DEFAULT_SUN_INTENSITY's
+ * comment. Selective bloom (see bloomComposer/finalComposer below) means only wisp embers can
+ * ever be affected, so this can never wash out the rest of the scene regardless of value. */
+export const DEFAULT_BLOOM_INTENSITY = 0.9;
+const BLOOM_RADIUS = 0.4;
+/** A fixed, low threshold is correct here (unlike an earlier full-scene-bloom attempt, which
+ * needed a high threshold and intensity-dependent scaling to avoid catching things it shouldn't)
+ * because selective bloom (see this file's bloomComposer/finalComposer setup) already guarantees
+ * only the wisp embers are ever non-black in the pass this threshold applies to — nothing else
+ * can wrongly cross it regardless of setting, so the editor's intensity slider maps directly and
+ * simply to strength. */
+const BLOOM_THRESHOLD = 0.2;
 
 /** Same formula as BattleEngine.effectAnchor's worldX/worldY — a hex's position independent of
  * camera pan. Duplicated (not imported) because effectAnchor is keyed to the engine's live
@@ -292,6 +313,28 @@ export class ThreeBattleRenderer {
   private atmosphere = new ThreeAtmosphere();
   private lastFrameTime = performance.now();
 
+  // MILESTONE 4 — SELECTIVE bloom (only the wisp embers glow, nothing else — see ThreeAtmosphere.
+  // markBloomLayer's comment for why: a naive full-scene bloom crossed the active-turn ring's
+  // existing intentional alpha pulse's threshold every cycle, turning a gentle breathing glow
+  // into a hard on/off blink, a direct user complaint). Standard Three.js selective-bloom recipe
+  // (see the official webgl_postprocessing_unreal_bloom_selective example this mirrors): render
+  // the scene TWICE per frame — once with every non-bloom-layer object temporarily forced to a
+  // flat black material (bloomComposer, off-screen, feeds UnrealBloomPass), once normally
+  // (finalComposer, on-screen) — then additively combine the two via mixPass. Real GPU cost
+  // (two extra scene traversals + one extra full render), but selective bloom has no cheaper
+  // correct implementation with a single shared render target.
+  private bloomComposer: EffectComposer;
+  private finalComposer: EffectComposer;
+  private bloomPass: UnrealBloomPass;
+  private readonly bloomLayerIndex = 1;
+  private readonly bloomTestLayers = (() => {
+    const layers = new THREE.Layers();
+    layers.set(this.bloomLayerIndex);
+    return layers;
+  })();
+  private readonly bloomDarkMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  private readonly bloomHiddenMaterials = new Map<string, THREE.Material | THREE.Material[]>();
+
   constructor(
     canvas: HTMLCanvasElement,
     private engine: BattleEngine,
@@ -325,6 +368,57 @@ export class ThreeBattleRenderer {
     this.scene.add(this.decorGroup);
     this.scene.add(this.unitGroup);
     this.scene.add(this.atmosphere.group);
+
+    // Only the wisp embers ever render into the bloom-only pass (everything else gets forced to
+    // black during it, see render()) — a low fixed threshold is correct now, since there's
+    // nothing else present that could wrongly cross it regardless of setting; the intensity
+    // slider maps directly to strength, which alone gets dramatic at high values against a
+    // black backdrop.
+    this.atmosphere.markBloomLayer(this.bloomLayerIndex);
+
+    // Built at (1,1) here; setSize() (always called at least once before the first real render,
+    // same as the camera/renderer above) gives both composers real dimensions.
+    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), engine.mission.bloomIntensity ?? DEFAULT_BLOOM_INTENSITY, BLOOM_RADIUS, BLOOM_THRESHOLD);
+    this.bloomComposer = new EffectComposer(this.renderer);
+    this.bloomComposer.renderToScreen = false;
+    this.bloomComposer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloomComposer.addPass(this.bloomPass);
+
+    const mixPass = new ShaderPass(
+      new THREE.ShaderMaterial({
+        uniforms: {
+          baseTexture: { value: null },
+          bloomTexture: { value: this.bloomComposer.renderTarget2.texture },
+        },
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform sampler2D baseTexture;
+          uniform sampler2D bloomTexture;
+          varying vec2 vUv;
+          void main() {
+            gl_FragColor = texture2D(baseTexture, vUv) + vec4(1.0) * texture2D(bloomTexture, vUv);
+          }
+        `,
+        defines: {},
+      }),
+      "baseTexture",
+    );
+    mixPass.needsSwap = true;
+
+    this.finalComposer = new EffectComposer(this.renderer);
+    this.finalComposer.addPass(new RenderPass(this.scene, this.camera));
+    this.finalComposer.addPass(mixPass);
+    // Combining two textures with raw shader math (above) bypasses the renderer's own automatic
+    // output color-space encoding that a composer's LAST pass would normally apply when it
+    // renders straight to the canvas — this pass restores it, matching the official Three.js
+    // selective-bloom example's own pipeline exactly.
+    this.finalComposer.addPass(new OutputPass());
   }
 
   /** Aims the sun so its fixed-direction shadow follows whatever's actually on screen (camera
@@ -363,6 +457,18 @@ export class ThreeBattleRenderer {
     this.camera.top = Math.max(1, cssH);
     this.camera.bottom = 0;
     this.camera.updateProjectionMatrix();
+    // MILESTONE 4 — EffectComposer captures the renderer's pixel ratio ONCE at construction
+    // time and never re-reads it; without this explicit setPixelRatio() call, bloom would stay
+    // locked to whatever dpr was active when the composer was built (effectively 1, since this
+    // constructor runs before the first real setSize()), rendering at the wrong resolution on
+    // any HiDPI display. setPixelRatio() also calls setSize() internally (with the CURRENT
+    // this._width/_height, still 1x1 the very first time — composer.setSize() right after this
+    // is what gives it real dimensions), which is why both calls are needed here, in this order,
+    // on BOTH composers now (selective bloom uses two).
+    this.bloomComposer.setPixelRatio(dpr);
+    this.bloomComposer.setSize(Math.max(1, cssW), Math.max(1, cssH));
+    this.finalComposer.setPixelRatio(dpr);
+    this.finalComposer.setSize(Math.max(1, cssW), Math.max(1, cssH));
   }
 
   private materialFor(id: TerrainId, variant: number): THREE.MeshLambertMaterial {
@@ -766,10 +872,42 @@ export class ThreeBattleRenderer {
     // MILESTONE 2 — the sun has to re-aim every frame too, for the same reason the camera does:
     // the shadow-caster boxes are fixed in world space, only the view of them pans.
     this.updateSun(cssW, cssH, this.engine.camX, this.engine.camY);
-    this.renderer.render(this.scene, this.camera);
+    // MILESTONE 4 — selective bloom's two-pass render: darken everything not on the bloom layer
+    // (embers only, see markBloomLayer), render just that into the off-screen bloomComposer,
+    // restore real materials, then render normally on-screen via finalComposer (which additively
+    // mixes the bloom texture back in via mixPass). See this class's own field comment for why
+    // this exists instead of one simple composer.
+    this.scene.traverse(this.darkenNonBloomed);
+    this.bloomComposer.render();
+    this.scene.traverse(this.restoreMaterial);
+    this.finalComposer.render();
   }
 
+  private readonly darkenNonBloomed = (obj: THREE.Object3D): void => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.isMesh && !mesh.layers.test(this.bloomTestLayers)) {
+      this.bloomHiddenMaterials.set(mesh.uuid, mesh.material);
+      mesh.material = this.bloomDarkMaterial;
+    }
+  };
+
+  private readonly restoreMaterial = (obj: THREE.Object3D): void => {
+    const mesh = obj as THREE.Mesh;
+    const hidden = this.bloomHiddenMaterials.get(mesh.uuid);
+    if (hidden) {
+      mesh.material = hidden;
+      this.bloomHiddenMaterials.delete(mesh.uuid);
+    }
+  };
+
   dispose(): void {
+    // MILESTONE 4 — EffectComposer.dispose() only frees its own two ping-pong render targets and
+    // internal copy pass, NOT the passes added to it — bloomPass owns several render targets of
+    // its own (bright-pass + per-mip horizontal/vertical blur buffers) that leak without this.
+    this.bloomComposer.dispose();
+    this.finalComposer.dispose();
+    this.bloomPass.dispose();
+    this.bloomDarkMaterial.dispose();
     this.atmosphere.dispose();
     this.hexGeo.dispose();
     this.quadGeo.dispose();

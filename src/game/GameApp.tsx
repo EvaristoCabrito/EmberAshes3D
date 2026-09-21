@@ -5,7 +5,7 @@ import { loadGameArt, portraitFor, TILE_VARIANT_COUNT, tileVariantName, tileVari
 import { getAudioVolumes, installAudioUnlock, playFile, playMenuMusic, playTheme, resumeAudio, setCutsceneVolume, setMusicVolume, setMuted, setSfxVolume, sfxPlay, stopMusic, unlockAudio } from "./audio";
 import { BattleCanvas } from "./BattleCanvas";
 import { ELEMENT_LABELS, PLACEABLE_ELEMENT_KINDS, type PlaceableElementKind } from "./gfx/params";
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_SUN_INTENSITY } from "./gfx/three/ThreeBattleRenderer";
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_BLOOM_INTENSITY, DEFAULT_SUN_INTENSITY } from "./gfx/three/ThreeBattleRenderer";
 import { InnScreen } from "./InnScreen";
 import { PartyInventoryOverlay, ItemTip } from "./InventoryScreens";
 import { DialogOverlay } from "./DialogOverlay";
@@ -2865,10 +2865,11 @@ function blankDraft(): MapDraft {
     environment: "outdoor",
     sunIntensity: DEFAULT_SUN_INTENSITY,
     ambientIntensity: DEFAULT_AMBIENT_INTENSITY,
-    mistIntensity: 0.5,
+    mistIntensity: 0.2,
     mistSpeed: 1,
     mistType: "mist2",
-    wispIntensity: 0.3,
+    bloomIntensity: DEFAULT_BLOOM_INTENSITY,
+    wispIntensity: 0.02,
     wispSpeed: 1,
     wispColor: 0xffa552,
     locationId: "",
@@ -2918,10 +2919,11 @@ function missionToDraft(m: Mission): MapDraft {
     environment: m.environment === "indoor" ? "indoor" : "outdoor",
     sunIntensity: m.sunIntensity ?? DEFAULT_SUN_INTENSITY,
     ambientIntensity: m.ambientIntensity ?? DEFAULT_AMBIENT_INTENSITY,
-    mistIntensity: m.mistIntensity ?? 0.5,
+    mistIntensity: m.mistIntensity ?? 0.2,
     mistSpeed: m.mistSpeed ?? 1,
     mistType: m.mistType ?? "mist2",
-    wispIntensity: m.wispIntensity ?? 0.3,
+    bloomIntensity: m.bloomIntensity ?? DEFAULT_BLOOM_INTENSITY,
+    wispIntensity: m.wispIntensity ?? 0.02,
     wispSpeed: m.wispSpeed ?? 1,
     wispColor: m.wispColor ?? 0xffa552,
     locationId: locationForMission(m.id)?.id ?? "",
@@ -4758,16 +4760,30 @@ function MapEditorScreen({
             />
             <span className="text-muted text-xs w-10 text-right">{(draft.ambientIntensity ?? DEFAULT_AMBIENT_INTENSITY).toFixed(2)}</span>
           </label>
+          <label className="flex items-center gap-2 text-sm" title="Brilho real de pós-processamento em superfícies claras/iluminadas — vai até um extremo de propósito">
+            <span className="text-muted w-28 shrink-0">Brilho (bloom)</span>
+            <input
+              type="range"
+              min={0}
+              max={3}
+              step={0.05}
+              className="flex-1"
+              value={draft.bloomIntensity ?? DEFAULT_BLOOM_INTENSITY}
+              onChange={(e) => setDraft((d) => ({ ...d, bloomIntensity: Number(e.target.value) }))}
+            />
+            <span className="text-muted text-xs w-10 text-right">{(draft.bloomIntensity ?? DEFAULT_BLOOM_INTENSITY).toFixed(2)}</span>
+          </label>
           <label className="flex items-center gap-2 text-sm" title="Qual implementação de névoa esta missão usa">
             <span className="text-muted w-28 shrink-0">Tipo de névoa</span>
             <select
               className="bg-bg border border-border rounded-md px-2 py-1 flex-1"
               value={draft.mistType ?? "mist2"}
-              onChange={(e) => setDraft((d) => ({ ...d, mistType: e.target.value as "mist2" | "mist3" | "vignette" }))}
+              onChange={(e) => setDraft((d) => ({ ...d, mistType: e.target.value as "mist2" | "mist3" | "mist4" | "vignette" }))}
             >
               <option value="mist2">Névoa 2 (textura suave, mundo inteiro)</option>
-              <option value="mist3">Névoa 3 (nuvens grandes flutuantes)</option>
-              <option value="vignette">Vinheta (só nos cantos, centro sempre limpo)</option>
+              <option value="mist3">Névoa 3 (ruído original, mundo inteiro)</option>
+              <option value="mist4">Névoa 4 (vórtice nas bordas do mapa, centro sempre limpo)</option>
+              <option value="vignette">Vinheta (tela, descontinuada — nunca funcionou direito)</option>
             </select>
           </label>
           <label className="flex items-center gap-2 text-sm" title="Névoa, só na batalha real (não aparece nesta prévia) — 1.0 é bem pesada de propósito">

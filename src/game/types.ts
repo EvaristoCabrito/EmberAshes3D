@@ -381,7 +381,12 @@ export interface Mission {
    *    clear (see BattleCanvas.tsx's corner-vignette CSS div, extended to read
    *    mistIntensity/mistColor when this is set).
    * Undefined defaults to "mist2", so nothing shipped changes by default. */
-  mistType?: "mist2" | "mist3" | "vignette";
+  mistType?: "mist2" | "mist3" | "mist4" | "vignette";
+  /** Bloom strength for the Three renderer's post-processing pass (UnrealBloomPass) — real bright-
+   * surface glow (sun-lit highlights, additive wisp particles), not a fake overlay. Undefined
+   * uses the renderer's own conservative default. Author-tunable per mission like every other
+   * atmosphere control tonight, full range including deliberately extreme at max. */
+  bloomIntensity?: number;
   /** Speed multiplier for the mist's drift — 1.0 is the renderer's own default pace, same
    * reasoning as wispSpeed: never needs a code change to retune again. */
   mistSpeed?: number;

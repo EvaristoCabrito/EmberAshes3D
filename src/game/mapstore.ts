@@ -61,7 +61,9 @@ export interface MapDraft {
   /** See Mission.mistIntensity. */
   mistIntensity?: number;
   /** See Mission.mistType. */
-  mistType?: "mist2" | "mist3" | "vignette";
+  mistType?: "mist2" | "mist3" | "mist4" | "vignette";
+  /** See Mission.bloomIntensity. */
+  bloomIntensity?: number;
   /** See Mission.mistSpeed. */
   mistSpeed?: number;
   /** See Mission.wispIntensity. */
@@ -203,7 +205,8 @@ export function draftToMission(d: MapDraft): Mission {
     ambientIntensity: typeof d.ambientIntensity === "number" ? d.ambientIntensity : undefined,
     mistIntensity: typeof d.mistIntensity === "number" ? d.mistIntensity : undefined,
     mistSpeed: typeof d.mistSpeed === "number" ? d.mistSpeed : undefined,
-    mistType: d.mistType === "mist3" || d.mistType === "vignette" ? d.mistType : undefined,
+    mistType: d.mistType === "mist3" || d.mistType === "mist4" || d.mistType === "vignette" ? d.mistType : undefined,
+    bloomIntensity: typeof d.bloomIntensity === "number" ? d.bloomIntensity : undefined,
     wispIntensity: typeof d.wispIntensity === "number" ? d.wispIntensity : undefined,
     wispSpeed: typeof d.wispSpeed === "number" ? d.wispSpeed : undefined,
     wispColor: typeof d.wispColor === "number" ? d.wispColor : undefined,

@@ -545,8 +545,12 @@ export function BattleCanvas({
   // never grows past clearRadius no matter how high intensity goes.
   const isVignetteMist = engine.mission.mistType === "vignette";
   const vignetteIntensity = engine.mission.mistIntensity ?? 0.5;
-  const vignetteAlpha = isVignetteMist ? Math.min(0.92, 0.18 + vignetteIntensity * 0.7) : 0.4;
-  const vignetteClearRadius = isVignetteMist ? Math.max(38, 62 - vignetteIntensity * 20) : 52;
+  // Recalibrated per direct feedback: this must read as decoration on the extreme edges/corners,
+  // not something that blocks meaningfully into the battlefield. Even at max intensity the clear
+  // radius only pulls back to 74% (was 38%) — only the outermost sliver near the screen edges is
+  // ever affected, and the peak alpha is much lower too (was up to 0.92, now capped at 0.5).
+  const vignetteAlpha = isVignetteMist ? Math.min(0.5, 0.08 + vignetteIntensity * 0.32) : 0.4;
+  const vignetteClearRadius = isVignetteMist ? Math.max(74, 92 - vignetteIntensity * 18) : 52;
 
   return (
     <div ref={wrapRef} className="relative h-full w-full min-h-0 touch-none">
@@ -573,6 +577,63 @@ export function BattleCanvas({
           mixBlendMode: "multiply",
         }}
       />
+      {/* The layer above only darkens — it reads as shadow, not haze. Everything below adds
+          actual moving depth: two counter-rotating, blurred conic-gradient swirls (screen-
+          blended, so they lighten/wash out rather than darken) plus a slow drift/breathing
+          pulse — "spirals descending" rather than a flat static tint. A radial CSS mask keeps
+          it strictly confined to the same corner region as the darkening layer above, so the
+          center stays exactly as clear regardless of how the swirl itself is animating. Only
+          rendered for mistType==="vignette"; never touches the default diorama look or Mist 2/3
+          (those are Three.js world-space systems in ThreeAtmosphere.ts, untouched here). */}
+      {isVignetteMist && (
+        <>
+          <style>{`
+            @keyframes vignetteVortexA { from { transform: rotate(0deg) scale(1.2); } to { transform: rotate(360deg) scale(1.2); } }
+            @keyframes vignetteVortexB { from { transform: rotate(0deg) scale(1.35); } to { transform: rotate(-360deg) scale(1.35); } }
+            @keyframes vignetteVortexDrift { 0%, 100% { transform: translateY(0%) scale(1); } 50% { transform: translateY(3%) scale(1.05); } }
+          `}</style>
+          <div
+            className="pointer-events-none absolute inset-0 overflow-hidden"
+            style={{
+              WebkitMaskImage: `radial-gradient(130% 130% at 50% 42%, transparent ${vignetteClearRadius}%, black 100%)`,
+              maskImage: `radial-gradient(130% 130% at 50% 42%, transparent ${vignetteClearRadius}%, black 100%)`,
+              // THE BUG: mix-blend-mode was on the CHILDREN below, but this element's own
+              // mask-image creates an isolated stacking context — a child's blend mode can only
+              // blend with what's painted inside that same isolated context (its siblings here),
+              // never with the actual game canvas behind it, so the whole effect silently
+              // composited as if invisible. Moving blend-mode to THIS wrapper instead: its two
+              // children first normal-composite together inside it, then this one wrapper blends
+              // the combined result against the canvas — reaches through correctly.
+              mixBlendMode: "screen",
+            }}
+          >
+            <div
+              className="absolute"
+              style={{
+                inset: "-35%",
+                background:
+                  "conic-gradient(from 0deg at 50% 50%, rgba(196,204,198,0.38) 0deg, rgba(196,204,198,0) 70deg, rgba(196,204,198,0.3) 150deg, rgba(196,204,198,0) 230deg, rgba(196,204,198,0.34) 300deg, rgba(196,204,198,0) 360deg)",
+                opacity: Math.min(1, 0.4 + vignetteIntensity * 0.7),
+                filter: "blur(7px)",
+                // Faster swirl at higher intensity — the "max means max" standard every other
+                // slider tonight was held to, not just a static image that gets paler/darker.
+                animation: `vignetteVortexA ${Math.max(14, 42 - vignetteIntensity * 24)}s linear infinite`,
+              }}
+            />
+            <div
+              className="absolute"
+              style={{
+                inset: "-35%",
+                background:
+                  "conic-gradient(from 90deg at 48% 54%, rgba(168,178,172,0.3) 0deg, rgba(168,178,172,0) 90deg, rgba(168,178,172,0.26) 200deg, rgba(168,178,172,0) 300deg)",
+                opacity: Math.min(1, 0.3 + vignetteIntensity * 0.6),
+                filter: "blur(11px)",
+                animation: `vignetteVortexB ${Math.max(20, 56 - vignetteIntensity * 28)}s linear infinite, vignetteVortexDrift 8s ease-in-out infinite`,
+              }}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }

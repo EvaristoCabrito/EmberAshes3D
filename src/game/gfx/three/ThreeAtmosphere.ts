@@ -245,10 +245,16 @@ class GroundMist {
         mesh.position.set(cx, -cy, GroundMist.BASE_Z + tier.mistHeight * GroundMist.LAYER_Z_FRAC[i]!);
       }
     }
+    // Power curve, not a direct multiply — the raw linear mapping made 0.2 (meant to be a gentle
+    // low setting) already read as "unbearable" (direct complaint: "where is the MIN option, all
+    // you gave me was MAX"). Squaring pushes low slider values down much further than high ones
+    // (0.2 -> 0.04, 0.5 -> 0.25, 1.0 -> 1.0 unchanged) — max still means max, but the bottom of
+    // the range is now genuinely subtle instead of already-strong.
+    const shapedIntensity = tier.mistIntensity * tier.mistIntensity;
     for (let i = 0; i < this.materials.length; i++) {
       const material = this.materials[i]!;
       (material.uniforms.uColor!.value as THREE.Color).setHex(tier.mistColor);
-      material.uniforms.uAlpha!.value = tier.mistIntensity * GroundMist.LAYER_FALLOFF[i]!;
+      material.uniforms.uAlpha!.value = shapedIntensity * GroundMist.LAYER_FALLOFF[i]!;
     }
     this.group.visible = tier.mistIntensity > 0;
   }
@@ -268,135 +274,261 @@ class GroundMist {
 }
 
 // ---------------------------------------------------------------------------------------------
-// "Mist 3" — the earlier large-soft-drifting-puff implementation, kept as its own selectable
-// option (Mission.mistType === "mist3") rather than deleted, per direct instruction. Z is a
-// fixed per-instance range (6 to 12, via fract(aSeed)) — NOT the raw unbounded aSeed value,
-// which was this system's original real bug: aSeed ranges up to 1000, and using it directly as
-// a Z coordinate pushed most puffs to Z~6000, far behind the camera (which sits at Z=100 looking
-// toward -Z), so they were clipped out of view regardless of intensity. Puff count also scales
-// with board area (not a fixed small number) — a fixed low count left most of a large board's
-// camera view empty of puffs even when some did render.
+// "Mist 3" — the actual original first version (the puff-based InstancedMesh attempt was a
+// LATER rewrite, mislabeled as "3" once before — this is the real one): raw per-pixel hash noise
+// (no pre-baked texture), 3 octaves blended 0.6/0.3/0.1, a narrow smoothstep(0.45,0.88) contrast
+// band, small uScale — kept selectable exactly as it originally was, for direct comparison
+// against Mist 2's texture-based approach. Drift speed uses the same confirmed-visible magnitude
+// found earlier tonight (the original 0.008-0.014 values animated too slowly to ever perceive).
 
-const MIST_PUFF_VERTEX = /* glsl */ `
-  attribute vec2 aBase;
-  attribute float aSeed;
-  attribute float aSize;
-  uniform float uTime;
-  varying vec2 vUv;
-  varying float vOpacity;
+const MIST3_VERTEX = /* glsl */ `
+  varying vec2 vWorldXY;
   void main() {
-    vUv = uv;
-    float t = uTime + aSeed * 53.0;
-    vec2 wander = vec2(sin(t * 0.05 + aSeed * 4.0), cos(t * 0.037 + aSeed * 6.0)) * (aSize * 0.9);
-    vec3 worldPos = vec3(aBase + wander, 6.0 + fract(aSeed) * 6.0);
-    vec3 corner = worldPos + vec3(position.xy * aSize, 0.0);
-    gl_Position = projectionMatrix * viewMatrix * vec4(corner, 1.0);
-    vOpacity = 0.7 + 0.3 * sin(t * 0.08 + aSeed * 9.0);
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorldXY = worldPos.xy;
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
   }
 `;
 
-const MIST_PUFF_FRAGMENT = /* glsl */ `
+const MIST3_FRAGMENT = /* glsl */ `
+  uniform float uTime;
+  uniform vec2 uDrift;
   uniform vec3 uColor;
   uniform vec3 uSunColor;
   uniform float uAlpha;
-  varying vec2 vUv;
-  varying float vOpacity;
+  varying vec2 vWorldXY;
+
+  vec2 hash(vec2 p) {
+    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+    return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+  }
+  float noise(vec2 p) {
+    const float K1 = 0.366025404;
+    const float K2 = 0.211324865;
+    vec2 i = floor(p + (p.x + p.y) * K1);
+    vec2 a = p - i + (i.x + i.y) * K2;
+    vec2 o = a.x > a.y ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+    vec2 b = a - o + K2;
+    vec2 c = a - 1.0 + 2.0 * K2;
+    vec3 h = max(0.5 - vec3(dot(a, a), dot(b, b), dot(c, c)), 0.0);
+    vec3 n = h * h * h * h * vec3(dot(a, hash(i)), dot(b, hash(i + o)), dot(c, hash(i + 1.0)));
+    return dot(n, vec3(70.0));
+  }
+
   void main() {
-    float d = distance(vUv, vec2(0.5)) * 2.0;
-    float mask = pow(clamp(1.0 - d, 0.0, 1.0), 1.8);
+    vec2 p = vWorldXY * 0.012 + uTime * uDrift;
+    float n = noise(p) * 0.6 + noise(p * 2.03 + 11.0) * 0.3 + noise(p * 4.1 + 71.0) * 0.1;
+    n = clamp(n * 0.5 + 0.5, 0.0, 1.0);
+    n = smoothstep(0.45, 0.88, n);
     vec3 color = mix(uColor, uSunColor, 0.35);
-    gl_FragColor = vec4(color, mask * uAlpha * vOpacity);
+    gl_FragColor = vec4(color, n * uAlpha);
   }
 `;
 
-class GroundMistPuffs {
+class GroundMist3 {
   readonly group = new THREE.Group();
-  private geo: THREE.PlaneGeometry | null = null;
-  private material: THREE.ShaderMaterial | null = null;
-  private mesh: THREE.InstancedMesh | null = null;
+  private geo = new THREE.PlaneGeometry(1, 1);
+  private materials: THREE.ShaderMaterial[] = [];
+  private meshes: THREE.Mesh[] = [];
   private builtKey = "";
 
-  private static puffCount(boardW: number, boardH: number, tile: number): number {
-    const perPuffArea = tile * tile * 26;
-    return Math.min(160, Math.max(28, Math.round((boardW * boardH) / perPuffArea)));
+  private static readonly LAYER_FALLOFF = [1.0, 0.6, 0.32];
+  private static readonly LAYER_Z_FRAC = [0.08, 0.4, 0.85];
+  private static readonly LAYER_DRIFT: [number, number][] = [
+    [0.14, 0.22],
+    [-0.19, 0.1],
+    [0.09, -0.24],
+  ];
+  private static readonly BASE_Z = 5;
+
+  constructor() {
+    for (let i = 0; i < 3; i++) {
+      const material = new THREE.ShaderMaterial({
+        vertexShader: MIST3_VERTEX,
+        fragmentShader: MIST3_FRAGMENT,
+        transparent: true,
+        depthWrite: false,
+        depthTest: false,
+        uniforms: {
+          uTime: { value: 0 },
+          uDrift: { value: new THREE.Vector2(...GroundMist3.LAYER_DRIFT[i]!) },
+          uColor: { value: new THREE.Color(0xaab4ad) },
+          uSunColor: { value: new THREE.Color(0xffffff) },
+          uAlpha: { value: 0 },
+        },
+      });
+      const mesh = new THREE.Mesh(this.geo, material);
+      mesh.renderOrder = 10 + i;
+      this.materials.push(material);
+      this.meshes.push(mesh);
+      this.group.add(mesh);
+    }
   }
 
   rebuild(cols: number, rows: number, tile: number, missionId: string, tier: AtmosphereTier): void {
     const key = `${missionId}:${cols}:${rows}:${tile}`;
-    const shouldExist = tier.mistIntensity > 0;
-    if (!shouldExist) {
-      if (this.mesh) this.teardown();
-      this.builtKey = "";
-      return;
+    if (key !== this.builtKey) {
+      this.builtKey = key;
+      const { w, h } = boardSize(cols, rows, tile);
+      const cx = w / 2;
+      const cy = h / 2;
+      for (let i = 0; i < this.meshes.length; i++) {
+        const mesh = this.meshes[i]!;
+        mesh.scale.set(w * 1.15, h * 1.15, 1);
+        mesh.position.set(cx, -cy, GroundMist3.BASE_Z + tier.mistHeight * GroundMist3.LAYER_Z_FRAC[i]!);
+      }
     }
-    if (key === this.builtKey && this.mesh) {
-      (this.material!.uniforms.uColor!.value as THREE.Color).setHex(tier.mistColor);
-      this.material!.uniforms.uAlpha!.value = tier.mistIntensity * 0.55;
-      return;
+    for (let i = 0; i < this.materials.length; i++) {
+      const material = this.materials[i]!;
+      (material.uniforms.uColor!.value as THREE.Color).setHex(tier.mistColor);
+      material.uniforms.uAlpha!.value = tier.mistIntensity * GroundMist3.LAYER_FALLOFF[i]!;
     }
-    this.builtKey = key;
-    this.teardown();
+    this.group.visible = tier.mistIntensity > 0;
+  }
 
-    const { w: boardW, h: boardH } = boardSize(cols, rows, tile);
-    const count = GroundMistPuffs.puffCount(boardW, boardH, tile);
-    const geo = new THREE.PlaneGeometry(1, 1);
-    const aBase = new Float32Array(count * 2);
-    const aSeed = new Float32Array(count);
-    const aSize = new Float32Array(count);
-    for (let i = 0; i < count; i++) {
-      aBase[i * 2] = Math.random() * boardW;
-      aBase[i * 2 + 1] = -Math.random() * boardH;
-      aSeed[i] = Math.random() * 1000;
-      aSize[i] = tile * (3.5 + Math.random() * 3.5);
+  sync(dt: number, sunLight: THREE.DirectionalLight, speed: number): void {
+    for (const material of this.materials) {
+      material.uniforms.uTime!.value += dt * speed;
+      (material.uniforms.uSunColor!.value as THREE.Color).copy(sunLight.color).multiplyScalar(Math.min(1.5, sunLight.intensity * 0.6));
     }
-    geo.setAttribute("aBase", new THREE.InstancedBufferAttribute(aBase, 2));
-    geo.setAttribute("aSeed", new THREE.InstancedBufferAttribute(aSeed, 1));
-    geo.setAttribute("aSize", new THREE.InstancedBufferAttribute(aSize, 1));
+  }
 
-    const material = new THREE.ShaderMaterial({
-      vertexShader: MIST_PUFF_VERTEX,
-      fragmentShader: MIST_PUFF_FRAGMENT,
+  dispose(): void {
+    this.geo.dispose();
+    for (const material of this.materials) material.dispose();
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// "Fog 4" — real swirling vortex motion (what the user actually wanted from the vignette
+// attempt), but built as world-space geometry keyed to the BOARD's own edges rather than the
+// screen's corners, since the CSS vignette approach never worked reliably. Confined to a border
+// band around the board's outer edge via a mask baked directly into the shader (smoothstep on
+// normalized distance from board center) — the interior, where the actual fighting happens, is
+// always completely alpha-zero regardless of intensity, camera position, or pan. Reuses Mist 2's
+// exact noise texture technique (proven to render correctly) with an added per-fragment swirl
+// rotation for the "spirals/vortices descending" look, instead of Mist 3's raw hash noise.
+
+const MIST4_VERTEX = /* glsl */ `
+  varying vec2 vWorldXY;
+  void main() {
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorldXY = worldPos.xy;
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
+  }
+`;
+
+const MIST4_FRAGMENT = /* glsl */ `
+  uniform sampler2D uNoiseTex;
+  uniform float uTime;
+  uniform float uScale;
+  uniform vec3 uColor;
+  uniform vec3 uSunColor;
+  uniform float uAlpha;
+  uniform vec2 uBoardCenter;
+  uniform vec2 uBoardHalfSize;
+  uniform float uBorderThickness;
+  varying vec2 vWorldXY;
+
+  float fbm(vec2 uv) {
+    return texture2D(uNoiseTex, uv).r * 0.55
+         + texture2D(uNoiseTex, uv * 2.3 + 3.1).g * 0.3
+         + texture2D(uNoiseTex, uv * 4.7 + 9.4).b * 0.15;
+  }
+
+  void main() {
+    // THE BUG (first attempt): this used a fraction of the board's own size for the border band,
+    // so on a small board the "outer 38%" was still a huge absolute area, swallowing most of the
+    // visible battlefield — the opposite of what was asked. Fixed: distFromEdge is measured in
+    // real world-px from each edge, and uBorderThickness is a fixed pixel width (tile-scaled, not
+    // board-scaled) — the border band stays genuinely thin regardless of how big the map is.
+    vec2 distFromCenter = abs(vWorldXY - uBoardCenter);
+    vec2 distFromEdge = uBoardHalfSize - distFromCenter; // positive = inside the board
+    float minDistFromEdge = min(distFromEdge.x, distFromEdge.y);
+    float borderMask = 1.0 - smoothstep(0.0, uBorderThickness, minDistFromEdge);
+
+    // Swirl: rotate the noise-sampling UV by an angle that depends on distance-from-edge and
+    // time — real spiraling motion, strongest right at the edge, fading out with the mask.
+    float edgeT = clamp(1.0 - minDistFromEdge / uBorderThickness, 0.0, 1.0);
+    float swirlAngle = 2.2 * edgeT * sin(uTime * 0.15 - edgeT * 3.0);
+    float s = sin(swirlAngle);
+    float c = cos(swirlAngle);
+    vec2 p = vWorldXY * uScale;
+    vec2 swirled = vec2(p.x * c - p.y * s, p.x * s + p.y * c) + uTime * vec2(0.02, -0.015);
+
+    float n = clamp(fbm(swirled), 0.0, 1.0);
+    vec3 color = mix(uColor, uSunColor, 0.35);
+    gl_FragColor = vec4(color, n * uAlpha * borderMask);
+  }
+`;
+
+class GroundMist4 {
+  readonly group = new THREE.Group();
+  private geo = new THREE.PlaneGeometry(1, 1);
+  private noiseTex = buildMistNoiseTexture();
+  private material: THREE.ShaderMaterial;
+  private mesh: THREE.Mesh;
+  private builtKey = "";
+
+  private static readonly BASE_Z = 6;
+
+  constructor() {
+    this.material = new THREE.ShaderMaterial({
+      vertexShader: MIST4_VERTEX,
+      fragmentShader: MIST4_FRAGMENT,
       transparent: true,
       depthWrite: false,
       depthTest: false,
       uniforms: {
+        uNoiseTex: { value: this.noiseTex },
         uTime: { value: 0 },
-        uColor: { value: new THREE.Color(tier.mistColor) },
+        uScale: { value: 0.004 },
+        uColor: { value: new THREE.Color(0xaab4ad) },
         uSunColor: { value: new THREE.Color(0xffffff) },
-        uAlpha: { value: tier.mistIntensity * 0.55 },
+        uAlpha: { value: 0 },
+        uBoardCenter: { value: new THREE.Vector2(0, 0) },
+        uBoardHalfSize: { value: new THREE.Vector2(1, 1) },
+        uBorderThickness: { value: 1 },
       },
     });
+    this.mesh = new THREE.Mesh(this.geo, this.material);
+    this.mesh.renderOrder = 10;
+    this.group.add(this.mesh);
+  }
 
-    const mesh = new THREE.InstancedMesh(geo, material, count);
-    mesh.frustumCulled = false;
-    mesh.renderOrder = 10;
-    const identity = new THREE.Matrix4();
-    for (let i = 0; i < count; i++) mesh.setMatrixAt(i, identity);
-    mesh.instanceMatrix.needsUpdate = true;
-
-    this.geo = geo;
-    this.material = material;
-    this.mesh = mesh;
-    this.group.add(mesh);
+  rebuild(cols: number, rows: number, tile: number, missionId: string, tier: AtmosphereTier): void {
+    const key = `${missionId}:${cols}:${rows}:${tile}`;
+    if (key !== this.builtKey) {
+      this.builtKey = key;
+      const { w, h } = boardSize(cols, rows, tile);
+      const cx = w / 2;
+      const cy = h / 2;
+      // Overscan is much larger than Mist 2/3's 1.15x — the visible fog only ever lives in the
+      // outer border band anyway (masked in-shader), so this just needs to comfortably cover
+      // that band at any board size, not hug the board tightly.
+      this.mesh.scale.set(w * 1.6, h * 1.6, 1);
+      this.mesh.position.set(cx, -cy, GroundMist4.BASE_Z + tier.mistHeight * 0.3);
+      (this.material.uniforms.uBoardCenter!.value as THREE.Vector2).set(cx, -cy);
+      (this.material.uniforms.uBoardHalfSize!.value as THREE.Vector2).set(w / 2, h / 2);
+      // ~2.5 hex-widths deep, scaling with zoom (tile) but NOT with board size — this is what
+      // keeps the band genuinely thin on any map, large or small (see the fragment shader's own
+      // comment on the bug this replaces).
+      this.material.uniforms.uBorderThickness!.value = tile * 2.5;
+    }
+    (this.material.uniforms.uColor!.value as THREE.Color).setHex(tier.mistColor);
+    this.material.uniforms.uAlpha!.value = tier.mistIntensity;
+    this.group.visible = tier.mistIntensity > 0;
   }
 
   sync(dt: number, sunLight: THREE.DirectionalLight, speed: number): void {
-    if (!this.material) return;
     this.material.uniforms.uTime!.value += dt * speed;
     (this.material.uniforms.uSunColor!.value as THREE.Color).copy(sunLight.color).multiplyScalar(Math.min(1.5, sunLight.intensity * 0.6));
   }
 
-  private teardown(): void {
-    if (this.mesh) this.group.remove(this.mesh);
-    this.geo?.dispose();
-    this.material?.dispose();
-    this.geo = null;
-    this.material = null;
-    this.mesh = null;
-  }
-
   dispose(): void {
-    this.teardown();
+    this.geo.dispose();
+    this.noiseTex.dispose();
+    this.material.dispose();
   }
 }
 
@@ -486,9 +618,18 @@ class ParticleField {
   private mesh: THREE.InstancedMesh | null = null;
   private builtKey = "";
   private readonly baseColor: THREE.Color;
+  /** Set via setBloomLayer() (see ThreeBattleRenderer's selective-bloom setup) — applied to the
+   * mesh at creation time here in rebuild(), and re-applied every time rebuild() makes a NEW
+   * mesh (mission/board change), since a fresh InstancedMesh starts on the default layer only. */
+  private bloomLayer: number | null = null;
 
   constructor(private readonly kind: ParticleKind) {
     this.baseColor = kind === "ember" ? new THREE.Color(0xffa552) : new THREE.Color(0xd6d2bf);
+  }
+
+  setBloomLayer(layer: number): void {
+    this.bloomLayer = layer;
+    this.mesh?.layers.enable(layer);
   }
 
   private rebuild(boardW: number, boardH: number, tile: number, count: number, riseHeight: number): void {
@@ -539,6 +680,7 @@ class ParticleField {
     const identity = new THREE.Matrix4();
     for (let i = 0; i < count; i++) mesh.setMatrixAt(i, identity);
     mesh.instanceMatrix.needsUpdate = true;
+    if (this.bloomLayer !== null) mesh.layers.enable(this.bloomLayer);
 
     this.geo = geo;
     this.material = material;
@@ -594,8 +736,19 @@ class ParticleField {
 
 export class ThreeAtmosphere {
   readonly group = new THREE.Group();
+
+  /** Marks the wisp embers (and only them) as bloom-eligible — see ThreeBattleRenderer's
+   * selective-bloom setup. Mist/dust/tiles/decor/units/the movement-highlight overlay must
+   * NEVER bloom: the active-turn ring's existing intentional alpha "breathing" pulse (see
+   * engine.ts's activeTurnHighlight) crossed a naive full-scene bloom's brightness threshold on
+   * every cycle, turning a gentle pulse into a hard on/off blink — direct user complaint. */
+  markBloomLayer(layer: number): void {
+    this.embers.setBloomLayer(layer);
+  }
+
   private readonly mist2 = new GroundMist();
-  private readonly mist3 = new GroundMistPuffs();
+  private readonly mist3 = new GroundMist3();
+  private readonly mist4 = new GroundMist4();
   private readonly dust = new ParticleField("dust");
   private readonly embers = new ParticleField("ember");
   private readonly scratchSunColor = new THREE.Color();
@@ -603,7 +756,7 @@ export class ThreeAtmosphere {
   private readonly scratchWispColor = new THREE.Color();
 
   constructor() {
-    this.group.add(this.mist2.group, this.mist3.group, this.dust.group, this.embers.group);
+    this.group.add(this.mist2.group, this.mist3.group, this.mist4.group, this.dust.group, this.embers.group);
   }
 
   sync(engine: BattleEngine, tile: number, dt: number, sunLight: THREE.DirectionalLight, hemiLight: THREE.HemisphereLight): void {
@@ -613,13 +766,15 @@ export class ThreeAtmosphere {
     // on purpose (per direct instruction — max means max), not pre-limited "for their own good".
     // Dust stays off (count 0) for now — only wisps (embers) were asked for; dust's plumbing is
     // left in place, unused, for whenever it is.
-    const wisp = engine.mission.wispIntensity ?? 0.3;
+    // Defaults match the user's own tuned "O Vau" setup (vau016.json) — the standard daytime
+    // look for every mission that doesn't set its own values, per direct instruction.
+    const wisp = engine.mission.wispIntensity ?? 0.02;
     const wispSpeed = engine.mission.wispSpeed ?? 1;
     const mistSpeed = engine.mission.mistSpeed ?? 1;
     // "vignette" mistType means neither world-space mist implementation should render at all —
     // that look comes entirely from BattleCanvas.tsx's screen-space CSS vignette instead.
     const mistType = engine.mission.mistType ?? "mist2";
-    const worldMistIntensity = mistType === "vignette" ? 0 : (engine.mission.mistIntensity ?? 0.5);
+    const worldMistIntensity = mistType === "vignette" ? 0 : (engine.mission.mistIntensity ?? 0.2);
     const tier: AtmosphereTier = {
       // Plain default, not a forced floor — a floor would override an explicit 0 the author
       // deliberately set to turn mist off on a specific map ("if I don't want it somewhere I'll
@@ -642,10 +797,13 @@ export class ThreeAtmosphere {
     // if the author had just set the slider to 0 on that one.
     const mist2Tier: AtmosphereTier = { ...tier, mistIntensity: mistType === "mist2" ? worldMistIntensity : 0 };
     const mist3Tier: AtmosphereTier = { ...tier, mistIntensity: mistType === "mist3" ? worldMistIntensity : 0 };
+    const mist4Tier: AtmosphereTier = { ...tier, mistIntensity: mistType === "mist4" ? worldMistIntensity : 0 };
     this.mist2.rebuild(engine.cols, engine.rows, tile, engine.mission.id, mist2Tier);
     this.mist2.sync(dt, sunLight, mistSpeed);
     this.mist3.rebuild(engine.cols, engine.rows, tile, engine.mission.id, mist3Tier);
     this.mist3.sync(dt, sunLight, mistSpeed);
+    this.mist4.rebuild(engine.cols, engine.rows, tile, engine.mission.id, mist4Tier);
+    this.mist4.sync(dt, sunLight, mistSpeed);
 
     this.scratchSunColor.copy(sunLight.color).multiplyScalar(Math.min(1.5, sunLight.intensity * 0.6));
     this.scratchHemiColor.copy(hemiLight.color).multiplyScalar(Math.min(1.5, hemiLight.intensity * 1.2));
@@ -659,6 +817,7 @@ export class ThreeAtmosphere {
   dispose(): void {
     this.mist2.dispose();
     this.mist3.dispose();
+    this.mist4.dispose();
     this.dust.dispose();
     this.embers.dispose();
   }
