@@ -1,3 +1,5 @@
+import type { AtmosphereProfile } from "./gfx/atmosphereParams";
+
 export type PotionId = "mid" | "weak" | "potent" | "disease" | "manaSmall" | "manaMid" | "manaLarge";
 
 export interface Bag {
@@ -374,6 +376,10 @@ export interface Mission {
   /** Permanent elemental GPU FX (lava fire, icy glints, ...) placed on this map. Omitted on
    * every existing mission — purely additive. */
   elementalFx?: ElementalFxPlacement[];
+  /** Overrides a subset of DEFAULT_ATMOSPHERE_PROFILE (see gfx/atmosphereParams.ts) for this
+   * mission's global atmosphere layer. Omitted on every existing mission — every map still
+   * gets the full default profile automatically, this only ever narrows/retunes it. */
+  atmosphere?: Partial<AtmosphereProfile>;
   /** Coordinates of chests on this map that should roll noticeably better loot when opened
    * — same pool and range as a normal chest (see useLockpick), just tipped toward the
    * better end: more Ember, better gear odds. For a chest worth gating behind a locked
@@ -753,6 +759,8 @@ export interface HudSnapshot {
   targetPrompt: { name: string; need: number; picked: number } | null;
   zoom: number;
   speedMode: "slow" | "normal" | "fast";
+  /** Runtime AtmosphereFX toggle — see BattleEngine.atmosphereFxOn. */
+  atmosphereFxOn: boolean;
   tip: string | null;
   inspected: UnitPublic | null;
   pendingFoe: UnitPublic | null;

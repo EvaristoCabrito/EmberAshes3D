@@ -272,6 +272,7 @@ function hudBlank(): HudSnapshot {
     targetPrompt: null,
     zoom: 1,
     speedMode: "normal",
+    atmosphereFxOn: true,
     tip: null,
     inspected: null,
     pendingFoe: null,
@@ -6778,6 +6779,15 @@ function BattleScreen({
                   {mode === "slow" ? "Lenta" : mode === "normal" ? "Normal" : "Rápida"}
                 </Button>
               ))}
+            </div>
+            <p className="text-xs uppercase tracking-[0.18em] text-muted mb-2">AtmosphereFX</p>
+            <div className="grid grid-cols-2 gap-1 mb-4">
+              <Button size="sm" variant={hud.atmosphereFxOn ? undefined : "quiet"} onClick={() => engine.setAtmosphereFx(true)}>
+                Ligado
+              </Button>
+              <Button size="sm" variant={!hud.atmosphereFxOn ? undefined : "quiet"} onClick={() => engine.setAtmosphereFx(false)}>
+                Desligado
+              </Button>
             </div>
             <div className="mb-4 border-t border-border pt-3">
               <button

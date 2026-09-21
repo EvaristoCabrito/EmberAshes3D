@@ -39,6 +39,7 @@ import { sfxPlay } from "./audio";
 // below (the blade-sweep crescent) needs to build one it understands.
 import { Path2D } from "./gfx/WebGL2DRenderer";
 import type { ElementKind } from "./gfx/params";
+import { DEFAULT_ATMOSPHERE_PROFILE, type AtmosphereProfile } from "./gfx/atmosphereParams";
 import type {
   Bag,
   BattleSnapshot,
@@ -1068,6 +1069,15 @@ export class BattleEngine {
    * pause menu, applies to the very next step (mid-step changes aren't jarring since a
    * step is at most a quarter second). */
   speedMode: "slow" | "normal" | "fast" = "normal";
+  /** Runtime AtmosphereFX toggle — see atmosphereProfile below and AtmosphereRenderer.
+   * On by default: the point of the system is that a map looks different the instant it
+   * loads, with no setup. */
+  atmosphereFxOn = true;
+  /** DEFAULT_ATMOSPHERE_PROFILE merged with this mission's own `atmosphere` override, if any
+   * — computed once here rather than re-merged every frame. Every mission gets one, whether
+   * or not it defines an override, so BattleCanvas's atmosphere layer never has to ask "is
+   * there a profile" — only "is the toggle on". */
+  readonly atmosphereProfile: AtmosphereProfile;
   camX = 0;
   camY = 0;
   private viewW = 1;
@@ -1135,6 +1145,7 @@ export class BattleEngine {
     this.tileRots = mission.tileRots ?? [];
     this.decorations = (mission.decorations ?? []).map((d) => ({ ...d }));
     this.elementalFxPlacements = (mission.elementalFx ?? []).map((p) => ({ ...p }));
+    this.atmosphereProfile = { ...DEFAULT_ATMOSPHERE_PROFILE, ...(mission.atmosphere ?? {}) };
     // A tile under a full-coverage water FX placement (water/water2) skips its own photo
     // tile art entirely — see renderGround. That art is one of 22 independently-centered
     // variants (assets.ts TILE_VARIANT_COUNT.water), so two neighboring water hexes almost
@@ -1360,6 +1371,7 @@ export class BattleEngine {
       targetPrompt: this.targetPrompt(),
       zoom: this.zoom,
       speedMode: this.speedMode,
+      atmosphereFxOn: this.atmosphereFxOn,
       tip: this.tip,
       inspected: inspected
         ? pub(inspected, this.isWebCell(inspected.x, inspected.y), this.movLeft(inspected))
@@ -6843,6 +6855,11 @@ export class BattleEngine {
 
   setSpeed(mode: "slow" | "normal" | "fast"): void {
     this.speedMode = mode;
+    this.emit();
+  }
+
+  setAtmosphereFx(on: boolean): void {
+    this.atmosphereFxOn = on;
     this.emit();
   }
 
