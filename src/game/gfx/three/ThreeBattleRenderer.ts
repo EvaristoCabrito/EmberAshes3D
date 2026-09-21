@@ -202,6 +202,7 @@ export class ThreeBattleRenderer {
   private builtCols = -1;
   private builtRows = -1;
   private builtMissionId = "";
+  private builtTile = -1;
 
   // MILESTONE 2 — lighting/shadows. hemiLight is a soft sky/ground fill so unlit-facing surfaces
   // don't go fully black (a single DirectionalLight alone would do that — see handoff doc);
@@ -210,8 +211,11 @@ export class ThreeBattleRenderer {
   // decorations) live on shadowCasterGroup — visible=true (required: WebGLShadowMap skips
   // object.visible===false entirely, so this can't be used to hide them — see
   // shadowCasterMaterial's own comment for how invisibility is actually achieved instead).
-  private hemiLight = new THREE.HemisphereLight(0xfff2df, 0x14110d, 0.7);
-  private sunLight = new THREE.DirectionalLight(0xfff0d6, 0.55);
+  // Intensities tuned so the sun's shadow actually reads against the terrain art instead of
+  // disappearing into it — at the original 0.7/0.55 the whole board rendered near-black and the
+  // cast shadows were indistinguishable from unlit ground (see chat thread that caught this).
+  private hemiLight = new THREE.HemisphereLight(0xfff2df, 0x14110d, 0.45);
+  private sunLight = new THREE.DirectionalLight(0xfff0d6, 1.8);
   private shadowCasterGroup = new THREE.Group();
   private shadowCasterGeo = new THREE.BoxGeometry(1, 1, 1);
   // colorWrite/depthWrite both false — NOT layers (verified against this Three.js version's own
@@ -340,12 +344,21 @@ export class ThreeBattleRenderer {
    * pan/zoom, which only ever moves the camera (see render()). */
   private ensureBuilt(tile: number): void {
     const engine = this.engine;
-    if (this.builtCols === engine.cols && this.builtRows === engine.rows && this.builtMissionId === engine.mission.id) return;
+    // tile is part of the identity check (not just cols/rows/missionId) — every mesh's world
+    // position and scale is baked in at build time from hexWorld(..., tile), so a zoom change
+    // (which changes `tile` without touching cols/rows/missionId) has to trigger a full rebuild
+    // too. Decorations already keyed on tile (see ensureDecorBuilt's builtDecorKey); terrain
+    // didn't, so zooming left the ground grid frozen at its old scale/position while the camera,
+    // decorations and units all repositioned themselves for the new tile size every frame —
+    // reads as tiles vanishing/sliding out from under everything else on zoom.
+    if (this.builtCols === engine.cols && this.builtRows === engine.rows && this.builtMissionId === engine.mission.id && this.builtTile === tile)
+      return;
     for (const entry of this.tileMeshes.values()) this.tileGroup.remove(entry.mesh);
     this.tileMeshes.clear();
     this.builtCols = engine.cols;
     this.builtRows = engine.rows;
     this.builtMissionId = engine.mission.id;
+    this.builtTile = tile;
 
     for (let row = 0; row < engine.rows; row++) {
       for (let col = 0; col < engine.cols; col++) {

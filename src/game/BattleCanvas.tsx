@@ -5,15 +5,13 @@ import { WebGL2DRenderer } from "./gfx/WebGL2DRenderer";
 import { ThreeBattleRenderer } from "./gfx/three/ThreeBattleRenderer";
 import type { HudSnapshot } from "./types";
 
-/** MILESTONE 1 checkpoint flag: `?renderer=three` swaps the ground/terrain canvas from the
- * Canvas2D-shim WebGL renderer to the new Three.js spatial renderer (see ThreeBattleRenderer's
- * module comment) — everything else (elemental FX, units, HP bars, hover/selection highlight,
- * decorations, mouse interaction) is untouched either way. Opt-in and URL-driven on purpose:
- * nothing about the shipped game changes unless this is explicitly asked for, so the two
- * renderers stay directly comparable while the Three.js migration is still being verified. */
+/** Three.js is now the default ground/terrain renderer (see ThreeBattleRenderer's module
+ * comment) — everything else (elemental FX, units, HP bars, hover/selection highlight,
+ * decorations, mouse interaction) is untouched either way. `?renderer=legacy` falls back to the
+ * old Canvas2D-shim WebGL renderer for comparison while the migration is still being verified. */
 function useThreeGroundRenderer(): boolean {
-  if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("renderer") === "three";
+  if (typeof window === "undefined") return true;
+  return new URLSearchParams(window.location.search).get("renderer") !== "legacy";
 }
 
 export function BattleCanvas({
@@ -32,6 +30,7 @@ export function BattleCanvas({
   onTileReadout?: (showing: boolean) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const fxCanvasRef = useRef<HTMLCanvasElement>(null);
   const unitsCanvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -53,6 +52,23 @@ export function BattleCanvas({
       else renderer2D = new WebGL2DRenderer(canvas);
     } catch {
       return;
+    }
+    // Movement/attack/spell-range highlights and the active-turn glow: under the Canvas2D path
+    // these are the tail end of renderGround, baked straight into the ground canvas. Three.js
+    // owns that canvas now (a WebGL context can't also host 2D draws), so ThreeBattleRenderer's
+    // ground pass never drew them — they need their own transparent canvas, stacked between the
+    // ground canvas and the FX/units canvases (units still have to render on top of the reach
+    // overlay, same visual order the Canvas2D path already has). Only created for the Three
+    // path; the legacy renderer keeps drawing overlays straight into its own ground canvas via
+    // renderGround, untouched (see BattleEngine.renderBoardOverlays' own comment).
+    const overlayCanvas = overlayCanvasRef.current;
+    let overlayRenderer: WebGL2DRenderer | null = null;
+    if (rendererThree && overlayCanvas) {
+      try {
+        overlayRenderer = new WebGL2DRenderer(overlayCanvas);
+      } catch {
+        overlayRenderer = null;
+      }
     }
     // Units, HP bars, particles and foreground decorations get their own transparent canvas
     // stacked ABOVE the FX canvas (see below), instead of being part of the ground canvas the
@@ -174,6 +190,13 @@ export function BattleCanvas({
         unitsCanvas.style.height = `${h}px`;
         unitsRenderer.setSize(pw, ph);
       }
+      if (overlayCanvas && overlayRenderer) {
+        overlayCanvas.width = pw;
+        overlayCanvas.height = ph;
+        overlayCanvas.style.width = `${w}px`;
+        overlayCanvas.style.height = `${h}px`;
+        overlayRenderer.setSize(pw, ph);
+      }
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -200,6 +223,11 @@ export function BattleCanvas({
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       if (rendererThree) {
         rendererThree.render(wrap.clientWidth, wrap.clientHeight);
+        if (overlayRenderer) {
+          overlayRenderer.setTransform(dpr, 0, 0, dpr, 0, 0);
+          overlayRenderer.clear();
+          engine.renderBoardOverlays(overlayRenderer, wrap.clientWidth, wrap.clientHeight);
+        }
       } else if (renderer2D) {
         renderer2D.clear();
         engine.renderGround(renderer2D, wrap.clientWidth, wrap.clientHeight, dpr);
@@ -536,6 +564,7 @@ export function BattleCanvas({
   return (
     <div ref={wrapRef} className="relative h-full w-full min-h-0 touch-none">
       <canvas ref={canvasRef} className="block h-full w-full touch-none" />
+      <canvas ref={overlayCanvasRef} className="pointer-events-none absolute inset-0 block h-full w-full touch-none" />
       <canvas ref={fxCanvasRef} className="pointer-events-none absolute inset-0 block h-full w-full touch-none" style={{ display: "none" }} />
       <canvas ref={unitsCanvasRef} className="pointer-events-none absolute inset-0 block h-full w-full touch-none" />
       {/* Diorama color grade + vignette: a subtle warm key-light / cool shadow wash from the

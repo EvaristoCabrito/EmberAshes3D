@@ -7607,6 +7607,18 @@ export class BattleEngine {
     const ox = -this.camX;
     const oy = -this.camY;
     this.layout = { ox, oy, tile, cols: this.cols, rows: this.rows };
+    // Rolled once per frame here (not inside renderGround) so it still applies under
+    // ThreeBattleRenderer, which calls this but never calls renderGround — renderGround and
+    // renderUnitsAndOverlays both just read frameShakeDx/Dy now instead of one of them owning
+    // the randomization the other silently depended on.
+    const shake = this.reducedMotion ? 0 : this.trauma * this.trauma;
+    if (shake) {
+      this.frameShakeDx = (Math.random() - 0.5) * 10 * shake;
+      this.frameShakeDy = (Math.random() - 0.5) * 10 * shake;
+    } else {
+      this.frameShakeDx = 0;
+      this.frameShakeDy = 0;
+    }
     return tile;
   }
 
@@ -7638,15 +7650,11 @@ export class BattleEngine {
       ctx.fillRect(0, 0, cssW, cssH);
     }
 
-    const shake = this.reducedMotion ? 0 : this.trauma * this.trauma;
+    // Randomized once per frame in updateCameraLayout now, not here — see its own comment.
+    const shake = this.frameShakeDx !== 0 || this.frameShakeDy !== 0;
     if (shake) {
-      this.frameShakeDx = (Math.random() - 0.5) * 10 * shake;
-      this.frameShakeDy = (Math.random() - 0.5) * 10 * shake;
       ctx.save();
       ctx.translate(this.frameShakeDx, this.frameShakeDy);
-    } else {
-      this.frameShakeDx = 0;
-      this.frameShakeDy = 0;
     }
 
     for (let y = 0; y < this.rows; y++) {
@@ -7722,10 +7730,30 @@ export class BattleEngine {
         ctx.restore();
       }
     }
+    if (shake) ctx.restore();
     // Ground/behind decorations are drawn in renderUnitsAndOverlays instead of here, so they
     // land on the units canvas — stacked above the WebGL elemental FX canvas sitting in
     // between this canvas and that one (see BattleCanvas) — rather than being hidden under it.
 
+    // Walkable/attack/spell-range highlights and the active-turn glow: split into their own
+    // method (see renderBoardOverlays) so ThreeBattleRenderer — which replaces this function
+    // entirely rather than calling it — can still draw them onto its own overlay canvas. Own
+    // shake save/translate/restore pair in there rather than sharing this function's (already
+    // closed above), so it renders identically whichever caller reaches it.
+    this.renderBoardOverlays(ctx, cssW, cssH);
+  }
+
+  /** See renderGround's call site for why this is a separate method: it used to be the tail
+   * end of renderGround, inlined, but ThreeBattleRenderer replaces renderGround wholesale
+   * instead of calling it, and needs this part on its own dedicated overlay canvas (units still
+   * have to render on top of the reach/attack highlight, same as the Canvas2D path). */
+  renderBoardOverlays(ctx: any, cssW: number, cssH: number): void {
+    const { tile } = this.layout;
+    const shake = this.frameShakeDx !== 0 || this.frameShakeDy !== 0;
+    if (shake) {
+      ctx.save();
+      ctx.translate(this.frameShakeDx, this.frameShakeDy);
+    }
     // Every selectable area (walkable ground, spell range, an aimed AoE) gets the same
     // treatment: a soft colored glow plus a bright rim, on top of the flat fill — the flat
     // fill alone reads as a dim tint on some terrain art and is easy to miss. The glow
