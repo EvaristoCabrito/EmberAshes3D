@@ -516,6 +516,28 @@ function pub(u: Unit, restrained: boolean, movLeft: number): UnitPublic {
   };
 }
 
+/** Everything BattleEngine.computeUnitVisual derives about a unit's current animated pose —
+ * shared between renderUnitsAndOverlays' own Canvas2D draw loop and ThreeBattleRenderer's unit
+ * meshes (see the public unitVisual() wrapper) so the two never compute this differently. */
+export interface UnitVisual {
+  img: HTMLImageElement | undefined;
+  w: number;
+  h: number;
+  /** How far below the unit's anchor position its feet sit (Y-down). */
+  footY: number;
+  bob: number;
+  sway: number;
+  breath: number;
+  lift: number;
+  /** The exact ctx.scale(scaleX, scaleY) factors renderUnitsAndOverlays applies — scaleX's
+   * sign carries facing/mirroring, its magnitude (and scaleY) the breath squash/stretch. */
+  scaleX: number;
+  scaleY: number;
+  /** Extra downward shift of the image's own box (cultistV2's cast pose only) — see
+   * computeUnitVisual's comment on why its cast cut needs this. */
+  footOffset: number;
+}
+
 interface Roster {
   hp: Record<string, number>;
   levels: Record<string, number>;
@@ -7084,6 +7106,32 @@ export class BattleEngine {
     return { cx: cx / n, cy: cy / n };
   }
 
+  /** World-space (camera-independent) equivalent of footprintCentroid — the same front-row
+   * average, in the same worldX/worldY terms effectAnchor already exposes for a single hex.
+   * Needed because effectAnchor only ever answers for one plain hex, which is wrong for a
+   * multi-hex boss (Troll, Horror, Asherah, ...): its sprite anchors on its footprint's front
+   * row, not the hex `col`/`row` happen to name — see footprintCentroid's own comment. */
+  private footprintCentroidWorld(
+    x: number,
+    y: number,
+    size: number,
+    footprintW?: number,
+    footprintOffsets?: { dx: number; dy: number }[],
+  ): { worldX: number; worldY: number } {
+    const cells =
+      size >= 4 || footprintOffsets ? footprintFrontRow({ x, y, footprintOffsets }, footprintW ?? 2) : footprint({ x, y, size });
+    const { tile } = this.layout;
+    const sqrt3 = Math.sqrt(3);
+    let wx = 0;
+    let wy = 0;
+    for (const p of cells) {
+      wx += tile * sqrt3 * (p.x + 0.5 * (p.y & 1) + 0.5);
+      wy += this.boardPad(tile) + tile * (1.5 * p.y + 1);
+    }
+    const n = Math.max(1, cells.length);
+    return { worldX: wx / n, worldY: wy / n };
+  }
+
   /**
    * How far this unit's sprite rides above its hex, in pixels, for high ground.
    *
@@ -7126,6 +7174,27 @@ export class BattleEngine {
       }
     }
     return this.footprintCentroid(u.x, u.y, u.size, u.footprintW, u.footprintOffsets);
+  }
+
+  /** Public, world-space (camera-independent) equivalent of the private unitPixel — the anchor
+   * position ThreeBattleRenderer needs for ANY unit, boss/multi-hex ones included, instead of
+   * the plain single-hex position effectAnchor(u.drawX, u.drawY) gives (wrong for a footprint
+   * that anchors on its front row — see footprintCentroidWorld). Mirrors unitPixel's own
+   * mid-move interpolation so a boss's sprite tracks the same eased position while walking that
+   * its combat hit box does. */
+  unitAnchor(u: Unit): { worldX: number; worldY: number } {
+    if (this.active && this.active.type === "move" && this.active.id === u.id) {
+      const a = this.active;
+      const from = a.path[a.i];
+      const to = a.path[a.i + 1];
+      if (from && to) {
+        const k = easeOut(Math.min(1, a.t / MOVE_STEP_DUR));
+        const A = this.footprintCentroidWorld(from.x, from.y, u.size, u.footprintW, u.footprintOffsets);
+        const B = this.footprintCentroidWorld(to.x, to.y, u.size, u.footprintW, u.footprintOffsets);
+        return { worldX: A.worldX + (B.worldX - A.worldX) * k, worldY: A.worldY + (B.worldY - A.worldY) * k };
+      }
+    }
+    return this.footprintCentroidWorld(u.x, u.y, u.size, u.footprintW, u.footprintOffsets);
   }
 
   /** Walk-cycle frame for a unit mid-move, driven by how far along its path it actually is.
@@ -7287,6 +7356,155 @@ export class BattleEngine {
     const sway = Math.sin(t * 0.85 + 0.3) * (cell * 0.008 * heavy);
     const breath = 0.012 + Math.sin(t * 1.55) * 0.014;
     return { bob, sway, breath };
+  }
+
+  /** Every property of a unit's current animated pose — pose selection (idle/walk/atk/cast/
+   * counter), the size/scale corrections tied to whichever pose that turns out to be, and the
+   * live idle-motion (bob/sway/breath) and high-ground lift on top — computed once here so
+   * renderUnitsAndOverlays and ThreeBattleRenderer (via the public unitVisual() wrapper below)
+   * can never drift apart into two separate copies of this logic. Ported verbatim from what
+   * used to be inlined in renderUnitsAndOverlays's own per-unit loop; see that method's history
+   * for the reasoning behind each individual correction. */
+  private computeUnitVisual(u: Unit, cell: number, tile: number): UnitVisual {
+    const s = unitSize(u);
+    const boss = isBossClass(u.classId);
+    const { bob, sway, breath } = this.liveMotion(u, cell);
+    const lift = this.unitLift(u, cell);
+    const atk = this.attackPose(u);
+    const moving = this.active?.type === "move" && this.active.id === u.id;
+    // idleAlt flips once per this unit's own turn (see beginUnitTurn) — a sprite with a
+    // second idle loop (currently just Malrec's idles2) alternates into it; everyone else
+    // has no idles2 entry, so this is a no-op fallback to their regular idle/stand pool.
+    const idlePool = u.idleAlt ? (this.art.idles2[u.sprite] ?? this.art.idles[u.sprite]) : this.art.idles[u.sprite];
+    const idle = !atk && !moving ? idlePool : undefined;
+    // While moving, a sprite that has a walk cut plays it; one that doesn't falls back to
+    // its idle loop, which idleFrame already runs faster for a moving unit.
+    const faceRight = u.facing === 1;
+    // Lancer's authored move/move-left cuts read backwards against their own facing
+    // (moving right visibly played the left-facing footage and vice versa) — swap which
+    // pool answers which facing, walk only, per direct report. Cultist V2's own walk
+    // "backwards" complaint has a different cause: see dirActionWalk below.
+    const useWalkLeft = u.sprite === "lancer" ? faceRight : !faceRight;
+    const walkPool = useWalkLeft ? (this.art.walksLeft[u.sprite] ?? this.art.walks[u.sprite]) : this.art.walks[u.sprite];
+    // Same idleAlt alternation attackPose applies to pick its index (see that function's
+    // attackPool) — mirrored here so the frame actually drawn comes from the same array.
+    const atkBase = u.idleAlt ? (this.art.attacks2[u.sprite] ?? this.art.attacks[u.sprite]) : this.art.attacks[u.sprite];
+    const atkPool = faceRight ? atkBase : (this.art.attacksLeft[u.sprite] ?? atkBase);
+    const walk = atk == null && moving ? walkPool : undefined;
+    // attackPose computes its index against whichever pool it picked (casts for a spell/heal
+    // cast, counters for the defender's own counter stages, attacks otherwise), so this has
+    // to mirror that same choice or the index lands in the wrong array.
+    const casting = this.active && (this.active.type === "spell" || this.active.type === "heal") && this.active.att === u.id;
+    const castPool = faceRight ? this.art.casts[u.sprite] : (this.art.castsLeft[u.sprite] ?? this.art.casts[u.sprite]);
+    const countering = this.active?.type === "combat" && this.active.stage.startsWith("counter") && this.active.def === u.id;
+    const counterPool = faceRight ? this.art.counters[u.sprite] : (this.art.countersLeft[u.sprite] ?? this.art.counters[u.sprite]);
+    const frames = atk != null ? (casting ? (castPool ?? atkPool) : countering ? (counterPool ?? atkPool) : atkPool) : walk ?? idle ?? this.art.sprites[u.sprite];
+    const n = frames?.length ?? 0;
+    const fi = atk != null ? atk : walk ? this.walkFrame(u, n) : this.idleFrame(u, n || 4);
+    const walkDirs = moving ? this.art.walkDirs[u.sprite] : undefined;
+    const img = (walkDirs ? walkDirs[u.walkPose] : undefined) ?? frames?.[fi] ?? frames?.[0];
+    // The draw-size correction keys off the footprint SHAPE (reference equality against
+    // FOOTPRINT_TYPE_8 or FOOTPRINT_TYPE_7), not a hardcoded classId — every big creature
+    // (Troll, Asherah, Horror, and any future one on either shape) gets the same default
+    // correction automatically, rather than needing its own one-off case added here.
+    // Depends on that creature's own sprite frames being cropped to roughly the same
+    // canvas-fill ratio as the others — this correction assumes that, it doesn't measure it.
+    const isBigCreatureFootprint = u.footprintOffsets === FOOTPRINT_TYPE_8 || u.footprintOffsets === FOOTPRINT_TYPE_7;
+    const isLancer = u.classId === "lancer" || u.sprite === "lancer" || u.sprite === "defaultLancer";
+    const isSandoval = u.classId === "sandoval" || u.sprite === "sandoval";
+    const isFamiliar = u.classId === "familiar" || u.sprite === "familiar";
+    const isKaelFinal = u.sprite === "kaelFinal";
+    const isCultistV2 = u.classId === "cultistV2" || u.sprite === "cultist-v2";
+    const spriteScale = isLancer ? 1.4 : isSandoval ? 1.2 : isFamiliar ? 0.5 : isKaelFinal ? 0.9 : isCultistV2 ? 0.98 : 1;
+    const familiar2WidthMul = u.sprite === "familiar2" ? 2.544 : 1;
+    const familiar2WalkScale = u.sprite === "familiar2" && walk ? 0.97 : 1;
+    const isCultistV2Casting = isCultistV2 && casting;
+    const cultistV2CastHeightMul = isCultistV2Casting ? 1.24 : 1;
+    const cultistV2CastWidthMul = isCultistV2Casting ? 1.06 : 1;
+    const isCultistV2Attacking = isCultistV2 && atk != null && !isCultistV2Casting;
+    const cultistV2AtkScale = isCultistV2Attacking ? 1.13 : 1;
+    const malrecWalkHeightScale = u.sprite === "malrec" && walk ? 0.948 : 1;
+    const malrecWalkWidthScale = u.sprite === "malrec" && walk ? 0.689 : 1;
+    const isMalrecAttacking = u.sprite === "malrec" && atk != null && !casting;
+    const malrecAtkScale = isMalrecAttacking ? 1.113 : 1;
+    const isMalrecAtkFrame27 = isMalrecAttacking && fi === 26;
+    const malrecAtkFrame27WidthScale = isMalrecAtkFrame27 ? 1.49 : 1;
+    const cultistV2WalkScale = isCultistV2 && walk ? 1.02 : 1;
+    const familiar3Scale = u.classId === "familiar3" ? 1.4 : 1;
+    const h =
+      cell *
+      (s >= 4 ? 3.35 : s === 2 ? 1.72 : boss ? 1.44 : 1.42) *
+      1.2 *
+      (isBigCreatureFootprint ? 0.75 : 1) *
+      spriteScale *
+      cultistV2CastHeightMul *
+      cultistV2AtkScale *
+      malrecWalkHeightScale *
+      malrecAtkScale *
+      cultistV2WalkScale *
+      familiar3Scale *
+      familiar2WalkScale;
+    const w =
+      cell *
+      (s >= 4 ? 2.85 : s === 2 ? 1.85 : boss ? 1.12 : 1.11) *
+      1.2 *
+      (isBigCreatureFootprint ? 0.75 : 1) *
+      spriteScale *
+      familiar2WidthMul *
+      familiar2WalkScale *
+      cultistV2CastWidthMul *
+      cultistV2AtkScale *
+      malrecWalkWidthScale *
+      malrecAtkScale *
+      malrecAtkFrame27WidthScale *
+      cultistV2WalkScale *
+      familiar3Scale;
+    // The cast cut's own content also sits higher inside its canvas than idle/attack's does
+    // (feet reach only ~87% of the way down vs idle's ~99%) — without this, boosting h above
+    // would float the feet even further off the ground than they already subtly are. Shifts
+    // the whole draw down by that measured gap so the feet land back on the anchor point.
+    const footOffset = isCultistV2Casting ? h * 0.127 : 0;
+    // Big creatures plant their feet at the bottom corner of their front hex (tile * 0.9,
+    // matching the hex outline radius used elsewhere) instead of the smaller offset tuned
+    // for normal-size sprites, so the feet don't float above the tile they stand on.
+    const footY = s >= 4 ? tile * 0.9 : cell * 0.42;
+    // Dedicated left/right walk+attack cuts already face the enemy, so flipping
+    // them would put the spear/staff on the wrong side. Idle still flips.
+    const dirActionWalk = (u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval" || u.sprite === "theButcher" || u.sprite === "familiar2" || u.sprite === "cultist-v2") && moving;
+    const dirActionAttack = (u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval") && atk != null;
+    const dirAction = dirActionWalk || dirActionAttack;
+    // The familiar's art is drawn facing left by default — the opposite of every other
+    // sprite's "facing 1 shows the sheet as drawn" convention — so its mirror has to run
+    // backwards from u.facing or it walks left while visually facing right and vice versa.
+    // defaultWarrior's kael-v2 stand cut was shot facing left but its atk-*.png cut was shot
+    // facing right — see the identical comment this replaced in renderUnitsAndOverlays for
+    // the full reasoning on both of these.
+    const defaultWarriorIdleOrWalkReversed = u.sprite === "defaultWarrior" && atk == null;
+    const facing = u.classId === "familiar" || defaultWarriorIdleOrWalkReversed ? -u.facing : u.facing;
+    const flip = dirAction ? 1 : facing;
+    // A fixed set of sprites skip the breath squash/stretch entirely (ctx.scale(flip, 1)) —
+    // see the identical branch this replaced in renderUnitsAndOverlays.
+    const noBreathScale =
+      u.sprite === "defaultWarrior" ||
+      u.sprite === "kaelEarly" ||
+      u.sprite === "aldric" ||
+      u.sprite === "defaultLancer" ||
+      u.sprite === "lancer" ||
+      u.sprite === "sandoval" ||
+      u.sprite === "conjurer" ||
+      u.sprite === "malrec";
+    const scaleX = noBreathScale ? flip : flip * (1 - breath * 0.22);
+    const scaleY = noBreathScale ? 1 : 1 + breath;
+    return { img, w, h, footY, bob, sway, breath, lift, scaleX, scaleY, footOffset };
+  }
+
+  /** Public wrapper around computeUnitVisual — ThreeBattleRenderer calls this every frame to
+   * animate its own unit meshes (walk/attack/cast/counter poses, live idle motion) instead of
+   * only ever showing a static idle frame, using the exact same pose/size logic
+   * renderUnitsAndOverlays draws with on the Canvas2D-shim canvas. `tile` is the same
+   * `ZOOM_RADII[this.zoom]` value render()/renderUnitsAndOverlays already key off. */
+  unitVisual(u: Unit, tile: number): UnitVisual {
+    return this.computeUnitVisual(u, tile * Math.sqrt(3), tile);
   }
 
   /** Persistent visual-code status FX: it tracks a unit, loops with engine time,
@@ -7831,10 +8049,10 @@ export class BattleEngine {
       const boss = isBossClass(u.classId);
       const { cx: px, cy: py } = this.unitPixel(u);
       const foot = s >= 4 ? 2.15 : s === 2 ? 1.5 : boss ? 1.12 : 1;
-      const { bob, sway, breath } = this.liveMotion(u, cell);
-      // Purely visual: the sprite and the things that hang off it rise, the shadow below
-      // does not, and the sort above already ran on the logical row. See unitLift.
-      const lift = this.unitLift(u, cell);
+      // Pose (idle/walk/atk/cast/counter), size corrections, live idle motion (bob/sway/
+      // breath) and high-ground lift — see computeUnitVisual's own comment; shared with
+      // ThreeBattleRenderer's own unit meshes via the public unitVisual() wrapper.
+      const { bob, sway, breath, lift, img, w, h, footY, scaleX, scaleY, footOffset } = this.computeUnitVisual(u, cell, tile);
       ctx.save();
       ctx.globalAlpha = u.fade * (u.moved && u.side === "player" && this.phase === "player" ? 0.8 : 1);
       {
@@ -7858,235 +8076,8 @@ export class BattleEngine {
         ctx.ellipse(shadowCx, shadowCy, shadowRx, shadowRy, 0, 0, Math.PI * 2);
         ctx.fill();
       }
-      const atk = this.attackPose(u);
-      const moving = this.active?.type === "move" && this.active.id === u.id;
-      // idleAlt flips once per this unit's own turn (see beginUnitTurn) — a sprite with a
-      // second idle loop (currently just Malrec's idles2) alternates into it; everyone else
-      // has no idles2 entry, so this is a no-op fallback to their regular idle/stand pool.
-      const idlePool = u.idleAlt ? (this.art.idles2[u.sprite] ?? this.art.idles[u.sprite]) : this.art.idles[u.sprite];
-      const idle = !atk && !moving ? idlePool : undefined;
-      // While moving, a sprite that has a walk cut plays it; one that doesn't falls back to
-      // its idle loop, which idleFrame already runs faster for a moving unit.
-      const faceRight = u.facing === 1;
-      // Lancer's authored move/move-left cuts read backwards against their own facing
-      // (moving right visibly played the left-facing footage and vice versa) — swap which
-      // pool answers which facing, walk only, per direct report. Cultist V2's own walk
-      // "backwards" complaint has a different cause: see dirActionWalk below.
-      const useWalkLeft = u.sprite === "lancer" ? faceRight : !faceRight;
-      const walkPool = useWalkLeft ? (this.art.walksLeft[u.sprite] ?? this.art.walks[u.sprite]) : this.art.walks[u.sprite];
-      // Same idleAlt alternation attackPose applies to pick its index (see that function's
-      // attackPool) — mirrored here so the frame actually drawn comes from the same array.
-      const atkBase = u.idleAlt ? (this.art.attacks2[u.sprite] ?? this.art.attacks[u.sprite]) : this.art.attacks[u.sprite];
-      const atkPool = faceRight ? atkBase : (this.art.attacksLeft[u.sprite] ?? atkBase);
-      const walk = atk == null && moving ? walkPool : undefined;
-      // attackPose computes its index against whichever pool it picked (casts for a spell/heal
-      // cast, counters for the defender's own counter stages, attacks otherwise), so this has
-      // to mirror that same choice or the index lands in the wrong array.
-      const casting = this.active && (this.active.type === "spell" || this.active.type === "heal") && this.active.att === u.id;
-      const castPool = faceRight ? this.art.casts[u.sprite] : (this.art.castsLeft[u.sprite] ?? this.art.casts[u.sprite]);
-      const countering = this.active?.type === "combat" && this.active.stage.startsWith("counter") && this.active.def === u.id;
-      const counterPool = faceRight ? this.art.counters[u.sprite] : (this.art.countersLeft[u.sprite] ?? this.art.counters[u.sprite]);
-      const frames = atk != null ? (casting ? (castPool ?? atkPool) : countering ? (counterPool ?? atkPool) : atkPool) : walk ?? idle ?? this.art.sprites[u.sprite];
-      const n = frames?.length ?? 0;
-      const fi = atk != null ? atk : walk ? this.walkFrame(u, n) : this.idleFrame(u, n || 4);
-      const walkDirs = moving ? this.art.walkDirs[u.sprite] : undefined;
-      const img = (walkDirs ? walkDirs[u.walkPose] : undefined) ?? frames?.[fi] ?? frames?.[0];
-      // The draw-size correction keys off the footprint SHAPE (reference equality against
-      // FOOTPRINT_TYPE_8 or FOOTPRINT_TYPE_7), not a hardcoded classId — every big creature
-      // (Troll, Asherah, Horror, and any future one on either shape) gets the same default
-      // correction automatically, rather than needing its own one-off case added here.
-      // Depends on that creature's own sprite frames being cropped to roughly the same
-      // canvas-fill ratio as the others — this correction assumes that, it doesn't measure it.
-      const isBigCreatureFootprint = u.footprintOffsets === FOOTPRINT_TYPE_8 || u.footprintOffsets === FOOTPRINT_TYPE_7;
-      // Keep these display adjustments tied to the unit class as well as the asset id.
-      // This makes them survive saved scenarios that still carry an older sprite id.
-      // defaultLancer is still the same tightly-cropped silver-armor-and-spear cut as
-      // lancer under an older asset name, so it keeps the boost. Aldric moved to the
-      // Aldric Final art (same full-body-on-canvas crop convention as Kael Final), so it
-      // now renders at the same scale as every other human sprite instead of this boost.
-      // defaultWarrior (Guerreiro, the generic/default look) reads the same on-disk cut as
-      // kaelEarly, so it needs the same scale as kaelEarly, not kaelFinal's correction —
-      // only kaelFinal's own (larger, full-body-on-canvas) art needs the boost.
-      // Sandoval is a distinct boss cut, not this same asset, so it gets its own scale.
-      const isLancer = u.classId === "lancer" || u.sprite === "lancer" || u.sprite === "defaultLancer";
-      const isSandoval = u.classId === "sandoval" || u.sprite === "sandoval";
-      const isFamiliar = u.classId === "familiar" || u.sprite === "familiar";
-      const isKaelFinal = u.sprite === "kaelFinal";
-      // Cultist V2's art is cropped tighter to its own canvas than the other human sprites
-      // (fills more of both width and height) — the 0.8 this used to carry overshot the
-      // correction (measured, not eyeballed: his idle sheet averages ~98% canvas-height
-      // fill against a ~90-98% spread for Neera/Voss/Soldier/Kael Final with no correction
-      // at all), so at 0.8 he actually rendered noticeably SHORTER than the rest of the
-      // party instead of matching them — the "looks like a dwarf" report. 0.98 lines his
-      // idle pose up with that same reference spread instead.
-      const isCultistV2 = u.classId === "cultistV2" || u.sprite === "cultist-v2";
-      const spriteScale = isLancer ? 1.4 : isSandoval ? 1.2 : isFamiliar ? 0.5 : isKaelFinal ? 0.9 : isCultistV2 ? 0.98 : 1;
-      // Familiar 2's own cut is a landscape 1400x704 canvas (aspect 1.989:1) — every other
-      // sprite's source is portrait-ish and roughly matches the shared box's own 1.11:1.42
-      // (0.782:1) aspect, which is what let them share one w/h ratio in the first place.
-      // Drawing familiar2's much wider canvas through that same portrait-shaped box scales its
-      // two axes by different factors (box aspect ≠ canvas aspect), squashing the creature
-      // horizontally — the previous fix (a flat ×1.9) narrowed that gap but didn't close it
-      // (0.782×1.9 = 1.485, still well short of 1.989), so the art was still being squeezed,
-      // which is what was reading as "pixelated": a detailed 1400px-wide source compressed
-      // along one axis aliases badly. The only width multiplier that draws this canvas with
-      // zero distortion is the one that makes the box's own aspect ratio equal the canvas's
-      // (1.989 / 0.782 ≈ 2.544) — verified by alpha-bounding-box measurement across idle/atk/
-      // cast/move/move-left (all five share this same 1400x704 canvas), not tuned blind.
-      const familiar2WidthMul = u.sprite === "familiar2" ? 2.544 : 1;
-      // Idle/atk/cast all fill ~83-84% of that canvas's height, close enough to treat as one
-      // size — but the walk cut (move/move-left) fills noticeably more (~86-88%), which without
-      // correction reads as the creature growing a step bigger the instant it starts moving.
-      // Applied uniformly to both axes (not just height) since familiar2WidthMul above already
-      // locks the box to the canvas's own aspect ratio for every pose sharing that canvas — an
-      // axis-independent scale here would reintroduce the same distortion that fix just closed.
-      const familiar2WalkScale = u.sprite === "familiar2" && walk ? 0.97 : 1;
-      // Cultist V2's cast-*.png cut is its own separate export from atk-*.png/idle, on a
-      // taller canvas (358x640 vs 360x570/580) with the character cropped noticeably looser
-      // inside it — measured directly off the files (bounding-box scan of the actual PNG
-      // alpha, not eyeballed): idle averages ~98% of its own canvas height, the cast cut only
-      // ~79%. Drawn through the same fixed box as everything else, that read as the character
-      // suddenly shrinking the instant a cast animation started. 1.24/1.06 (rebalanced along
-      // with the spriteScale fix above, which the cast cut's own correction has to stay
-      // relative to) bring the cast cut's effective on-screen size back to match idle's.
-      // cast-27.png alone measured ~11% bigger content than its cast-cut neighbors — a real
-      // inconsistency baked into that one source frame, not something a single scale
-      // constant here can fix; left as a known residual wobble on that frame specifically.
-      const isCultistV2Casting = isCultistV2 && casting;
-      const cultistV2CastHeightMul = isCultistV2Casting ? 1.24 : 1;
-      const cultistV2CastWidthMul = isCultistV2Casting ? 1.06 : 1;
-      // Same story for his atk-*.png cut: averages only ~87% canvas-height fill, tighter than
-      // idle's ~98%, so at a shared scale he visibly shrank again the instant he swung.
-      // isCultistV2Casting is checked first because attackPose also returns non-null while
-      // casting (it answers off castPool there, not atkPool — see the frames lookup below),
-      // so this only ever fires for an actual melee attack or counter-attack pose.
-      const isCultistV2Attacking = isCultistV2 && atk != null && !isCultistV2Casting;
-      const cultistV2AtkScale = isCultistV2Attacking ? 1.13 : 1;
-      // HARD RULE — every human-sized sprite renders at the same on-screen height as every
-      // other, full stop. Malrec's Walk Right cut (WALK_FRAMES.malrec in assets.ts — his
-      // "Walk Left" export turned out not to be mirrored footage at all, so it's unused and
-      // this pool is mirrored via the regular CSS flip for both facings, see dirActionWalk
-      // below) is cropped tighter to its own canvas than his idle art is to its own —
-      // measured directly off the files (alpha bounding-box scan across the whole cycle, not
-      // eyeballed, same method as cultistV2CastHeightMul/WidthMul above): idle fills ~93% of
-      // its canvas height, the walk cut ~98%. Drawn through the same fixed box as idle with
-      // no correction, that read as Malrec growing several sizes the instant he took a step
-      // — and made every sprite already scaled to match his idle (Cultist V2 included) look
-      // shrunken by comparison the moment he moved. Any future art drop that doesn't match
-      // its own sprite's established fill ratio gets measured and corrected the same way —
-      // never eyeballed, never left as "close enough."
-      // A single scale applied equally to h and w (as this used to do) only corrects apparent
-      // HEIGHT — it assumes every pool's canvas has roughly the box's own portrait aspect
-      // (~1.11:1.42). The walk cut's canvas (392x682) is far narrower/taller than that
-      // (0.575 vs the box's 0.782), so even with height matched to idle, stretching that
-      // narrower source into the box's wider aspect fattened him out sideways — the "still
-      // bigger" report, a real width distortion the height-only fix above never touched.
-      // Measured per axis, same alpha bounding-box method: idle fills ~93% height/~60% width
-      // of its own canvas, the walk cut ~98%/~88%. Height and width need very different
-      // corrective factors (0.948 vs 0.689) precisely because the two canvases don't share
-      // an aspect ratio — one constant could never fix both at once.
-      const malrecWalkHeightScale = u.sprite === "malrec" && walk ? 0.948 : 1;
-      const malrecWalkWidthScale = u.sprite === "malrec" && walk ? 0.689 : 1;
-      // Same axis-aware treatment for his atk-*.png cut: ~84% height/~60% width fill vs
-      // idle's ~93%/~60% — width already lines up (both canvases share a portrait-ish
-      // aspect), height doesn't, so he visibly shrank the instant he swung.
-      const isMalrecAttacking = u.sprite === "malrec" && atk != null && !casting;
-      const malrecAtkScale = isMalrecAttacking ? 1.113 : 1;
-      // atk-27.png (frames[26]) is a real one-off export inconsistency, not a pose difference:
-      // measured with the same alpha bounding-box method as the corrections above, its content
-      // fills only ~48% of its own canvas width against a ~71.5% average for its immediate
-      // neighbors atk-26.png/atk-28.png (height fill sits within the neighbors' own range, so
-      // only width is off). Drawn through the same fixed box as every other attack frame with
-      // no correction, the swing visibly hitches — Malrec shrinks for that single frame and
-      // snaps back on the next. Scoped to this one frame index (not a general atk-pool
-      // constant, which would wrongly widen the other 35 correctly-sized frames).
-      const isMalrecAtkFrame27 = isMalrecAttacking && fi === 26;
-      const malrecAtkFrame27WidthScale = isMalrecAtkFrame27 ? 1.49 : 1;
-      // Cultist V2's own walk cut (right ~95%, left ~97% canvas-height fill) sits a little
-      // tighter than his now-corrected idle (~98%) too — same measured-not-eyeballed
-      // treatment, just a smaller gap than Malrec's above so one constant covers both
-      // directions instead of needing a per-direction split.
-      const cultistV2WalkScale = isCultistV2 && walk ? 1.02 : 1;
-      // Familiar 3 ("the Big Guy") reads as one size tier bigger than a plain size===2 wolf —
-      // on top of the built-in size-based bump above, not a replacement for it.
-      const familiar3Scale = u.classId === "familiar3" ? 1.4 : 1;
-      const h =
-        cell *
-        (s >= 4 ? 3.35 : s === 2 ? 1.72 : boss ? 1.44 : 1.42) *
-        1.2 *
-        (isBigCreatureFootprint ? 0.75 : 1) *
-        spriteScale *
-        cultistV2CastHeightMul *
-        cultistV2AtkScale *
-        malrecWalkHeightScale *
-        malrecAtkScale *
-        cultistV2WalkScale *
-        familiar3Scale *
-        familiar2WalkScale;
-      const w =
-        cell *
-        (s >= 4 ? 2.85 : s === 2 ? 1.85 : boss ? 1.12 : 1.11) *
-        1.2 *
-        (isBigCreatureFootprint ? 0.75 : 1) *
-        spriteScale *
-        familiar2WidthMul *
-        familiar2WalkScale *
-        cultistV2CastWidthMul *
-        cultistV2AtkScale *
-        malrecWalkWidthScale *
-        malrecAtkScale *
-        malrecAtkFrame27WidthScale *
-        cultistV2WalkScale *
-        familiar3Scale;
-      // The cast cut's own content also sits higher inside its canvas than idle/attack's does
-      // (feet reach only ~87% of the way down vs idle's ~99%) — without this, boosting h above
-      // would float the feet even further off the ground than they already subtly are. Shifts
-      // the whole draw down by that measured gap so the feet land back on the anchor point.
-      const cultistV2CastFootOffset = isCultistV2Casting ? h * 0.127 : 0;
-      // Big creatures plant their feet at the bottom corner of their front hex (tile * 0.9,
-      // matching the hex outline radius used elsewhere) instead of the smaller offset tuned
-      // for normal-size sprites, so the feet don't float above the tile they stand on.
-      const footY = s >= 4 ? tile * 0.9 : cell * 0.42;
       ctx.translate(px + sway, py + footY + bob - lift);
-      // Dedicated left/right walk+attack cuts already face the enemy, so flipping
-      // them would put the spear/staff on the wrong side. Idle still flips.
-      // theButcher (The Butcher — distinct from "punisher"/Carrasco), familiar2 (Familiar
-      // Maior) and cultist-v2 only have a dedicated left cut for their walk, not their attack
-      // (see walksLeft.theButcher/familiar2/"cultist-v2" in assets.ts) — their attack still
-      // falls back to the mirrored right-facing pool, so all three stay out of the attack
-      // half of this check. cultist-v2 was missing from here entirely before: its own
-      // dedicated left-facing footage was getting mirrored a second time on top of itself
-      // while facing left, which is what actually read as "walking backwards" for it. Malrec
-      // is NOT in this list: unlike those three, his "Walk Left" export isn't actually
-      // mirrored footage (see the walksLeft.malrec comment in assets.ts), so he has no
-      // walksLeft entry at all and needs the regular CSS mirror below like any sprite with
-      // only one authored walking direction.
-      const dirActionWalk = (u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval" || u.sprite === "theButcher" || u.sprite === "familiar2" || u.sprite === "cultist-v2") && moving;
-      const dirActionAttack = (u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval") && atk != null;
-      const dirAction = dirActionWalk || dirActionAttack;
-      // The familiar's art is drawn facing left by default — the opposite of every other
-      // sprite's "facing 1 shows the sheet as drawn" convention — so its mirror has to run
-      // backwards from u.facing or it walks left while visually facing right and vice versa.
-      // Familiar 3's own footage is a mixed bag, unlike familiar's (consistently left-facing
-      // everywhere): its move/idle/cast cuts are shot facing right (normal convention, no
-      // negation). Its two atk/atk2 cuts (separate source clips) are ALSO shot facing right —
-      // negating them while an actual melee swing (combat type) is playing (as this used to do)
-      // made the swing face the opposite way from the target it was actually hitting, so the
-      // attack cuts now use the same plain facing as everything else.
-      // defaultWarrior (the generic/default warrior look, CLASSES.swordsman's sprite —
-      // "Guerreiro") is its own mixed bag too, the opposite split from familiar3: its kael-v2
-      // stand cut (used for both idle AND walking, since this sprite has no dedicated
-      // move-*.png cut of its own — see WALK_FRAMES' comment in assets.ts) was shot facing
-      // left, but its separate atk-*.png cut was shot facing right (normal convention).
-      // Un-negated, that meant idle read fine (a standing pose reads the same either way) but
-      // walking — the one state that actually shows a clear left/right direction — visibly
-      // moved backwards, while attacks (atk != null, a different cut entirely) were already
-      // correct and must stay un-negated.
-      const defaultWarriorIdleOrWalkReversed = u.sprite === "defaultWarrior" && atk == null;
-      const facing = u.classId === "familiar" || defaultWarriorIdleOrWalkReversed ? -u.facing : u.facing;
-      const flip = dirAction ? 1 : facing;
-      if (u.sprite === "defaultWarrior" || u.sprite === "kaelEarly" || u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval" || u.sprite === "conjurer" || u.sprite === "malrec") ctx.scale(flip, 1);
-      else ctx.scale(flip * (1 - breath * 0.22), 1 + breath);
+      ctx.scale(scaleX, scaleY);
       if (u.levelGlow > 0) {
         const pulse = 0.75 + Math.sin(this.time * 7) * 0.25;
         const bg = ctx.createRadialGradient(0, -h * 0.5, 0, 0, -h * 0.5, w * 1.15);
@@ -8127,7 +8118,7 @@ export class BattleEngine {
       if (skipUnitSprites) {
         // ThreeBattleRenderer already drew this unit's sprite on its own canvas, at the same
         // world position — see the param doc above.
-      } else if (img) ctx.drawImageLit(img, -w / 2, -h + cultistV2CastFootOffset, w, h);
+      } else if (img) ctx.drawImageLit(img, -w / 2, -h + footOffset, w, h);
       else {
         ctx.fillStyle = u.side === "player" ? "#8a97a1" : u.side === "neutral" ? "#5f8a58" : "#a35a4a";
         ctx.fillRect(-w / 2, -h, w, h);
@@ -8138,14 +8129,14 @@ export class BattleEngine {
       if (!skipUnitSprites && u.levelGlow > 0 && img) {
         const pulse = 0.75 + Math.sin(this.time * 7) * 0.25;
         ctx.shadowBlur = w * 0.55 * u.levelGlow * pulse;
-        ctx.drawImage(img, -w / 2, -h + cultistV2CastFootOffset, w, h);
+        ctx.drawImage(img, -w / 2, -h + footOffset, w, h);
       }
       if (!skipUnitSprites && u.healGlow > 0 && img) {
         const pulse = 0.8 + Math.sin(this.time * 5) * 0.2;
         const halo = this.healHaloRgb(u.healGlowKind);
         ctx.shadowColor = `rgba(${halo.core},${0.88 * u.healGlow})`;
         ctx.shadowBlur = w * (u.healGlowKind === "holyMedium" ? 0.58 : 0.42) * u.healGlow * pulse;
-        ctx.drawImage(img, -w / 2, -h + cultistV2CastFootOffset, w, h);
+        ctx.drawImage(img, -w / 2, -h + footOffset, w, h);
       }
       this.drawStatusFx(ctx, u, w, h);
       ctx.filter = "none";

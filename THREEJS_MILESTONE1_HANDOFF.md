@@ -64,19 +64,25 @@ Playwright, NOT the live browser — see the memory note below on why):**
   the original Canvas2D path's behavior is byte-for-byte unchanged.
 - `ZOOM_RADII` in `engine.ts` is now `export`ed (was module-private) — needed by anything outside
   engine.ts that wants tile size per zoom level.
-- **Static-pose unit sprites** now render in `ThreeBattleRenderer` too (`syncUnits()`, called
-  every frame from `render()` — units move/change art far more often than tiles/decor, so unlike
-  `ensureBuilt`/`ensureDecorBuilt` there's no "build once" cache, just a persistent mesh per live
-  unit id that's repositioned/retextured each frame). Only the idle frame `[0]` — no walk, attack,
-  cast, counter poses, no bob/sway/breath motion, no fade-in opacity, and boss/multi-hex
-  footprints anchor on `effectAnchor(u.drawX, u.drawY)` (a plain single-hex position) rather than
-  the real footprint centroid `unitPixel` uses internally — see `unitPixel`'s doc and the
-  `footprintCentroid` gap noted below in "Known gaps". Ported sizing keeps only the corrections
-  that still apply to a static idle frame (`spriteScale`, `familiar2WidthMul`, `familiar3Scale`,
-  the base size-tier `h`/`w` formula) — every walk/atk/cast-only correction in
-  `BattleEngine.renderUnitsAndOverlays` (there are many — cultistV2 atk/cast scales, Malrec's
-  walk/atk scales, the `atk-27` one-off, etc.) is intentionally left out, since none of them apply
-  to an idle pose.
+- **Unit sprites now animate in `ThreeBattleRenderer`** with full pose parity, not just a static
+  idle frame. `BattleEngine.computeUnitVisual` (private) is the single computation both
+  `renderUnitsAndOverlays`'s Canvas2D draw loop and `ThreeBattleRenderer.syncUnits` now call —
+  pose selection (idle/walk/atk/cast/counter), every pose-specific size correction (cultistV2's
+  atk/cast scales, Malrec's walk/atk scales and the `atk-27` one-off, familiar2's walk scale,
+  etc.), live idle motion (bob/sway/breath), and high-ground lift are all computed once and
+  shared, so the two renderers can't drift out of sync into two copies of this logic.
+  `BattleEngine.unitVisual(u, tile)` is the public wrapper `ThreeBattleRenderer` calls every
+  frame (`syncUnits()`, called from `render()` — units change art/pose far more often than
+  tiles/decor, so unlike `ensureBuilt`/`ensureDecorBuilt` there's no "build once" cache, just a
+  persistent mesh per live unit id repositioned/retextured/rescaled each frame). The `UnitVisual`
+  interface (exported near the top of engine.ts) is the exact shape passed between them: `img`,
+  `w`/`h`, `footY`, `bob`/`sway`/`breath`/`lift`, the `scaleX`/`scaleY` ctx.scale() factors, and
+  `footOffset` (cultistV2's cast-pose foot correction). `ThreeBattleRenderer.syncUnits`'s own
+  comment on `centerYLocal` explains the one non-obvious geometry translation: Canvas2D's
+  `ctx.scale(scaleX, scaleY)` stretches the sprite's box AWAY FROM the unit's anchor point
+  (y=0 locally, i.e. its feet), not around the box's own center, so the Three mesh's position has
+  to be re-derived by that same scale rather than just resizing the mesh in place — get this
+  wrong and the breath-scaled sprites drift from their feet, small but real.
 - `BattleEngine.unitHidden` is now public (was private) — `ThreeBattleRenderer.syncUnits` needs
   the same fog-of-war gate `renderUnitsAndOverlays` already applied internally.
 - `BattleEngine.renderUnitsAndOverlays` got a second new param, `skipUnitSprites` (after
@@ -86,31 +92,45 @@ Playwright, NOT the live browser — see the memory note below on why):**
   HP bar, level/heal glow backgrounds, status FX icons, the hover/selection hex outline, portal
   FX) is unaffected and keeps rendering on the old canvas exactly as before — see that param's
   doc comment in engine.ts for why each of those stays put.
+- **Correct anchor position for every unit, boss/multi-hex included, plus real per-unit fade
+  opacity** — the two gaps this doc used to list here are both closed:
+  - `BattleEngine.unitAnchor(u)` is a new public method, the world-space (camera-independent)
+    twin of the private `unitPixel`/`footprintCentroid` the Canvas2D path actually draws with —
+    including their front-row-footprint averaging for boss/multi-hex creatures (Troll, Horror,
+    Asherah, ...) and their mid-move easing. `footprintCentroidWorld` (private) is the
+    world-space twin of `footprintCentroid` itself, same relationship `effectAnchor` already has
+    to `hexCenter`. `ThreeBattleRenderer.syncUnits` now calls `unitAnchor` instead of
+    `effectAnchor(u.drawX, u.drawY)`, which fixes the boss-footprint drift and, as a side effect,
+    is now MORE correct than the old approach even for ordinary single-hex units — `unitAnchor`
+    mirrors the exact interpolation `unitPixel` drives the Canvas2D sprite with, where
+    `u.drawX/drawY` was always only an approximation of that.
+  - Unit meshes each get their own `THREE.MeshBasicMaterial` now (sharing the underlying
+    `THREE.Texture` by image via `unitTexCache`, same cheap-sharing idea tiles/decor use, just
+    one level down) instead of sharing a material by image outright — see `UnitMeshEntry`'s doc
+    comment for why a shared material made fade-in/out impossible the instant two units sharing
+    one sprite frame needed different opacity at once. `entry.material.opacity` is now set every
+    frame straight from `u.fade * (u.moved && side==="player" && phase==="player" ? 0.8 : 1)`,
+    the exact same expression `renderUnitsAndOverlays`' `ctx.globalAlpha` uses.
 - Verified visually via headless Playwright (not the live browser — see the testing section
   below): same mission (`Wisp Forest`, via Modo Teste → Debug → Classic Tactical), screenshotted
-  once with `?renderer=three` and once without — unit count, formation, relative spacing, sprite
-  scale, and facing all matched between the two renderers.
+  once with `?renderer=three` and once without at rest — unit count, formation, relative spacing,
+  sprite scale, and facing all matched — then burst-screenshotted a live attack (and separately a
+  fresh combat entry after the fade-opacity change) on the Three.js path to confirm pose
+  switching and damage popups run with no console errors and no broken/placeholder frames.
 
-**Not done yet — the rest of Milestone 1:**
+**Not done — deliberately out of scope, not a gap:**
 
-Unit **animation** (walk cycles, attack/cast/counter poses, the per-pose size corrections listed
-above, bob/sway/breath idle motion, move interpolation, fade-in/out opacity) still only exists in
-the old Canvas2D-shim path — units in the Three.js scene are static/idle-only right now, and
-`skipUnitSprites` means the old canvas no longer draws them at all when `?renderer=three` is on,
-so this is the visible gap if you compare the two renderers mid-combat rather than at rest. HP
-bars, the hover/selection hex outline, portal FX, and "front"-layer decorations still render
+HP bars, the hover/selection hex outline, portal FX, and "front"-layer decorations still render
 entirely through the old Canvas2D-shim `unitsCanvas` (`WebGL2DRenderer`) on purpose — see the
 `skipUnitSprites` bullet above — stacked above the Three.js canvas, unchanged, and currently
-correct/working since that layer was never broken.
+correct/working since that layer was never broken. Deciding whether those ever move into the
+Three scene (and what "front"-layer decorations do once units are fully there) is optional
+polish for later, not required for "Milestone 1 done."
 
-**Known gaps in the static-pose unit port (acceptable for this pass, not yet fixed):**
-
-- Boss/multi-hex footprints (Troll, Horror, Asherah, ...) anchor slightly differently than the
-  Canvas2D renderer's `footprintCentroid` (front-row average) — `effectAnchor` gives a plain
-  single-hex position instead. Minor positional drift only on those few large-footprint units.
-- No mid-move interpolation: `effectAnchor(u.drawX, u.drawY)` still reads the live
-  animated draw position each frame, so a unit *slides* correctly, but its pose stays the static
-  idle frame throughout — no walk cycle plays while it's sliding.
+**Milestone 1 is now done** by its own gating definition at the top of this doc (terrain +
+decorations + units + camera + mouse interaction, matching the existing renderer) — the next
+session's job is Milestone 2 (lighting/shadows), not more unit-parity work, unless the user finds
+a concrete mismatch this doc's testing missed.
 
 ## The critical gotcha already found — do not reintroduce it
 
@@ -137,35 +157,13 @@ Knock-on effects of this Y-negation, already handled, to remember if you add mor
   back-facing/culled under this camera setup — see `buildHexGeometry`'s comment on the
   `(0, i%6+1, i)` index order.
 
-## Next step: unit animation (walk/attack/cast/counter poses)
+## Next step: Milestone 2 (lighting/shadows)
 
-Static-pose units are done (see the bullet list under "Where things stand right now" above) —
-`ThreeBattleRenderer.syncUnits()` in `src/game/gfx/three/ThreeBattleRenderer.ts` is the place to
-extend. What's left to reach real parity with `BattleEngine.renderUnitsAndOverlays`
-(`src/game/engine.ts`, ~line 7740 on):
-
-- **Pose selection**: `syncUnits` currently always reads the idle pool's frame `[0]`. The
-  Canvas2D version picks `atk`/`cast`/`counter`/`walk`/`idle` pools based on `engine.attackPose(u)`
-  (private), `this.active` (whether a move/spell/heal/combat action is live for this unit),
-  and `u.idleAlt`/`u.facing` — see the `frames`/`fi`/`img` computation around what's now
-  engine.ts's `renderUnitsAndOverlays`. Most of that state (`this.active`, `attackPose`) is
-  private to `BattleEngine`; either add narrow public accessors (same pattern as `unitHidden`)
-  or a single public method that returns "what pose/frame index is this unit on right now" so
-  `ThreeBattleRenderer` doesn't have to duplicate the animation-timing logic (`walkFrame`,
-  `idleFrame`, `attackPose` are all private and non-trivial — reuse them, don't reimplement).
-- **The per-pose size corrections** intentionally left out of the static pass (see "Known gaps"
-  above): `cultistV2CastHeightMul`/`WidthMul`, `cultistV2AtkScale`, `malrecWalkHeightScale`/
-  `WidthScale`, `malrecAtkScale`, `malrecAtkFrame27WidthScale`, `cultistV2WalkScale`,
-  `familiar2WalkScale`, `cultistV2CastFootOffset` — all keyed off `atk`/`walk`/`casting`/`fi`,
-  ported verbatim from the same block in `renderUnitsAndOverlays` once pose selection exists.
-- **Live idle motion** (`bob`/`sway`/`breath` via `this.liveMotion(u, cell)`, private) and
-  **move interpolation pose** (a unit sliding between hexes should play its walk cycle, not just
-  slide while idle) — `unitLift` (high-ground lift) is the other private piece already skipped.
-- Once poses/animation are ported, re-verify the "Known gaps" list above (footprint centroid,
-  fade opacity) is still the full list of remaining deltas — don't let a new gap join it unnoticed.
-- HP bars, hover/selection hex outline, portal FX: still out of scope — stay on the old canvas
-  indefinitely unless the user asks for them explicitly; they're UI/overlay elements, not
-  "asset positions."
+Milestone 1 is done — see "Milestone 1 is now done" above. This doc's job (a handoff note, not
+permanent documentation — see the top of this file) is finished; read the "Goal" section's
+Milestone 2 scope (real `DirectionalLight`/shadows against the world-space scene this milestone
+built) before starting it, confirm with the user this doc's claim of "done" still holds after
+however long has passed since it was written, and then delete this file per its own opening line.
 
 ## Testing — do not use the live browser
 
