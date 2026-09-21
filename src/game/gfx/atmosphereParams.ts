@@ -60,27 +60,30 @@ export interface AtmosphereProfile {
   vignette: number;
 }
 
-/** Noticeable but not overpowering: the point is a battlefield that visibly breathes (drifting
- * dust, a slow light swing, a thin haze) without ever fogging the map past readability. A
- * mission can push its own `atmosphere` override stronger (storm, ash-fall, heavy fog) without
- * touching this shared default. */
+/** Noticeable but not overpowering, and pinned to the battlefield: the light field/haze/
+ * volumetric shafts carry zero speed of their own (see lightFieldSpeed/hazeSpeed/
+ * volumetricSpeed below), so the pattern never crawls on its own — it only ever moves because
+ * the camera panned, exactly in step with the terrain (see AtmosphereRenderer.render's
+ * panOffset handling). Only the dust motes still drift under their own particleSpeed, same as
+ * real airborne ash would. A mission can push its own `atmosphere` override stronger (storm,
+ * ash-fall, heavy fog) or give it motion again without touching this shared default. */
 export const DEFAULT_ATMOSPHERE_PROFILE: AtmosphereProfile = {
   ambientColor: [0.55, 0.62, 0.86],
   ambientIntensity: 0.2,
   exposure: 1.08,
 
   lightFieldScale: 0.85,
-  lightFieldSpeed: 0.045,
+  lightFieldSpeed: 0,
   lightFieldContrast: 0.42,
 
   hazeDensity: 0.3,
   hazeScale: 1.7,
-  hazeSpeed: 0.1,
+  hazeSpeed: 0,
   hazeColor: [0.78, 0.82, 0.92],
 
   volumetricIntensity: 0.28,
   volumetricAngle: 0.4,
-  volumetricSpeed: 0.05,
+  volumetricSpeed: 0,
   volumetricColor: [1.0, 0.93, 0.78],
 
   particleCount: 100,
