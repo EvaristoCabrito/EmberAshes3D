@@ -16,7 +16,6 @@ export const TILE_VARIANT_COUNT: Record<TerrainId, number> = {
   column: 2,
   nave: 2,
   barricade: 1,
-  chest: 1,
   door: 1,
   void: 1,
   snow: 3,

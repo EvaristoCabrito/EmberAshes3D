@@ -432,13 +432,21 @@ export function saveActiveDrafts(drafts: Record<string, MapDraft>): boolean {
   }
 }
 
-/** Resolves a mission id for REAL play: an activated custom version takes precedence over
- * the immutable static/saved-file data, everywhere — the campaign list, the world map, and
- * the battle itself all call this same function, so "Ativar" in the editor is final
- * wherever the game shows or plays that scenario, not just where someone remembered to
- * special-case it. */
+/** Resolves a mission id for REAL play — the campaign list, the world map, and the battle
+ * itself all call this same function, so whatever it decides is final everywhere, not just
+ * where someone remembered to special-case it.
+ *
+ * A real saved FILE is the one durable, inspectable source of truth — per direct, explicit
+ * instruction, "the maps I save is the only thing that counts", full stop. It always wins
+ * over a browser-local activation now, which used to be checked first and could go stale in
+ * ways a file on disk can't (a leftover "Ativar" pointer from a much older session, still
+ * sitting in localStorage, silently overriding every file-based fix or edit made since —
+ * this is exactly what made a from-scratch fix to a map file look like it "didn't work").
+ * The local-activation path only still matters for a scenario that has NEVER been saved to a
+ * real file at all — a local-only save made with no dev server available to write one (a
+ * built app, a deployed preview) — which is the one case with no file to prefer instead. */
 export function missionById(id: string): Mission | undefined {
-  if (typeof window !== "undefined") {
+  if (!LATEST.has(id) && typeof window !== "undefined") {
     const exact = loadActiveDrafts()[id];
     if (exact) return draftToMission(exact);
 

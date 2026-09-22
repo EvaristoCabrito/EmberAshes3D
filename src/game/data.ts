@@ -57,7 +57,6 @@ export const TERRAIN: Record<TerrainId, TerrainDef> = {
   column: { id: "column", name: "Coluna", moveCost: 99, def: 0, atk: 0, passable: false, blocksShot: true },
   nave: { id: "nave", name: "Laje", moveCost: 1, def: 0, atk: 0, passable: true },
   barricade: { id: "barricade", name: "Barricada", moveCost: 99, def: 0, atk: 0, passable: false, blocksShot: true },
-  chest: { id: "chest", name: "Baú trancado", moveCost: 99, def: 0, atk: 0, passable: false },
   door: { id: "door", name: "Porta trancada", moveCost: 99, def: 0, atk: 0, passable: false, blocksShot: true },
   snow: { id: "snow", name: "Neve", moveCost: 1, def: 0, atk: 0, passable: true },
   /** Pure void — a building block for closed/indoor maps: apaga o terreno e nem se atravessa, nem se vê através. */
@@ -372,9 +371,18 @@ export const DECORATIONS: Record<string, DecorationDef> = {
   gatehouse: { id: "gatehouse", name: "Portão Fortificado", footprint: DECO_PAIR },
   watchtower: { id: "watchtower", name: "Torre de Vigia", footprint: DECO_PAIR },
   "ancient-shrine": { id: "ancient-shrine", name: "Santuário Antigo", footprint: DECO_PAIR },
-  "locked-chest": { id: "locked-chest", name: "Baú Pequeno", footprint: DECO_ONE, tile: "chest" },
-  "chest-medium": { id: "chest-medium", name: "Baú Médio", footprint: DECO_ONE, tile: "chest" },
-  "chest-large": { id: "chest-large", name: "Baú Grande", footprint: DECO_ONE, tile: "chest" },
+  // No `tile` — a chest is translucent scenery sitting on whatever ground was already
+  // there (grass, ruins, a hill), never a terrain of its own. Its lock/block behavior
+  // comes from CHEST_DECOR_IDS + hexprops.buildDecorOverlay instead of stamping the hex,
+  // so opening or removing one can never leave the wrong floor art behind (see the old
+  // "chest" TerrainId/visualFloorAt guess this replaced).
+  // Small/medium/large still roll different loot tiers under the hood (see CHEST_LOOT /
+  // useLockpick's tier check on the decoration id). This `name` is the Map Editor's own
+  // picker/placement label only (GameApp.tsx) — kept distinct so an author can tell them
+  // apart when placing one — never shown to the player in battle, who reads the icon.
+  "locked-chest": { id: "locked-chest", name: "Baú Pequeno", footprint: DECO_ONE },
+  "chest-medium": { id: "chest-medium", name: "Baú Médio", footprint: DECO_ONE },
+  "chest-large": { id: "chest-large", name: "Baú Grande", footprint: DECO_ONE },
   // A prop, not a hex type: it lays "barricade" terrain under itself and every barricade
   // rule rides on that tile — impassable except to a troll (at cost 2, which also smashes
   // it), blocks shots, and lets whoever stands right behind it shoot over while staying
@@ -411,9 +419,9 @@ export const DECORATIONS: Record<string, DecorationDef> = {
   ...NEW_DECOR_2026,
 };
 
-/** Every lockable-chest decoration id. Both size variants stamp "chest" terrain and open the
- * same way (BattleEngine.useLockpick/adjacentLock) — callers that need "is this a chest"
- * check membership here instead of one hardcoded id. */
+/** Every lockable-chest decoration id. Both size variants block/open the same way
+ * (BattleEngine.useLockpick/adjacentLock, hexprops.buildDecorOverlay) — callers that need
+ * "is this a chest" check membership here instead of one hardcoded id. */
 export const CHEST_DECOR_IDS = new Set(["locked-chest", "chest-medium", "chest-large"]);
 
 /** Small single-building house props — a 3-hex footprint (DECO_TRIO), drawn at the shared
@@ -3688,7 +3696,6 @@ const CHAR: Record<string, TerrainId> = {
   c: "column",
   n: "nave",
   b: "barricade",
-  k: "chest",
   o: "door",
   v: "void",
   u: "snow",
@@ -3715,7 +3722,6 @@ export const TILE_CHAR: Record<TerrainId, string> = {
   column: "c",
   nave: "n",
   barricade: "b",
-  chest: "k",
   door: "o",
   void: "v",
   snow: "u",
@@ -3739,7 +3745,6 @@ export function terrainNote(id: TerrainId): string | undefined {
   const t = TERRAIN[id];
   if (t.height) return `${t.name} · +10% ataque · arqueira +1 alcance`;
   if (t.id === "barricade") return "não se atravessa · 3 hexes · de trás você atira · quem está atrás não é acertado";
-  if (t.id === "chest") return "trancado · precisa de Gazua para abrir · pode conter Gold";
   if (t.id === "door") return "trancada · precisa de Gazua para abrir";
   if (t.id === "void") return "vazio · não se atravessa, não se vê através · apaga o terreno pra fechar áreas indoor";
   if (t.hazardDice) return `${t.name} · atravessável · custa ${t.moveCost} Mov · dano ${t.hazardDice}D${t.hazardFaces ?? 8} ao entrar e no início de cada turno`;
@@ -4693,7 +4698,7 @@ function placeChests(
   blockedExtra: Set<string>,
   seed: number,
   floorChar: string,
-): void {
+): Cell[] {
   const rng = mulberry32Local(seed);
   const spawns = [...playerSpawns, ...enemySpawns];
   const candidates: Cell[] = [];
@@ -4736,11 +4741,14 @@ function placeChests(
     const candidate = new Set(blockedExtra);
     candidate.add(`${cx},${cy}`);
     if (connectivityOk(grid, cols, rows, candidate, spawns)) {
-      grid[cy]![cx] = "k";
+      // Leave the hex painted as whatever floorChar it already was (grass/nave) — the
+      // chest is a decoration laid on top, not a terrain of its own (see
+      // DECORATIONS.locked-chest's own comment on why it carries no `tile`).
       blockedExtra.add(`${cx},${cy}`);
       placed.push([cx, cy]);
     }
   }
+  return placed;
 }
 
 /** Strips "funky" single-hex clutter tiles — woods ("w") and ruins ("r"), whose baked-in
@@ -4761,16 +4769,14 @@ function decorateOpenTerrain(mission: Mission): Mission {
   const spawnSet = new Set([...playerSpawns, ...enemySpawns].map(([x, y]) => `${x},${y}`));
   const floorChar = mission.layout.some((row) => row.includes("n")) ? "n" : ".";
   const blockedExtra = new Set<string>();
-  // Hand-placed locked-chest props count as authored loot boxes too — they stamp "chest"
-  // terrain (see DECORATIONS.locked-chest.tile), same as a layout "k". Skip the random
+  // Hand-placed locked-chest props count as authored loot boxes too. Skip the random
   // sprinkle so a mapper's own chests are the ones that stay.
-  const hasAuthoredChest =
-    mission.layout.some((row) => row.includes("k")) ||
-    (mission.decorations ?? []).some((d) => CHEST_DECOR_IDS.has(d.id));
-  if (!hasAuthoredChest) {
-    placeChests(grid, cols, rows, playerSpawns, enemySpawns, spawnSet, blockedExtra, seedFromId(mission.id), floorChar);
-  }
+  const hasAuthoredChest = (mission.decorations ?? []).some((d) => CHEST_DECOR_IDS.has(d.id));
   const decorations: DecorationPlacement[] = [...(mission.decorations ?? [])];
+  if (!hasAuthoredChest) {
+    const placedChests = placeChests(grid, cols, rows, playerSpawns, enemySpawns, spawnSet, blockedExtra, seedFromId(mission.id), floorChar);
+    for (const [x, y] of placedChests) decorations.push({ id: "locked-chest", x, y });
+  }
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       if (grid[y]![x] !== "k") continue;

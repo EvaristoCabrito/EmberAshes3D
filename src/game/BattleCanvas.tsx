@@ -268,6 +268,7 @@ export function BattleCanvas({
           !!rendererThree,
           !!rendererThree,
           !!rendererThree,
+          !!rendererThree,
         );
       }
       const hud = engine.getHud();

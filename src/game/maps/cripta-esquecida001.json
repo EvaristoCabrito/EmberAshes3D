@@ -42,10 +42,10 @@
       "void",
       "void",
       "void",
-      "chest",
       "ruins",
       "ruins",
-      "chest",
+      "ruins",
+      "ruins",
       "void",
       "void",
       "void",
@@ -240,7 +240,7 @@
       "void",
       "void",
       "ruins",
-      "chest",
+      "ruins",
       "ruins",
       "ruins",
       "ruins",
@@ -533,6 +533,21 @@
         "id": "mossy-boulder",
         "x": 3,
         "y": 8
+      },
+      {
+        "id": "locked-chest",
+        "x": 8,
+        "y": 1
+      },
+      {
+        "id": "locked-chest",
+        "x": 11,
+        "y": 1
+      },
+      {
+        "id": "locked-chest",
+        "x": 8,
+        "y": 12
       }
     ],
     "playerSpawns": [

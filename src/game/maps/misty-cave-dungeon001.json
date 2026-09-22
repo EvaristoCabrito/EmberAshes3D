@@ -52,11 +52,11 @@
       "void",
       "void",
       "void",
-      "chest",
       "ruins",
       "ruins",
       "ruins",
-      "chest",
+      "ruins",
+      "ruins",
       "void",
       "void",
       "void",
@@ -494,11 +494,11 @@
       "void",
       "void",
       "void",
-      "chest",
       "ruins",
       "ruins",
       "ruins",
       "ruins",
+      "ruins",
       "void",
       "void",
       "void",
@@ -524,7 +524,7 @@
       "ruins",
       "ruins",
       "ruins",
-      "chest",
+      "ruins",
       "void",
       "void",
       "void",
@@ -1079,6 +1079,26 @@
         "id": "wilds-weathered-signpost",
         "x": 8,
         "y": 10
+      },
+      {
+        "id": "locked-chest",
+        "x": 10,
+        "y": 1
+      },
+      {
+        "id": "locked-chest",
+        "x": 14,
+        "y": 1
+      },
+      {
+        "id": "locked-chest",
+        "x": 10,
+        "y": 18
+      },
+      {
+        "id": "locked-chest",
+        "x": 14,
+        "y": 19
       }
     ],
     "playerSpawns": [

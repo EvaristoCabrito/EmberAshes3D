@@ -25,6 +25,27 @@ import {
 } from "./shaders";
 
 const ADDITIVE_ELEMENTS: ReadonlySet<ElementKind> = new Set(["fire", "lightning", "acid", "holy"]);
+// Water (and its re-skinned variants) used to sit in the alpha-blend group above, which lets
+// fx.a fully REPLACE whatever pixel it lands on — fine when that pixel is bare ground, wrong
+// when ThreeBattleRenderer is the active renderer, because there decorations and units are
+// baked into the same canvas this pass reads as "the scene" (see BattleCanvas's own comment on
+// why units/decor stay on a separate canvas for the *legacy* 2D renderer only). A unit or prop
+// standing in/near a water placement was getting visually erased and replaced by the water's
+// own color instead of staying visible on top of it. Additive blending can only ever brighten,
+// never replace, so drawing water this way guarantees it can't cover anything, on either
+// renderer — direct fix for "decorations and units must stay in front of the elemental FX"
+// (the water on O Vau/map 1).
+//
+// It is its OWN set, not folded into ADDITIVE_ELEMENTS, because water's own shader brightness
+// (EFFECT_PARAMS.water: color max 0.85 × intensity 0.9) already clears GLOBAL_FX_PARAMS.
+// bloomThreshold (0.55) on its own, and overlapping placements (a whole river of adjacent
+// hexes) stack even brighter under additive blending — surfacing as water visibly glowing at
+// high Brilho/bloomIntensity, which is wrong: water is mundane, not a light source, unlike
+// fire/lightning/acid/holy. render()'s draw order keeps this set OUT of what the bright-pass
+// samples (drawn after that sampling, before the final composite) so it stays additive/
+// non-occluding without ever contributing bloom. Don't fold this into ADDITIVE_ELEMENTS, and
+// don't move its draw call before the bright-pass, without re-solving that glow first.
+const NO_BLOOM_ADDITIVE_ELEMENTS: ReadonlySet<ElementKind> = new Set(["water", "water2", "water3", "water4", "water5"]);
 // webShot casts light (a travelling glow) without joining the additive group above — its own
 // body stays normal alpha-blended (see shaders.ts WEB_SHOT), the same "solid, opaque, glossy"
 // treatment that fixed Cleave/Piercing Thrust washing out over bright ground art; only the

@@ -3453,6 +3453,27 @@ export class BattleEngine {
     return null;
   }
 
+  /** Whoever the board should visually credit as "acting right now" — for activeTurnHighlight
+   * only, never for turn-order logic (which stays on activeTurnUnit/`.moved` exactly as it
+   * is). Enemy AI (runAiFor) sets `.moved = true` the instant it DECIDES to move, not once the
+   * queued walk actually finishes — turn-advancement needs that (tick() only looks for the
+   * next unit once `this.queue` fully drains, so the flag has to already be true by then), but
+   * it means an enemy's own `activeTurnUnit()` stops returning it before its walk animation
+   * even starts, so the hex vanished mid-move ("enemies have no hex when they move", a direct
+   * complaint). Prefer whoever `this.active` (the queue item currently mid-playback) actually
+   * belongs to — `.id` on a move, `.att` on everything else with an actor — falling back to
+   * activeTurnUnit() the rest of the time (nothing queued, or a queue item with no actor, like
+   * a banner/delay). */
+  private visuallyActingUnit(): Unit | null {
+    const a = this.active as { id?: string; att?: string } | null;
+    const actorId = a?.id ?? a?.att;
+    if (actorId) {
+      const u = this.units.find((x) => x.id === actorId);
+      if (u && u.alive) return u;
+    }
+    return this.activeTurnUnit();
+  }
+
   private select(unit: Unit): void {
     if (unit.side !== "player" || !unit.alive || unit.moved || this.phase !== "player") {
       this.inspect(unit);
@@ -5520,32 +5541,13 @@ export class BattleEngine {
     this.finishAction(actor);
   }
 
-  /** Ground a chest sits on — the neighboring floor, never the grass hex in chest001. */
-  private visualFloorAt(x: number, y: number): TerrainId {
-    const floor: TerrainId[] = ["nave", "plains", "ruins", "woods", "hill"];
-    const counts = new Map<TerrainId, number>();
-    for (const n of hexNeighbors(x, y)) {
-      if (!inBounds(n.x, n.y, this.cols, this.rows)) continue;
-      const t = tileAt(this.tiles, this.cols, n.x, n.y);
-      if (floor.includes(t)) counts.set(t, (counts.get(t) ?? 0) + 1);
-    }
-    if (counts.has("nave")) return "nave";
-    if (counts.size) {
-      return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]![0];
-    }
-    return this.tiles.includes("nave") ? "nave" : "plains";
-  }
-
-  /** First adjacent locked chest/door around a unit's own tile, or null if none.
-   *
-   * A hand-placed locked-chest prop stamps "chest" terrain (DECORATIONS.locked-chest.tile),
-   * same as a layout "k". The decoration check is the fallback for a map that still has
-   * the prop but never painted the hex — both are loot boxes and both spend a Gazua. */
+  /** First adjacent locked chest/door around a unit's own tile, or null if none. A chest is
+   * always a decoration (see CHEST_DECOR_IDS) — there is no "chest" terrain anymore — while a
+   * door is still real terrain (see the "door" TerrainId). */
   private adjacentLock(u: Unit): Point | null {
     for (const p of hexNeighbors(u.x, u.y)) {
       if (!inBounds(p.x, p.y, this.cols, this.rows)) continue;
-      const t = tileAt(this.tiles, this.cols, p.x, p.y);
-      if (t === "chest" || t === "door") return p;
+      if (tileAt(this.tiles, this.cols, p.x, p.y) === "door") return p;
       if (this.decorations.some((d) => CHEST_DECOR_IDS.has(d.id) && d.x === p.x && d.y === p.y)) return p;
     }
     return null;
@@ -5734,8 +5736,9 @@ export class BattleEngine {
     if (!target) return;
     const i = target.y * this.cols + target.x;
     const chestDecorId = this.decorations.find((dec) => CHEST_DECOR_IDS.has(dec.id) && dec.x === target.x && dec.y === target.y)?.id;
-    const wasChest = this.tiles[i] === "chest" || !!chestDecorId;
-    this.tiles[i] = this.visualFloorAt(target.x, target.y);
+    const wasChest = !!chestDecorId;
+    // A chest never touches `tiles` (see DECORATIONS.locked-chest's own comment) — the real
+    // floor is already sitting there, so opening it leaves it alone.
     this.terrainVersion++;
     // decorations is readonly (the renderer holds the same array), so drop the chest's
     // decoration in place rather than rebinding the field.
@@ -5767,7 +5770,7 @@ export class BattleEngine {
       // common case, rarer as potency climbs), and — a separate, independent roll — a
       // chance at a piece of gear, weighted so the strongest is the rarest and capped to
       // what this mission's own enemies are geared for (see highestEnemyLevel). Tier is
-      // Baú Pequeno/Médio/Grande, or "better" for a plain "chest" tile listed in
+      // small/medium/large by decoration id, or bumped to "better" for a small chest listed in
       // Mission.betterChests (gated behind a locked area, say) — same pool and range
       // throughout, just climbing odds and gear-tier headroom.
       const betterSpot = this.mission.betterChests?.some((c) => c.x === target.x && c.y === target.y) ?? false;
@@ -7673,8 +7676,7 @@ export class BattleEngine {
         // Never seen: draw nothing at all. Cheaper than the clipped path below, which is
         // why fog makes a big fogged board lighter to draw rather than heavier.
         if (!this.explored(x, y)) continue;
-        const id = tileAt(this.tiles, this.cols, x, y);
-        const drawId = id === "chest" ? this.visualFloorAt(x, y) : id;
+        const drawId = tileAt(this.tiles, this.cols, x, y);
         const isWaterFx = this.waterFxTileKeys.has(y * this.cols + x);
         ctx.save();
         this.hexPath(ctx, cx, cy, tile * 1.0);
@@ -7799,17 +7801,24 @@ export class BattleEngine {
     // Whose turn it is, drawn last (after the walkable/attack overlays above) so it's never
     // washed out underneath them — the active unit always stands on its own reach overlay,
     // and a thin ring alone got lost under that blue fill. A full golden hex fill, not just
-    // a rim, per direct feedback ("the whole hex must get golden").
-    const active = this.activeTurnUnit();
+    // a rim, per direct feedback ("the whole hex must get golden"). visuallyActingUnit(), not
+    // activeTurnUnit() — see that method's own comment on why (an enemy's `.moved` flips true
+    // before its queued walk actually plays, which made this vanish mid-move).
+    const active = this.visuallyActingUnit();
     if (active) {
+      // active.x/y — one single, static hex, no per-frame tracking (see
+      // activeTurnHighlight's own comment).
       const { cx, cy } = this.hexCenter(active.x, active.y);
-      const pulse = 0.75 + Math.sin(this.time * 4) * 0.25;
-      const glowColor = active.side === "enemy" ? "230,120,90" : "255,215,140";
+      const glowColor = active.side === "enemy" ? "140,56,36" : "152,120,24";
       ctx.save();
-      ctx.shadowColor = `rgba(${glowColor},${0.9 * pulse})`;
-      ctx.shadowBlur = tile * 0.7 * pulse;
-      ctx.fillStyle = `rgba(${glowColor},${(0.34 + 0.18 * pulse).toFixed(3)})`;
-      ctx.strokeStyle = `rgba(${glowColor},${0.95 * pulse})`;
+      // shadowBlur is a REAL glow here — Canvas2D supports it directly, unlike the flat
+      // WebGL mesh ThreeBattleRenderer draws (see activeTurnHighlight's own comment on why
+      // that path just uses a vivid opaque color instead). Fully opaque fill — its own solid
+      // color, never blended/washed out by the terrain underneath.
+      ctx.shadowColor = `rgba(${glowColor},0.9)`;
+      ctx.shadowBlur = tile * 0.6;
+      ctx.fillStyle = `rgba(${glowColor},1)`;
+      ctx.strokeStyle = `rgba(${glowColor},1)`;
       ctx.lineWidth = Math.max(2, tile * 0.09);
       this.hexPath(ctx, cx, cy, tile * 0.94);
       ctx.fill();
@@ -8009,11 +8018,13 @@ export class BattleEngine {
    * ThreeBattleRenderer uses this instead, to get the same cell and color without duplicating
    * BattleEngine's turn-order logic. */
   activeTurnHighlight(): { x: number; y: number; fill: string } | null {
-    const active = this.activeTurnUnit();
+    const active = this.visuallyActingUnit();
     if (!active) return null;
-    const pulse = 0.75 + Math.sin(this.time * 4) * 0.25;
-    const glowColor = active.side === "enemy" ? "230,120,90" : "255,215,140";
-    return { x: active.x, y: active.y, fill: `rgba(${glowColor},${(0.34 + 0.18 * pulse).toFixed(3)})` };
+    const glowColor = active.side === "enemy" ? "140,56,36" : "152,120,24";
+    // active.x/y (the unit's actual current cell), not a per-frame-tracked screen position —
+    // one single, static hex, per direct instruction, no auto-tracking layer. Fully opaque
+    // (alpha 1): its own solid, vivid color, never blended with the terrain underneath.
+    return { x: active.x, y: active.y, fill: `rgba(${glowColor},1)` };
   }
 
   /** Units, HP bars, particles, projectiles, banners, and the foreground decoration layer —
@@ -8050,6 +8061,14 @@ export class BattleEngine {
     // shadow is keyed to the sprite's own screen position/pose (px, sway, lift, breath, foot),
     // not to whether the sprite image itself still draws here.
     skipUnitShadow?: boolean,
+    // The mouse-selection hex outline below assumed unit sprites were drawn later on this same
+    // canvas, so painting it first put it "under" them — true for the legacy 2D renderer, but
+    // ThreeBattleRenderer's characters live one canvas down, stacked BELOW this one (see
+    // BattleCanvas), so that outline ended up drawn in front of every character instead. Skip
+    // it here and ThreeBattleRenderer draws the same outline itself as scene geometry, at the
+    // same z it uses for boardOverlayLayers/activeTurnHighlight — genuinely behind decorations
+    // and units rather than merely earlier in one canvas' own draw order.
+    skipCursorHex?: boolean,
   ): void {
     const tile = ZOOM_RADII[this.zoom]!;
     const sqrt3 = Math.sqrt(3);
@@ -8074,27 +8093,32 @@ export class BattleEngine {
     // in renderGround, so it always reads above the WebGL water FX layer stacked in between
     // the ground and units canvases (see BattleCanvas) instead of being hidden under it —
     // but before any unit sprite, so the outline (and its blocked/height label) reads as a
-    // ground marking under the units instead of a decal painted over their artwork.
+    // ground marking under the units instead of a decal painted over their artwork. Under
+    // ThreeBattleRenderer the characters live one canvas further down instead (see
+    // skipCursorHex's own comment), so only the label stays here; the outline itself is
+    // skipped and drawn as real scene geometry there instead.
     {
       const cur = this.hover ?? this.cursor;
       const { cx, cy } = this.hexCenter(cur.x, cur.y);
       const hid = tileAt(this.tiles, this.cols, cur.x, cur.y);
       const ht = TERRAIN[hid];
       const blocked = !ht.passable;
-      if (blocked) {
-        ctx.save();
-        ctx.shadowColor = "rgba(219,58,44,0.95)";
-        ctx.shadowBlur = tile * 0.55;
-        ctx.strokeStyle = "rgba(255,90,72,0.95)";
-        ctx.lineWidth = 3;
-        this.hexPath(ctx, cx, cy, tile * 0.9);
-        ctx.stroke();
-        ctx.restore();
-      } else {
-        ctx.strokeStyle = "rgba(240,235,227,0.9)";
-        ctx.lineWidth = 2;
-        this.hexPath(ctx, cx, cy, tile * 0.9);
-        ctx.stroke();
+      if (!skipCursorHex) {
+        if (blocked) {
+          ctx.save();
+          ctx.shadowColor = "rgba(219,58,44,0.95)";
+          ctx.shadowBlur = tile * 0.55;
+          ctx.strokeStyle = "rgba(255,90,72,0.95)";
+          ctx.lineWidth = 3;
+          this.hexPath(ctx, cx, cy, tile * 0.9);
+          ctx.stroke();
+          ctx.restore();
+        } else {
+          ctx.strokeStyle = "rgba(240,235,227,0.9)";
+          ctx.lineWidth = 2;
+          this.hexPath(ctx, cx, cy, tile * 0.9);
+          ctx.stroke();
+        }
       }
       if (blocked || ht.height) {
         const label = blocked ? ht.name.toUpperCase() : "ALTO +2";

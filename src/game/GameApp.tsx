@@ -3074,7 +3074,6 @@ const TERRAIN_SWATCH: Record<TerrainId, string> = {
   column: "#4a4a52",
   nave: "#26262c",
   barricade: "#5a4630",
-  chest: "#7a5c2e",
   door: "#4a3524",
   void: "#050505",
   snow: "#d8dee2",
@@ -3093,8 +3092,8 @@ const BUILDER_TERRAIN: TerrainId[] = [
   // "barricade" is deliberately not here: it is a decoration now, placed with the Decoração
   // brush, which lays its terrain with it. Painting the bare tile still works — a map that
   // already had one keeps it, and the prop is derived on load — but authoring goes one way.
-  // "chest" is the same story: the two chest decorations lay their own terrain, so the bare
-  // tile is dropped from manual painting here.
+  // "chest" no longer exists as a TerrainId at all — a chest is purely a decoration
+  // (locked-chest/chest-medium/chest-large) that never touches the tile underneath it.
   // highwood/deadtree/highruin used to be listed here too — retired entirely per direct
   // instruction (they were mechanically identical to "hill", just three redundant visual
   // reskins of it — see clearScrappedGroundTiles in data.ts, which converted every existing

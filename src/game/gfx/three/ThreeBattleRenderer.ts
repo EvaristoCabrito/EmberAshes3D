@@ -44,7 +44,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import type { BattleEngine } from "../../engine";
-import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECORATIONS, HOUSE_DECOR_IDS, decorationFacing, decorationImage, placedFootprint } from "../../data";
+import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECORATIONS, HOUSE_DECOR_IDS, TERRAIN, decorationFacing, decorationImage, placedFootprint } from "../../data";
 import { tileAt } from "../../pathfinding";
 import type { DecorationDef, DecorationPlacement, TerrainId } from "../../types";
 import { ThreeAtmosphere } from "./ThreeAtmosphere";
@@ -91,17 +91,16 @@ const INDOOR_AMBIENT_INTENSITY = 0.65;
 /** MILESTONE 4 — real post-processing (UnrealBloomPass on the actual rendered scene, via
  * EffectComposer), not a CSS/canvas filter pretending to be one. Matches the user's own tuned
  * "O Vau" setup (vau016.json), the standard daytime default — see DEFAULT_SUN_INTENSITY's
- * comment. Selective bloom (see bloomComposer/finalComposer below) means only wisp embers can
- * ever be affected, so this can never wash out the rest of the scene regardless of value. */
+ * comment. Bloom now applies to the whole scene (see render()'s own comment), not just wisp
+ * embers, so a high intensity CAN wash out bright ground art too — that's expected now. */
 export const DEFAULT_BLOOM_INTENSITY = 0.9;
 const BLOOM_RADIUS = 0.4;
-/** A fixed, low threshold is correct here (unlike an earlier full-scene-bloom attempt, which
- * needed a high threshold and intensity-dependent scaling to avoid catching things it shouldn't)
- * because selective bloom (see this file's bloomComposer/finalComposer setup) already guarantees
- * only the wisp embers are ever non-black in the pass this threshold applies to — nothing else
- * can wrongly cross it regardless of setting, so the editor's intensity slider maps directly and
- * simply to strength. */
-const BLOOM_THRESHOLD = 0.2;
+/** Full-scene bloom (see render()'s own comment) needs a threshold well above the old
+ * selective-only 0.2 — that value only ever had to separate wisp embers from a pass that was
+ * otherwise pure black. Against the REAL rendered scene, 0.2 would catch huge swaths of
+ * ordinary lit ground art and wash the whole board out in a permanent haze. 0.75 keeps it to
+ * genuine highlights: sun glints, the active-turn glow, bright embers/holy/fire FX. */
+const BLOOM_THRESHOLD = 0.75;
 
 /** Same formula as BattleEngine.effectAnchor's worldX/worldY — a hex's position independent of
  * camera pan. Duplicated (not imported) because effectAnchor is keyed to the engine's live
@@ -313,27 +312,18 @@ export class ThreeBattleRenderer {
   private atmosphere = new ThreeAtmosphere();
   private lastFrameTime = performance.now();
 
-  // MILESTONE 4 — SELECTIVE bloom (only the wisp embers glow, nothing else — see ThreeAtmosphere.
-  // markBloomLayer's comment for why: a naive full-scene bloom crossed the active-turn ring's
-  // existing intentional alpha pulse's threshold every cycle, turning a gentle breathing glow
-  // into a hard on/off blink, a direct user complaint). Standard Three.js selective-bloom recipe
-  // (see the official webgl_postprocessing_unreal_bloom_selective example this mirrors): render
-  // the scene TWICE per frame — once with every non-bloom-layer object temporarily forced to a
-  // flat black material (bloomComposer, off-screen, feeds UnrealBloomPass), once normally
-  // (finalComposer, on-screen) — then additively combine the two via mixPass. Real GPU cost
-  // (two extra scene traversals + one extra full render), but selective bloom has no cheaper
-  // correct implementation with a single shared render target.
+  // MILESTONE 4 — bloom applies to the whole scene, per direct instruction (previously
+  // selective, wisps-only — see git history if that's ever wanted back). bloomComposer renders
+  // the real scene through UnrealBloomPass (which extracts/blurs whatever clears
+  // BLOOM_THRESHOLD on its own), finalComposer renders it again normally and additively mixes
+  // that bloom texture back in via mixPass.
   private bloomComposer: EffectComposer;
   private finalComposer: EffectComposer;
   private bloomPass: UnrealBloomPass;
+  // Embers still mark themselves onto this layer (see ThreeAtmosphere.markBloomLayer) from
+  // when bloom was selective — harmless now that bloom applies to everything regardless of
+  // layer, kept only so that call site doesn't need its own removal too.
   private readonly bloomLayerIndex = 1;
-  private readonly bloomTestLayers = (() => {
-    const layers = new THREE.Layers();
-    layers.set(this.bloomLayerIndex);
-    return layers;
-  })();
-  private readonly bloomDarkMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
-  private readonly bloomHiddenMaterials = new Map<string, THREE.Material | THREE.Material[]>();
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -843,6 +833,12 @@ export class ThreeBattleRenderer {
     }
     const active = engine.activeTurnHighlight();
     if (active) place(active.x, active.y, active.fill);
+    // The mouse-selection hex, drawn here instead of on the Canvas2D units shim (see
+    // BattleEngine.renderUnitsAndOverlays' skipCursorHex) so it lands at this same z=0.5 —
+    // genuinely behind decorations/units instead of on a canvas stacked above them.
+    const cur = engine.hover ?? engine.cursor;
+    const blocked = !TERRAIN[tileAt(engine.tiles, engine.cols, cur.x, cur.y)].passable;
+    place(cur.x, cur.y, blocked ? "rgba(255,90,72,0.28)" : "rgba(240,235,227,0.16)");
     for (; idx < this.overlayMeshPool.length; idx++) this.overlayMeshPool[idx]!.visible = false;
   }
 
@@ -872,33 +868,15 @@ export class ThreeBattleRenderer {
     // MILESTONE 2 — the sun has to re-aim every frame too, for the same reason the camera does:
     // the shadow-caster boxes are fixed in world space, only the view of them pans.
     this.updateSun(cssW, cssH, this.engine.camX, this.engine.camY);
-    // MILESTONE 4 — selective bloom's two-pass render: darken everything not on the bloom layer
-    // (embers only, see markBloomLayer), render just that into the off-screen bloomComposer,
-    // restore real materials, then render normally on-screen via finalComposer (which additively
-    // mixes the bloom texture back in via mixPass). See this class's own field comment for why
-    // this exists instead of one simple composer.
-    this.scene.traverse(this.darkenNonBloomed);
+    // Bloom applies to the WHOLE scene now, per direct instruction — no more per-object
+    // opt-in via a bloom layer. bloomComposer renders the real scene straight through
+    // UnrealBloomPass (which extracts/blurs whatever clears BLOOM_THRESHOLD on its own),
+    // finalComposer renders it again normally and additively mixes that bloom texture back
+    // in via mixPass. See BLOOM_THRESHOLD's own comment for why it's tuned much higher than
+    // the old selective-only value now that everything bright enough can bloom.
     this.bloomComposer.render();
-    this.scene.traverse(this.restoreMaterial);
     this.finalComposer.render();
   }
-
-  private readonly darkenNonBloomed = (obj: THREE.Object3D): void => {
-    const mesh = obj as THREE.Mesh;
-    if (mesh.isMesh && !mesh.layers.test(this.bloomTestLayers)) {
-      this.bloomHiddenMaterials.set(mesh.uuid, mesh.material);
-      mesh.material = this.bloomDarkMaterial;
-    }
-  };
-
-  private readonly restoreMaterial = (obj: THREE.Object3D): void => {
-    const mesh = obj as THREE.Mesh;
-    const hidden = this.bloomHiddenMaterials.get(mesh.uuid);
-    if (hidden) {
-      mesh.material = hidden;
-      this.bloomHiddenMaterials.delete(mesh.uuid);
-    }
-  };
 
   dispose(): void {
     // MILESTONE 4 — EffectComposer.dispose() only frees its own two ping-pong render targets and
@@ -907,7 +885,6 @@ export class ThreeBattleRenderer {
     this.bloomComposer.dispose();
     this.finalComposer.dispose();
     this.bloomPass.dispose();
-    this.bloomDarkMaterial.dispose();
     this.atmosphere.dispose();
     this.hexGeo.dispose();
     this.quadGeo.dispose();
