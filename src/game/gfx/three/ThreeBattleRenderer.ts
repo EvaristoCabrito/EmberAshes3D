@@ -290,6 +290,12 @@ export class ThreeBattleRenderer {
   private overlayGroup = new THREE.Group();
   private overlayMatCache = new Map<string, THREE.MeshBasicMaterial>();
   private overlayMeshPool: THREE.Mesh[] = [];
+  // The old 2D marker used Canvas shadowBlur, which has a broad soft falloff rather than a
+  // flat, expanding polygon. This sprite is that same falloff in world space, so WebGL keeps
+  // the familiar 2D read while still sitting under units and props.
+  private activeTurnGlowTexture: THREE.CanvasTexture;
+  private activeTurnGlowMaterial: THREE.SpriteMaterial;
+  private activeTurnGlow: THREE.Sprite;
 
   // Animated units (see THREEJS_MILESTONE1_HANDOFF.md) — one persistent mesh per live unit id,
   // repositioned/retextured/rescaled every frame in syncUnits rather than rebuilt, since units
@@ -304,6 +310,14 @@ export class ThreeBattleRenderer {
   // frame fade in/out together, which is wrong the instant two of them are mid-death at once.
   private unitTexCache = new Map<HTMLImageElement, THREE.Texture>();
   private unitEntries = new Map<string, UnitMeshEntry>();
+
+  /** The elemental-FX canvas is intentionally between the ground renderer and the visual
+   * actors/props canvas. Keep Three's copies of sprites and decorations off the ground canvas
+   * whenever that compositing path is active, otherwise an authored effect can cover them. */
+  setSpritesAndDecorationsVisible(visible: boolean): void {
+    this.unitGroup.visible = visible;
+    this.decorGroup.visible = visible;
+  }
 
   // MILESTONE 3 — real world-space ground mist + drift particles, owned end-to-end by
   // ThreeAtmosphere (see that file's header comment for why scene.fog isn't used and why this
@@ -337,6 +351,20 @@ export class ThreeBattleRenderer {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.camera = new THREE.OrthographicCamera(0, 1, 0, 1, 0.1, 2000);
     this.camera.position.z = 100;
+    const glowCanvas = document.createElement("canvas");
+    glowCanvas.width = glowCanvas.height = 128;
+    const glowCtx = glowCanvas.getContext("2d")!;
+    const gradient = glowCtx.createRadialGradient(64, 64, 6, 64, 64, 64);
+    gradient.addColorStop(0, "rgba(255,255,255,0.92)");
+    gradient.addColorStop(0.32, "rgba(255,255,255,0.45)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    glowCtx.fillStyle = gradient;
+    glowCtx.fillRect(0, 0, 128, 128);
+    this.activeTurnGlowTexture = new THREE.CanvasTexture(glowCanvas);
+    this.activeTurnGlowMaterial = new THREE.SpriteMaterial({ map: this.activeTurnGlowTexture, transparent: true, depthWrite: false, opacity: 0 });
+    this.activeTurnGlow = new THREE.Sprite(this.activeTurnGlowMaterial);
+    this.activeTurnGlow.position.z = 0.45;
+    this.activeTurnGlow.visible = false;
     // Author-controlled lighting (Mission.environment/sunIntensity/ambientIntensity, editable in
     // the Map Editor's "Iluminação" section — see GameApp.tsx) — an explicit sunIntensity/
     // ambientIntensity always wins; otherwise "indoor" gets its own flatter preset, and anything
@@ -355,6 +383,7 @@ export class ThreeBattleRenderer {
     this.scene.add(this.shadowCasterGroup);
     this.scene.add(this.tileGroup);
     this.scene.add(this.overlayGroup);
+    this.scene.add(this.activeTurnGlow);
     this.scene.add(this.decorGroup);
     this.scene.add(this.unitGroup);
     this.scene.add(this.atmosphere.group);
@@ -832,7 +861,18 @@ export class ThreeBattleRenderer {
       for (const c of layer.cells) place(c.x, c.y, layer.fill);
     }
     const active = engine.activeTurnHighlight();
-    if (active) place(active.x, active.y, active.fill);
+    if (active) {
+      place(active.x, active.y, active.fill);
+      const pulse = 0.72 + Math.sin(engine.time * 5.5) * 0.28;
+      const { wx, wy } = hexWorld(active.x, active.y, tile);
+      this.activeTurnGlow.visible = true;
+      this.activeTurnGlow.position.set(wx, -wy, 0.45);
+      this.activeTurnGlow.scale.setScalar(tile * (2.45 + pulse * 0.32));
+      this.activeTurnGlowMaterial.color.set(active.player ? 0xd6a12a : 0xd25436);
+      this.activeTurnGlowMaterial.opacity = active.player ? Math.min(1, (0.32 + pulse * 0.18) * 1.5) : 0.72;
+    } else {
+      this.activeTurnGlow.visible = false;
+    }
     // The mouse-selection hex, drawn here instead of on the Canvas2D units shim (see
     // BattleEngine.renderUnitsAndOverlays' skipCursorHex) so it lands at this same z=0.5 —
     // genuinely behind decorations/units instead of on a canvas stacked above them.
@@ -900,6 +940,8 @@ export class ThreeBattleRenderer {
     for (const tex of this.unitTexCache.values()) tex.dispose();
     for (const entry of this.unitEntries.values()) entry.material.dispose();
     for (const mat of this.overlayMatCache.values()) mat.dispose();
+    this.activeTurnGlowMaterial.dispose();
+    this.activeTurnGlowTexture.dispose();
     this.shadowCasterGeo.dispose();
     this.shadowCasterMaterial.dispose();
     this.renderer.dispose();

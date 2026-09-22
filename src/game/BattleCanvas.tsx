@@ -47,7 +47,12 @@ export function BattleCanvas({
     let renderer2D: WebGL2DRenderer | null = null;
     let rendererThree: ThreeBattleRenderer | null = null;
     try {
-      if (threeGround) rendererThree = new ThreeBattleRenderer(canvas, engine);
+      if (threeGround) {
+        rendererThree = new ThreeBattleRenderer(canvas, engine);
+        // Map-authored elemental FX occupy the layer above this canvas. Units and every
+        // decoration are drawn in the dedicated transparent canvas below, after the FX pass.
+        rendererThree.setSpritesAndDecorationsVisible(false);
+      }
       else renderer2D = new WebGL2DRenderer(canvas);
     } catch {
       return;
@@ -261,13 +266,13 @@ export function BattleCanvas({
           wrap.clientWidth,
           wrap.clientHeight,
           fx ? (px: number, py: number) => fx.lightBoostAt(px, py, (col, row) => engine.effectAnchor(col, row)) : undefined,
-          // ThreeBattleRenderer already draws ground/behind decorations AND unit sprites
-          // itself — see its module comment and renderUnitsAndOverlays' skipGroundDecor/
-          // skipUnitSprites docs. It now casts a real shadow too (MILESTONE 2) — skip the old
-          // fake ellipse so the two don't double up (see skipUnitShadow's own doc).
-          !!rendererThree,
-          !!rendererThree,
-          !!rendererThree,
+          // With Three, terrain remains on the bottom canvas but every visual actor and prop
+          // is deliberately redrawn here, ABOVE the elemental-FX canvas. This is the permanent
+          // layer boundary that prevents authored water/earth/fire from ever covering a sprite
+          // or any decoration (ground, behind, or front).
+          false,
+          false,
+          false,
           !!rendererThree,
         );
       }

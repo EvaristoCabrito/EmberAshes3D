@@ -7806,20 +7806,18 @@ export class BattleEngine {
     // before its queued walk actually plays, which made this vanish mid-move).
     const active = this.visuallyActingUnit();
     if (active) {
-      // active.x/y — one single, static hex, no per-frame tracking (see
-      // activeTurnHighlight's own comment).
-      const { cx, cy } = this.hexCenter(active.x, active.y);
-      const glowColor = active.side === "enemy" ? "140,56,36" : "152,120,24";
+      const marker = this.activeTurnHighlight();
+      if (!marker) return;
+      const { cx, cy } = this.hexCenter(marker.x, marker.y);
+      const playerTurn = active.side === "player";
+      const glowColor = playerTurn ? "214,161,42" : "210,84,54";
+      const pulse = 0.72 + Math.sin(this.time * 5.5) * 0.28;
       ctx.save();
-      // shadowBlur is a REAL glow here — Canvas2D supports it directly, unlike the flat
-      // WebGL mesh ThreeBattleRenderer draws (see activeTurnHighlight's own comment on why
-      // that path just uses a vivid opaque color instead). Fully opaque fill — its own solid
-      // color, never blended/washed out by the terrain underneath.
-      ctx.shadowColor = `rgba(${glowColor},0.9)`;
-      ctx.shadowBlur = tile * 0.6;
-      ctx.fillStyle = `rgba(${glowColor},1)`;
-      ctx.strokeStyle = `rgba(${glowColor},1)`;
-      ctx.lineWidth = Math.max(2, tile * 0.09);
+      ctx.shadowColor = `rgba(${glowColor},${playerTurn ? Math.min(1, (0.72 + pulse * 0.2) * 1.5) : 1})`;
+      ctx.shadowBlur = tile * (playerTurn ? (0.42 + pulse * 0.34) * 1.5 : 0.9);
+      ctx.fillStyle = playerTurn ? `rgba(190,124,20,${(0.32 + pulse * 0.14) * 1.5})` : `rgba(${glowColor},1)`;
+      ctx.strokeStyle = playerTurn ? `rgba(255,222,119,${0.74 + pulse * 0.24})` : `rgba(${glowColor},1)`;
+      ctx.lineWidth = Math.max(2, tile * (playerTurn ? 0.055 + pulse * 0.025 : 0.09));
       this.hexPath(ctx, cx, cy, tile * 0.94);
       ctx.fill();
       ctx.stroke();
@@ -8017,14 +8015,27 @@ export class BattleEngine {
    * renderBoardOverlays' own active-turn block), not the generic drawLayer treatment.
    * ThreeBattleRenderer uses this instead, to get the same cell and color without duplicating
    * BattleEngine's turn-order logic. */
-  activeTurnHighlight(): { x: number; y: number; fill: string } | null {
+  activeTurnHighlight(): { x: number; y: number; fill: string; player: boolean } | null {
     const active = this.visuallyActingUnit();
     if (!active) return null;
-    const glowColor = active.side === "enemy" ? "140,56,36" : "152,120,24";
-    // active.x/y (the unit's actual current cell), not a per-frame-tracked screen position —
-    // one single, static hex, per direct instruction, no auto-tracking layer. Fully opaque
-    // (alpha 1): its own solid, vivid color, never blended with the terrain underneath.
-    return { x: active.x, y: active.y, fill: `rgba(${glowColor},1)` };
+    let { x, y } = active;
+    // Logical x/y commit only when a walk step finishes, but the sprite is already moving.
+    // Advance the marker at the visible midpoint so it never trails one hex behind.
+    const moving = this.active;
+    if (moving?.type === "move" && moving.id === active.id) {
+      // The gold player marker is a turn cue, not a second moving sprite. Hide it during a
+      // hero's walk; enemy movement keeps its red marker so AI turns remain easy to follow.
+      if (active.side === "player") return null;
+      const from = moving.path[moving.i];
+      const to = moving.path[moving.i + 1];
+      if (from && to) {
+        const dur = this.speedMode === "fast" ? 0.12 : this.speedMode === "slow" ? 0.36 : 0.22;
+        const progress = easeOut(Math.min(1, moving.t / dur));
+        ({ x, y } = progress < 0.5 ? from : to);
+      }
+    }
+    const glowColor = active.side === "enemy" ? "210,84,54" : "214,161,42";
+    return { x, y, fill: `rgba(${glowColor},1)`, player: active.side === "player" };
   }
 
   /** Units, HP bars, particles, projectiles, banners, and the foreground decoration layer —
