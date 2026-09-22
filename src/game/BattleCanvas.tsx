@@ -271,7 +271,7 @@ export function BattleCanvas({
           // canvas, preserving the requested decoration → fog → unit layering.
           !!rendererThree,
           false,
-          false,
+          !!rendererThree,
           !!rendererThree,
           !!rendererThree,
         );

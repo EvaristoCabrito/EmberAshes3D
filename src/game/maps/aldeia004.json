@@ -1,6 +1,6 @@
 {
-  "serial": 2,
-  "savedAt": 1789274802634,
+  "serial": 4,
+  "savedAt": 1790060331283,
   "draft": {
     "id": "aldeia",
     "index": 2,
@@ -12,6 +12,16 @@
     "hub": false,
     "autoTactics": true,
     "fog": false,
+    "environment": "outdoor",
+    "sunIntensity": 3,
+    "ambientIntensity": 2.3,
+    "mistIntensity": 0.06,
+    "mistSpeed": 0.35,
+    "mistType": "mist3",
+    "bloomIntensity": 0.9,
+    "wispIntensity": 0.02,
+    "wispSpeed": 1,
+    "wispColor": 16754002,
     "locationId": "stonebridge",
     "cols": 20,
     "rows": 16,
@@ -64,8 +74,24 @@
       "plains",
       "flame",
       "flame",
-      "highruin",
-      "highruin",
+      "snow",
+      "nave",
+      "plains",
+      "ember",
+      "flame",
+      "plains",
+      "nave",
+      "ember",
+      "plains",
+      "snow",
+      "nave",
+      "plains",
+      "ember",
+      "flame",
+      "plains",
+      "nave",
+      "ember",
+      "plains",
       "flame",
       "flame",
       "plains",
@@ -1167,27 +1193,28 @@
         "y": 6
       }
     ],
+    "elementalFx": [],
     "playerSpawns": [
       {
         "name": "Kael",
         "classId": "swordsman",
         "x": 8,
         "y": 14,
-        "level": 10
+        "level": 15
       },
       {
         "name": "Neera",
         "classId": "archer",
         "x": 6,
         "y": 14,
-        "level": 10
+        "level": 15
       },
       {
         "name": "Voss",
         "classId": "mage",
         "x": 10,
         "y": 14,
-        "level": 10
+        "level": 15
       }
     ],
     "enemySpawns": [
@@ -1224,6 +1251,13 @@
         "classId": "brigand",
         "x": 12,
         "y": 10,
+        "level": 2
+      },
+      {
+        "name": "Inimigo 6",
+        "classId": "punisher",
+        "x": 17,
+        "y": 2,
         "level": 2
       }
     ],

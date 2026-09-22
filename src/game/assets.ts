@@ -429,9 +429,9 @@ export async function loadGameArt(): Promise<GameArt> {
     "random-encounter-4": await loadImage("/game/assets/random-encounter-4-bg.jpg"),
     "random-encounter-5": await loadImage("/game/assets/random-encounter-5-bg.jpg"),
     "random-encounter-8": await loadImage("/game/assets/random-encounter-8-bg.jpg"),
-    // Shared by the O Vau campaign mission and its Vau Raso road encounter — same river
-    // crossing, same painted backdrop for both.
-    vau: await loadImage("/game/assets/vau-bg.jpg"),
+    // O Vau's campaign battlefield has its own ash-river vista. Keep Vau Raso on the earlier
+    // backdrop below: its road encounter is a separate place and should not inherit this scene.
+    vau: await loadImage("/game/assets/vau-1-bg.jpg"),
     "random-encounter-6": await loadImage("/game/assets/vau-bg.jpg"),
     aldeia: await loadImage("/game/assets/aldeia-bg.jpg"),
     bosque: await loadImage("/game/assets/bosque-bg.jpg"),

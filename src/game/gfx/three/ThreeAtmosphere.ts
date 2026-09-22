@@ -203,9 +203,8 @@ class GroundMist {
    * per-layer values, NOT derived from any per-instance random seed — the puff system's bug was
    * exactly that mistake (an unbounded per-instance value used as a Z coordinate, pushing most
    * instances behind the camera). These three are hand-picked constants, always in view. */
-  // Decorations are at z=1 and units begin at z=2. The three fog sheets deliberately occupy
-  // the intervening band, so Fog 2 passes in front of props but units remain in front of it.
-  private static readonly BASE_Z = 1.2;
+  /** Above the normal scene band, letting Fog 2 remain its own foreground weather treatment. */
+  private static readonly BASE_Z = 5;
 
   constructor() {
     for (let i = 0; i < 3; i++) {
@@ -214,7 +213,7 @@ class GroundMist {
         fragmentShader: MIST_FRAGMENT,
         transparent: true,
         depthWrite: false,
-        depthTest: true,
+        depthTest: false,
         uniforms: {
           uNoiseTex: { value: this.noiseTex },
           uTime: { value: 0 },
@@ -226,9 +225,7 @@ class GroundMist {
         },
       });
       const mesh = new THREE.Mesh(this.geo, material);
-      // Decorations retain renderOrder 0; visible unit sprites are explicitly order 2. Keeping
-      // every Fog 2 sheet at 1 gives the requested stable decor → fog → unit compositing.
-      mesh.renderOrder = 1;
+      mesh.renderOrder = 10 + i;
       this.materials.push(material);
       this.meshes.push(mesh);
       this.group.add(mesh);
@@ -246,7 +243,7 @@ class GroundMist {
         const mesh = this.meshes[i]!;
         // 1.15x overscan so panning to the board edge doesn't reveal a hard mist boundary.
         mesh.scale.set(w * 1.15, h * 1.15, 1);
-        mesh.position.set(cx, -cy, GroundMist.BASE_Z + i * 0.22);
+        mesh.position.set(cx, -cy, GroundMist.BASE_Z + tier.mistHeight * GroundMist.LAYER_Z_FRAC[i]!);
       }
     }
     // Power curve, not a direct multiply — the raw linear mapping made 0.2 (meant to be a gentle

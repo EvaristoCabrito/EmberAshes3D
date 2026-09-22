@@ -62,6 +62,21 @@ const BOARD_PAD_MUL = 2.4;
 const UNIT_SHADOW_HEIGHT_SCALE = 0.85;
 const DECOR_SHADOW_HEIGHT_SCALE = 0.9;
 
+/** How far BELOW the ground plane (z=0) every standing shadow-caster's base now extends, world
+ * units. The caster's base sits exactly AT z=0 — coplanar with the ground mesh it casts onto —
+ * which is the textbook cause of peter-panning (the shadow test can't reliably tell which surface
+ * is in front right at that shared boundary, so the shadow reads as detached from the caster's own
+ * base). This was already solved once for the old box caster (see git history) by sinking its base
+ * slightly below ground instead of touching it exactly, then removed when the caster became a
+ * standing silhouette plane on the (wrong) assumption a flat plane wouldn't have the same
+ * coplanarity problem — it does, since its base still touches z=0 either way. Only the caster's
+ * own base moves; its top (what actually governs the shadow's shape/reach) stays exactly where it
+ * was. Not a bias fix — this is geometry-only, per direct instruction to leave `bias`/`normalBias`
+ * alone. Units and decorations get their OWN value each (not one shared constant) — sharing one
+ * and bumping it for units visibly broke decorations, since they don't have the same proportions. */
+const UNIT_SHADOW_GROUND_INSET = 3;
+const DECOR_SHADOW_GROUND_INSET = 3;
+
 /** Direction the sun travels (not where it sits) — X/Y chosen so a shadow cast from height H
  * lands at world offset (0.6H, -0.8H), i.e. the exact same (0.6, 0.8) screen-space direction
  * (down-right; world Y is negated, see module comment) the old fake Canvas2D ellipse shadow
@@ -208,8 +223,8 @@ function decorSize(id: string, def: DecorationDef, tile: number): { w: number; h
 interface DecorMeshEntry {
   mesh: THREE.Mesh;
   placement: DecorationPlacement;
-  /** MILESTONE 2 — invisible (colorWrite/depthWrite off, see shadowCasterMaterial) box that
-   * casts this prop's real shadow. */
+  /** Same quadGeo + alpha-tested copy of the prop's own art (colorWrite off, see
+   * decorShadowMaterialFor) that casts this prop's real shadow as its own silhouette, not a box. */
   shadowMesh: THREE.Mesh;
 }
 
@@ -218,9 +233,13 @@ interface UnitMeshEntry {
   /** Owned (not shared) per unit — see unitTexCache's comment on why opacity needs this. */
   material: THREE.MeshBasicMaterial;
   img: HTMLImageElement | null;
-  /** MILESTONE 2 — invisible (colorWrite/depthWrite off, see shadowCasterMaterial) box that
-   * casts this unit's real shadow. */
+  /** Same quadGeo + alpha-tested copy of the unit's own sprite (colorWrite off) that casts this
+   * unit's real shadow as its own silhouette, not a box — see shadowMaterial's own comment. */
   shadowMesh: THREE.Mesh;
+  /** Owned per unit, same reasoning as `material` — swapped in step with entry.img/material.map
+   * whenever the unit's current sprite frame changes, so the shadow always matches the current
+   * pose instead of freezing on whatever frame first built this entry. */
+  shadowMaterial: THREE.MeshBasicMaterial;
 }
 
 export class ThreeBattleRenderer {
@@ -255,23 +274,16 @@ export class ThreeBattleRenderer {
   // sunLight is the one real shadow-casting light, aimed by updateSun() every frame to track the
   // camera (see SUN_DIRECTION's comment for why its direction is fixed). Shadow casters (units,
   // decorations) live on shadowCasterGroup — visible=true (required: WebGLShadowMap skips
-  // object.visible===false entirely, so this can't be used to hide them — see
-  // shadowCasterMaterial's own comment for how invisibility is actually achieved instead).
+  // object.visible===false entirely, so this can't be used to hide them). Each caster is now the
+  // unit/prop's own alpha-tested art (colorWrite off — see decorShadowMaterialFor's/the per-unit
+  // shadowMaterial's own comments for how invisibility in the normal pass is achieved) rather than
+  // an invisible box, so the cast shadow matches the real silhouette instead of a rectangle.
   // Intensity args here are placeholders — the constructor immediately overrides both from
   // Mission.sunIntensity/ambientIntensity (or DEFAULT_SUN_INTENSITY/DEFAULT_AMBIENT_INTENSITY),
   // see that assignment's own comment.
   private hemiLight = new THREE.HemisphereLight(0xfff2df, 0x14110d, 0.45);
   private sunLight = new THREE.DirectionalLight(0xfff0d6, 1.8);
   private shadowCasterGroup = new THREE.Group();
-  private shadowCasterGeo = new THREE.BoxGeometry(1, 1, 1);
-  // colorWrite/depthWrite both false — NOT layers (verified against this Three.js version's own
-  // WebGLShadowMap source: the per-object shadow-cast filter tests object.layers against the
-  // MAIN camera's layers, not the light's own shadow.camera.layers, so a caster-only layer would
-  // need enabling on the main camera too — which would make it draw in the normal color pass as
-  // well, defeating the point). This way the box renders nothing and touches no buffer in the
-  // normal pass, while the shadow pass (which builds its own separate MeshDepthMaterial per
-  // object, ignoring colorWrite/depthWrite entirely) still sees it fine.
-  private shadowCasterMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
   private lastShadowFrustumW = -1;
   private lastShadowFrustumH = -1;
 
@@ -281,6 +293,10 @@ export class ThreeBattleRenderer {
   private quadGeo = new THREE.PlaneGeometry(1, 1);
   private decorGroup = new THREE.Group();
   private decorMatCache = new Map<string, THREE.MeshBasicMaterial>();
+  // Shadow-only twin of decorMatCache — same cached texture, but alphaTest instead of plain alpha
+  // blending (shadow depth passes need a hard cutout, not a blend) and colorWrite/depthWrite off
+  // (see decorShadowMaterialFor's own comment), so it can't just reuse the visible material.
+  private decorShadowMatCache = new Map<string, THREE.MeshBasicMaterial>();
   private decorEntries: DecorMeshEntry[] = [];
   private builtDecorKey = "";
 
@@ -306,6 +322,25 @@ export class ThreeBattleRenderer {
   private activeTurnGlowTexture: THREE.CanvasTexture;
   private activeTurnGlowMaterial: THREE.SpriteMaterial;
   private activeTurnGlow: THREE.Sprite;
+
+  // ADDITIVE ONLY — does not read from or modify activeTurnGlow/place()'s flat hex above in any
+  // way, per direct instruction never to touch that system again. THREE.ShadowMaterial renders as
+  // fully transparent everywhere except where a real shadow actually falls (it's the stock
+  // Three.js "shadow catcher" material, built for exactly this: compositing a real shadow onto
+  // something else without otherwise altering it). Drawn at a higher z than both the flat hex
+  // (0.5) and the glow sprite (0.45), so on the one tile that's already fully opaque gold, the
+  // active unit's own real cast shadow can still show through on top of it — the hex's own color/
+  // size/opacity/pulse timing are never read or written here.
+  // ADDITIVE ONLY — does not read from or modify activeTurnGlow/place()'s flat hex above in any
+  // way, per direct instruction never to touch that system again. A direct dark radial sprite
+  // anchored at the active unit's own real foot position (anchor + footY, the exact same point
+  // its real shadow-caster box uses — NOT the tile's plain grid-cell center, which is offset from
+  // where a standing unit's feet actually are; see syncOverlay's own comment). Drawn at a higher z
+  // than both the flat hex (0.5) and the glow sprite (0.45) so it always shows on top — the hex's
+  // own color/size/opacity/pulse timing are never read or written here.
+  private activeTurnShadowCatcherTexture: THREE.CanvasTexture;
+  private activeTurnShadowCatcherMaterial: THREE.SpriteMaterial;
+  private activeTurnShadowCatcher: THREE.Sprite;
 
   // Animated units (see THREEJS_MILESTONE1_HANDOFF.md) — one persistent mesh per live unit id,
   // repositioned/retextured/rescaled every frame in syncUnits rather than rebuilt, since units
@@ -375,6 +410,33 @@ export class ThreeBattleRenderer {
     this.activeTurnGlow = new THREE.Sprite(this.activeTurnGlowMaterial);
     this.activeTurnGlow.position.z = 0.45;
     this.activeTurnGlow.visible = false;
+    // ADDITIVE ONLY — see the field's own comment. THREE.ShadowMaterial (reveal-the-real-shadow)
+    // was tried first but the real WebGL shadow simply doesn't reach close enough to a unit's own
+    // anchor point to ever read as "touching their feet" — confirmed empirically, not assumed; see
+    // git history for that attempt. This is a direct dark radial-gradient sprite instead (same
+    // CanvasTexture technique as activeTurnGlowTexture just above, inverted to dark-center/
+    // transparent-edge), anchored at the same world position the unit's own real shadow-caster box
+    // uses — independent of the real shadow computation's reach, so it reliably darkens right at
+    // the feet regardless.
+    const feetCanvas = document.createElement("canvas");
+    feetCanvas.width = feetCanvas.height = 128;
+    const feetCtx = feetCanvas.getContext("2d")!;
+    const feetGradient = feetCtx.createRadialGradient(64, 64, 4, 64, 64, 64);
+    feetGradient.addColorStop(0, "rgba(20,16,12,0.6)");
+    feetGradient.addColorStop(0.55, "rgba(20,16,12,0.32)");
+    feetGradient.addColorStop(1, "rgba(20,16,12,0)");
+    feetCtx.fillStyle = feetGradient;
+    feetCtx.fillRect(0, 0, 128, 128);
+    this.activeTurnShadowCatcherTexture = new THREE.CanvasTexture(feetCanvas);
+    this.activeTurnShadowCatcherMaterial = new THREE.SpriteMaterial({
+      map: this.activeTurnShadowCatcherTexture,
+      transparent: true,
+      depthWrite: false,
+      opacity: 0,
+    });
+    this.activeTurnShadowCatcher = new THREE.Sprite(this.activeTurnShadowCatcherMaterial);
+    this.activeTurnShadowCatcher.position.z = 0.51;
+    this.activeTurnShadowCatcher.visible = false;
     // Author-controlled lighting (Mission.environment/sunIntensity/ambientIntensity, editable in
     // the Map Editor's "Iluminação" section — see GameApp.tsx) — an explicit sunIntensity/
     // ambientIntensity always wins; otherwise "indoor" gets its own flatter preset, and anything
@@ -396,6 +458,7 @@ export class ThreeBattleRenderer {
     this.scene.add(this.overlayGlowGroup);
     this.scene.add(this.overlayGroup);
     this.scene.add(this.activeTurnGlow);
+    this.scene.add(this.activeTurnShadowCatcher);
     this.scene.add(this.decorGroup);
     this.scene.add(this.unitGroup);
     this.scene.add(this.atmosphere.group);
@@ -628,6 +691,24 @@ export class ThreeBattleRenderer {
     return mat;
   }
 
+  /** Shadow-only twin of decorMaterialFor, for true-silhouette shadow casting instead of the old
+   * invisible-box caster: same cached texture (never re-decoded), but alphaTest instead of alpha
+   * blending — Three's shadow depth pass respects alphaTest (hard cutout at that texture-alpha
+   * threshold), giving a shadow shaped like the prop's actual cutout art, not a box. colorWrite
+   * false keeps it invisible in the normal color pass (same trick the old box caster used) since
+   * this mesh exists purely to cast into the shadow map. */
+  private decorShadowMaterialFor(fileId: string, colorMat: THREE.MeshBasicMaterial): THREE.MeshBasicMaterial {
+    const hit = this.decorShadowMatCache.get(fileId);
+    if (hit) return hit;
+    // side: DoubleSide is required for a flat plane to cast any shadow at all — Three's shadow
+    // pass renders back-faces by default (to reduce self-shadow acne on closed volumes), and a
+    // single flat PlaneGeometry has no back face for that pass to find, so without this the whole
+    // caster silently draws nothing into the shadow map.
+    const mat = new THREE.MeshBasicMaterial({ map: colorMat.map, alphaTest: 0.5, colorWrite: false, depthWrite: false, side: THREE.DoubleSide });
+    this.decorShadowMatCache.set(fileId, mat);
+    return mat;
+  }
+
   /** (Re)builds every ground/behind-layer decoration mesh at its fixed world position — same
    * "built once, camera moves instead" philosophy as tiles (see ensureBuilt). Skips "front"-
    * layer and foreground=true props on purpose: those are meant to occlude character sprites,
@@ -695,14 +776,32 @@ export class ThreeBattleRenderer {
       }
       this.decorGroup.add(mesh);
 
-      // MILESTONE 2 — invisible box, real elevation (see UNIT/DECOR_SHADOW_HEIGHT_SCALE's
-      // comment), positioned at ground contact (not wy, which already includes decorSize's
-      // liftY visual nudge) so the shadow lands where the prop actually stands.
+      // True-silhouette shadow caster (see decorShadowMaterialFor's own comment): the prop's own
+      // cutout art, positioned at ground contact (not wy, which already includes decorSize's
+      // liftY visual nudge) so the shadow lands where the prop actually stands. Same width/mirror/
+      // facing-spin branches as the visible mesh above so the cast silhouette matches what's on
+      // screen — but standing vertically (rotation.x), NOT flat like the visible mesh: a flat
+      // plane has no depth, so it sits entirely at one fixed height with nothing touching the
+      // ground, making its whole shadow float free of the prop (confirmed empirically — "mega
+      // Peter Pan" on the equivalent unit version of this bug). Rotating it up turns local Y
+      // (image-space up/down) into world Z, so scale.y=elevation + position.z=elevation/2 puts its
+      // BASE exactly at the ground (z=0) at the prop's contact point and its top at `elevation`,
+      // same span the old box caster used.
       const elevation = Math.max(1, h * DECOR_SHADOW_HEIGHT_SCALE);
-      const shadowMesh = new THREE.Mesh(this.shadowCasterGeo, this.shadowCasterMaterial);
+      const shadowMat = this.decorShadowMaterialFor(fileId, mat);
+      const shadowMesh = new THREE.Mesh(this.quadGeo, shadowMat);
       shadowMesh.castShadow = true;
-      shadowMesh.scale.set(Math.max(1, w * 0.5), Math.max(1, w * 0.35), elevation);
-      shadowMesh.position.set(wx, -groundWy, elevation / 2);
+      shadowMesh.position.set(wx, -groundWy, elevation / 2 - DECOR_SHADOW_GROUND_INSET / 2);
+      if (facing.step === 0) {
+        shadowMesh.rotation.x = Math.PI / 2;
+        shadowMesh.scale.set(w, elevation + DECOR_SHADOW_GROUND_INSET, 1);
+      } else if (facing.own) {
+        shadowMesh.rotation.x = Math.PI / 2;
+        shadowMesh.scale.set(facing.mirror ? -w : w, elevation + DECOR_SHADOW_GROUND_INSET, 1);
+      } else {
+        shadowMesh.rotation.set(Math.PI / 2, 0, (-facing.step * Math.PI) / 3);
+        shadowMesh.scale.set(w, elevation + DECOR_SHADOW_GROUND_INSET, 1);
+      }
       this.shadowCasterGroup.add(shadowMesh);
 
       this.decorEntries.push({ mesh, placement: p, shadowMesh });
@@ -751,18 +850,26 @@ export class ThreeBattleRenderer {
         // sprite layer (2), while decorations remain the base layer (0).
         mesh.renderOrder = 2;
         this.unitGroup.add(mesh);
-        // MILESTONE 2 — invisible box, real elevation (see UNIT_SHADOW_HEIGHT_SCALE's comment),
-        // repositioned every frame below alongside the visible sprite.
-        const shadowMesh = new THREE.Mesh(this.shadowCasterGeo, this.shadowCasterMaterial);
+        // True-silhouette shadow caster: the unit's own sprite art, alpha-tested instead of
+        // alpha-blended (colorWrite off — invisible in the normal color pass, same trick the old
+        // box caster used) so the shadow map sees this unit's real cutout shape, not a box.
+        // Real elevation (see UNIT_SHADOW_HEIGHT_SCALE's comment), repositioned every frame below
+        // alongside the visible sprite, same scale as it so the cast silhouette actually matches.
+        // side: DoubleSide — see decorShadowMaterialFor's identical comment: a flat plane needs
+        // this to cast any shadow at all, since Three's shadow pass renders back-faces by default.
+        const shadowMaterial = new THREE.MeshBasicMaterial({ map: this.unitTextureFor(img), alphaTest: 0.5, colorWrite: false, depthWrite: false, side: THREE.DoubleSide });
+        const shadowMesh = new THREE.Mesh(this.quadGeo, shadowMaterial);
         shadowMesh.castShadow = true;
         this.shadowCasterGroup.add(shadowMesh);
-        entry = { mesh, material, img: null, shadowMesh };
+        entry = { mesh, material, img: null, shadowMesh, shadowMaterial };
         this.unitEntries.set(u.id, entry);
       }
       entry.mesh.visible = true;
       if (entry.img !== img) {
         entry.material.map = this.unitTextureFor(img);
         entry.material.needsUpdate = true;
+        entry.shadowMaterial.map = this.unitTextureFor(img);
+        entry.shadowMaterial.needsUpdate = true;
         entry.img = img;
       }
       // Same fade-in/out and "already acted this player unit" dimming as
@@ -786,15 +893,23 @@ export class ThreeBattleRenderer {
       entry.mesh.position.set(wx, -wy, 2 + u.drawY * 0.001);
       entry.mesh.scale.set(v.scaleX * v.w, v.scaleY * v.h, 1);
 
-      // MILESTONE 2 — shadow caster tracks the sprite's ground-contact point (anchor + footY,
-      // ignoring bob/lift so a mid-step/high-ground unit's shadow stays anchored to the real
-      // ground instead of floating with the visual lift trick — see decorSize's groundWy for the
-      // same idea applied to props). Elevation grows a little with lift, echoing the fake
-      // shadow's own "raised = slightly longer shadow" stretch (see engine.ts's shadowDirX/Y
-      // block) without trying to match it exactly.
+      // Shadow caster tracks the sprite's ground-contact point (anchor + footY, ignoring bob/lift
+      // so a mid-step/high-ground unit's shadow stays anchored to the real ground instead of
+      // floating with the visual lift trick — see decorSize's groundWy for the same idea applied
+      // to props). Elevation grows a little with lift, echoing the fake shadow's own "raised =
+      // slightly longer shadow" stretch (see engine.ts's shadowDirX/Y block) without trying to
+      // match it exactly.
+      // Standing vertically (rotation.x), NOT flat like the visible mesh — a flat plane has no
+      // depth, so it would sit entirely at one fixed height with nothing touching the ground,
+      // making its whole shadow float free of the character (confirmed: this was tried first and
+      // looked badly detached, "mega Peter Pan"). Rotating it up turns local Y (image-space
+      // up/down) into world Z, so scale.y=elevation + position.z=elevation/2 puts its BASE
+      // exactly at the ground (z=0) at the foot anchor and its top at `elevation`, same span the
+      // old box caster used — except the caster is now the real silhouette, not a box.
       const elevation = Math.max(1, v.h * UNIT_SHADOW_HEIGHT_SCALE + v.lift * 0.6);
-      entry.shadowMesh.scale.set(Math.max(1, v.w * 0.4), Math.max(1, v.w * 0.28), elevation);
-      entry.shadowMesh.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY), elevation / 2);
+      entry.shadowMesh.rotation.x = Math.PI / 2;
+      entry.shadowMesh.scale.set(v.scaleX * v.w, elevation + UNIT_SHADOW_GROUND_INSET, 1);
+      entry.shadowMesh.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY), elevation / 2 - UNIT_SHADOW_GROUND_INSET / 2);
       entry.shadowMesh.visible = true;
     }
 
@@ -809,6 +924,7 @@ export class ThreeBattleRenderer {
         this.unitGroup.remove(entry.mesh);
         this.shadowCasterGroup.remove(entry.shadowMesh);
         entry.material.dispose(); // owned per-unit — see unitTexCache's comment; the texture itself is shared, kept
+        entry.shadowMaterial.dispose(); // same reasoning, shadowMaterial is this unit's own instance too
         this.unitEntries.delete(id);
       }
     }
@@ -953,8 +1069,26 @@ export class ThreeBattleRenderer {
       this.activeTurnGlow.scale.setScalar(tile * (2.45 + pulse * 0.32));
       this.activeTurnGlowMaterial.color.set(active.player ? 0xd6a12a : 0xd25436);
       this.activeTurnGlowMaterial.opacity = active.player ? Math.min(1, (0.32 + pulse * 0.18) * 1.5) : 0.72;
+      // ADDITIVE ONLY — see activeTurnShadowCatcher's own field comment. `wx,wy` above (from
+      // hexWorld) is the tile's plain grid-cell center, which is NOT where a standing unit's feet
+      // actually are — syncUnits positions the real per-unit shadow-caster box at
+      // `anchor.worldX + v.sway, -(anchor.worldY + v.footY)` instead (footY nudges it toward the
+      // tile's visual "front"), so this has to use that same computation, not wx/wy, or it lands
+      // in the wrong spot relative to the character. None of the hex/glow lines above this are
+      // read from or written to.
+      const activeUnit = engine.units.find((u) => u.x === active.x && u.y === active.y && u.alive);
+      if (activeUnit) {
+        const unitAnchor = engine.unitAnchor(activeUnit);
+        const v = engine.unitVisual(activeUnit, tile);
+        this.activeTurnShadowCatcher.visible = true;
+        this.activeTurnShadowCatcher.position.set(unitAnchor.worldX + v.sway, -(unitAnchor.worldY + v.footY), 0.51);
+        this.activeTurnShadowCatcher.scale.set(tile * 1.1, tile * 1.1, 1);
+      } else {
+        this.activeTurnShadowCatcher.visible = false;
+      }
     } else {
       this.activeTurnGlow.visible = false;
+      this.activeTurnShadowCatcher.visible = false;
     }
     // The mouse-selection hex, drawn here instead of on the Canvas2D units shim (see
     // BattleEngine.renderUnitsAndOverlays' skipCursorHex) so it lands at this same z=0.5 —
@@ -1030,14 +1164,21 @@ export class ThreeBattleRenderer {
       mat.map?.dispose();
       mat.dispose();
     }
+    // decorShadowMatCache/unit shadowMaterial share their texture with decorMatCache/unitTexCache
+    // (see decorShadowMaterialFor's/the shadow-material creation's own comment) — the texture is
+    // already disposed above/below, so only the material itself needs disposing here.
+    for (const mat of this.decorShadowMatCache.values()) mat.dispose();
     for (const tex of this.unitTexCache.values()) tex.dispose();
-    for (const entry of this.unitEntries.values()) entry.material.dispose();
+    for (const entry of this.unitEntries.values()) {
+      entry.material.dispose();
+      entry.shadowMaterial.dispose();
+    }
     for (const mat of this.overlayMatCache.values()) mat.dispose();
     for (const glow of this.overlayGlowPool) (glow.material as THREE.SpriteMaterial).dispose();
     this.activeTurnGlowMaterial.dispose();
     this.activeTurnGlowTexture.dispose();
-    this.shadowCasterGeo.dispose();
-    this.shadowCasterMaterial.dispose();
+    this.activeTurnShadowCatcherMaterial.dispose();
+    this.activeTurnShadowCatcherTexture.dispose();
     this.renderer.dispose();
   }
 }
