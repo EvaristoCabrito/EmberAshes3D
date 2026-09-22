@@ -380,8 +380,13 @@ export interface Mission {
    *  - "vignette": a screen-space haze concentrated at the four corners only, center always
    *    clear (see BattleCanvas.tsx's corner-vignette CSS div, extended to read
    *    mistIntensity/mistColor when this is set).
+   *  - "vignette2": a deeper, layered version of the screen-space vignette, with independently
+   *    drifting fog banks and a broad, feathered clear area at the center.
+   *  - "vignette3": low, directional ground fog crossing the battlefield in pale rolling bands;
+   *    deliberately no dark corner vignette or texture reuse.
+   *  - "vignette4": a supplied monochrome edge-fog plate, animated as one screen layer.
    * Undefined defaults to "mist2", so nothing shipped changes by default. */
-  mistType?: "mist2" | "mist3" | "mist4" | "vignette";
+  mistType?: "mist2" | "mist3" | "mist4" | "vignette" | "vignette2" | "vignette3" | "vignette4";
   /** Bloom strength for the Three renderer's post-processing pass (UnrealBloomPass) — real bright-
    * surface glow (sun-lit highlights, additive wisp particles), not a fake overlay. Undefined
    * uses the renderer's own conservative default. Author-tunable per mission like every other

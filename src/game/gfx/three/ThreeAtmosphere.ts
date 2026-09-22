@@ -203,7 +203,9 @@ class GroundMist {
    * per-layer values, NOT derived from any per-instance random seed — the puff system's bug was
    * exactly that mistake (an unbounded per-instance value used as a Z coordinate, pushing most
    * instances behind the camera). These three are hand-picked constants, always in view. */
-  private static readonly BASE_Z = 5;
+  // Decorations are at z=1 and units begin at z=2. The three fog sheets deliberately occupy
+  // the intervening band, so Fog 2 passes in front of props but units remain in front of it.
+  private static readonly BASE_Z = 1.2;
 
   constructor() {
     for (let i = 0; i < 3; i++) {
@@ -212,7 +214,7 @@ class GroundMist {
         fragmentShader: MIST_FRAGMENT,
         transparent: true,
         depthWrite: false,
-        depthTest: false,
+        depthTest: true,
         uniforms: {
           uNoiseTex: { value: this.noiseTex },
           uTime: { value: 0 },
@@ -224,7 +226,9 @@ class GroundMist {
         },
       });
       const mesh = new THREE.Mesh(this.geo, material);
-      mesh.renderOrder = 10 + i;
+      // Decorations retain renderOrder 0; visible unit sprites are explicitly order 2. Keeping
+      // every Fog 2 sheet at 1 gives the requested stable decor → fog → unit compositing.
+      mesh.renderOrder = 1;
       this.materials.push(material);
       this.meshes.push(mesh);
       this.group.add(mesh);
@@ -242,7 +246,7 @@ class GroundMist {
         const mesh = this.meshes[i]!;
         // 1.15x overscan so panning to the board edge doesn't reveal a hard mist boundary.
         mesh.scale.set(w * 1.15, h * 1.15, 1);
-        mesh.position.set(cx, -cy, GroundMist.BASE_Z + tier.mistHeight * GroundMist.LAYER_Z_FRAC[i]!);
+        mesh.position.set(cx, -cy, GroundMist.BASE_Z + i * 0.22);
       }
     }
     // Power curve, not a direct multiply — the raw linear mapping made 0.2 (meant to be a gentle
@@ -257,6 +261,18 @@ class GroundMist {
       material.uniforms.uAlpha!.value = shapedIntensity * GroundMist.LAYER_FALLOFF[i]!;
     }
     this.group.visible = tier.mistIntensity > 0;
+  }
+
+  /** Mist 2 is a viewport-filling weather layer. Keeping it camera-locked after its normal
+   * board setup lets the same drifting field cover the painted mission backdrop as well as the
+   * hexes, with a small overscan so no edge appears while panning. */
+  coverViewport(cssW: number, cssH: number, camX: number, camY: number): void {
+    if (!this.group.visible) return;
+    for (const mesh of this.meshes) {
+      mesh.scale.set(cssW * 1.16, cssH * 1.16, 1);
+      mesh.position.x = camX + cssW / 2;
+      mesh.position.y = -camY - cssH / 2;
+    }
   }
 
   sync(dt: number, sunLight: THREE.DirectionalLight, speed: number): void {
@@ -384,6 +400,17 @@ class GroundMist3 {
       material.uniforms.uAlpha!.value = tier.mistIntensity * GroundMist3.LAYER_FALLOFF[i]!;
     }
     this.group.visible = tier.mistIntensity > 0;
+  }
+
+  /** Keep Mist 3's original noise treatment, but let its weather field extend over the
+   * complete visible scene rather than stopping at the board edge. */
+  coverViewport(cssW: number, cssH: number, camX: number, camY: number): void {
+    if (!this.group.visible) return;
+    for (const mesh of this.meshes) {
+      mesh.scale.set(cssW * 1.16, cssH * 1.16, 1);
+      mesh.position.x = camX + cssW / 2;
+      mesh.position.y = -camY - cssH / 2;
+    }
   }
 
   sync(dt: number, sunLight: THREE.DirectionalLight, speed: number): void {
@@ -536,6 +563,15 @@ class GroundMist4 {
     this.group.visible = tier.mistIntensity > 0;
   }
 
+  /** The border mask remains anchored to the real hex-board edges, while its fog plane covers
+   * the entire camera view. This also fogs the painted backdrop outside the playable map. */
+  coverViewport(cssW: number, cssH: number, camX: number, camY: number): void {
+    if (!this.group.visible) return;
+    this.mesh.scale.set(cssW * 1.16, cssH * 1.16, 1);
+    this.mesh.position.x = camX + cssW / 2;
+    this.mesh.position.y = -camY - cssH / 2;
+  }
+
   sync(dt: number, sunLight: THREE.DirectionalLight, speed: number): void {
     this.material.uniforms.uTime!.value += dt * speed;
     (this.material.uniforms.uSunColor!.value as THREE.Color).copy(sunLight.color).multiplyScalar(Math.min(1.5, sunLight.intensity * 0.6));
@@ -545,6 +581,102 @@ class GroundMist4 {
     this.geo.dispose();
     this.noiseTex.dispose();
     this.material.dispose();
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// "Vinheta 3" — a full-viewport painted fog field that exists ONLY outside the board. The board
+// is cut out in the fragment shader, leaving the tactical action clean while the surrounding
+// painted backdrop receives the atmosphere.
+
+const EXTERIOR_FOG_VERTEX = /* glsl */ `
+  varying vec2 vWorldXY;
+  varying vec2 vUv;
+  void main() {
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorldXY = worldPos.xy;
+    vUv = uv;
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
+  }
+`;
+
+const EXTERIOR_FOG_FRAGMENT = /* glsl */ `
+  uniform sampler2D uFog;
+  uniform float uOpacity;
+  uniform float uTime;
+  uniform vec2 uBoardCenter;
+  uniform vec2 uBoardHalfSize;
+  varying vec2 vWorldXY;
+  varying vec2 vUv;
+  void main() {
+    vec2 over = abs(vWorldXY - uBoardCenter) - uBoardHalfSize;
+    // Outside of the board rectangle is 1; a small feather prevents a hard cut at its edge.
+    float exterior = smoothstep(-14.0, 14.0, max(over.x, over.y));
+    // One artwork layer only. This is a tiny non-repeating drift within the source image, not a
+    // tiled/repeated texture; the board cutout below remains fixed and fully transparent.
+    vec2 driftedUv = vUv + vec2(sin(uTime * 0.11), cos(uTime * 0.08)) * 0.006;
+    vec4 fog = texture2D(uFog, driftedUv);
+    gl_FragColor = vec4(fog.rgb, fog.a * uOpacity * exterior);
+  }
+`;
+
+class BoardFogArtwork {
+  readonly group = new THREE.Group();
+  private readonly geometry = new THREE.PlaneGeometry(1, 1);
+  private readonly texture = new THREE.TextureLoader().load("/game/assets/vinheta-3-fog.png");
+  private readonly material: THREE.ShaderMaterial;
+  private readonly mesh: THREE.Mesh;
+  private builtKey = "";
+
+  constructor() {
+    this.texture.colorSpace = THREE.SRGBColorSpace;
+    this.texture.minFilter = THREE.LinearFilter;
+    this.texture.magFilter = THREE.LinearFilter;
+    this.material = new THREE.ShaderMaterial({
+      vertexShader: EXTERIOR_FOG_VERTEX,
+      fragmentShader: EXTERIOR_FOG_FRAGMENT,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      uniforms: {
+        uFog: { value: this.texture },
+        uOpacity: { value: 0 },
+        uTime: { value: 0 },
+        uBoardCenter: { value: new THREE.Vector2() },
+        uBoardHalfSize: { value: new THREE.Vector2(1, 1) },
+      },
+    });
+    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    this.mesh.renderOrder = 30;
+    this.group.add(this.mesh);
+  }
+
+  rebuild(cols: number, rows: number, tile: number, missionId: string, intensity: number): void {
+    const key = `${missionId}:${cols}:${rows}:${tile}`;
+    if (key !== this.builtKey) {
+      this.builtKey = key;
+      const { w, h } = boardSize(cols, rows, tile);
+      (this.material.uniforms.uBoardCenter!.value as THREE.Vector2).set(w / 2, -h / 2);
+      (this.material.uniforms.uBoardHalfSize!.value as THREE.Vector2).set(w / 2, h / 2);
+    }
+    this.material.uniforms.uOpacity!.value = intensity;
+    this.group.visible = intensity > 0;
+  }
+
+  coverViewport(cssW: number, cssH: number, camX: number, camY: number): void {
+    if (!this.group.visible) return;
+    this.mesh.scale.set(cssW * 1.16, cssH * 1.16, 1);
+    this.mesh.position.set(camX + cssW / 2, -camY - cssH / 2, 8);
+  }
+
+  sync(dt: number, speed: number): void {
+    this.material.uniforms.uTime!.value += dt * speed;
+  }
+
+  dispose(): void {
+    this.geometry.dispose();
+    this.material.dispose();
+    this.texture.dispose();
   }
 }
 
@@ -656,9 +788,25 @@ class ParticleField {
     const aBase = new Float32Array(count * 2);
     const aSeed = new Float32Array(count);
     const aSize = new Float32Array(count);
+    // Wisps are atmosphere, not a board-only gameplay marker. Give the ember field a generous
+    // margin so some of them drift over the surrounding painted space as well as the map.
+    const exteriorPad = this.kind === "ember" ? tile * 5 : 0;
     for (let i = 0; i < count; i++) {
-      aBase[i * 2] = Math.random() * boardW;
-      aBase[i * 2 + 1] = -Math.random() * boardH; // pre-negated — see module Y-convention note
+      let x: number;
+      let y: number;
+      if (this.kind === "ember" && Math.random() < 0.72) {
+        // Pick from the expanded rectangle, rejecting the board's own interior. This gives the
+        // exterior its visibly denser field without duplicating any particle or using a frame.
+        do {
+          x = -exteriorPad + Math.random() * (boardW + exteriorPad * 2);
+          y = exteriorPad - Math.random() * (boardH + exteriorPad * 2);
+        } while (x >= 0 && x <= boardW && y <= 0 && y >= -boardH);
+      } else {
+        x = Math.random() * boardW;
+        y = -Math.random() * boardH;
+      }
+      aBase[i * 2] = x;
+      aBase[i * 2 + 1] = y; // pre-negated — see module Y-convention note
       aSeed[i] = Math.random() * 1000;
       // Small — the earlier 0.16-0.38x tile sizing at thousands of instances produced a field of
       // uniformly bright dots that read as a 2D confetti overlay, not ambient atmosphere (see
@@ -765,6 +913,7 @@ export class ThreeAtmosphere {
   private readonly mist2 = new GroundMist();
   private readonly mist3 = new GroundMist3();
   private readonly mist4 = new GroundMist4();
+  private readonly fogArtwork = new BoardFogArtwork();
   private readonly dust = new ParticleField("dust");
   private readonly embers = new ParticleField("ember");
   private readonly scratchSunColor = new THREE.Color();
@@ -772,10 +921,17 @@ export class ThreeAtmosphere {
   private readonly scratchWispColor = new THREE.Color();
 
   constructor() {
-    this.group.add(this.mist2.group, this.mist3.group, this.mist4.group, this.dust.group, this.embers.group);
+    this.group.add(this.mist2.group, this.mist3.group, this.mist4.group, this.fogArtwork.group, this.dust.group, this.embers.group);
   }
 
-  sync(engine: BattleEngine, tile: number, dt: number, sunLight: THREE.DirectionalLight, hemiLight: THREE.HemisphereLight): void {
+  sync(
+    engine: BattleEngine,
+    tile: number,
+    dt: number,
+    sunLight: THREE.DirectionalLight,
+    hemiLight: THREE.HemisphereLight,
+    viewport?: { cssW: number; cssH: number; camX: number; camY: number },
+  ): void {
     // Mission-authored, not a hardcoded per-id table (see Mission.mistIntensity/wispIntensity/
     // wispSpeed in types.ts) — the Map Editor's "Névoa"/"Wisps"/"Velocidade" sliders are the one
     // real source of this. Full range, deliberately: sliders go from "off" to genuinely extreme
@@ -790,7 +946,7 @@ export class ThreeAtmosphere {
     // "vignette" mistType means neither world-space mist implementation should render at all —
     // that look comes entirely from BattleCanvas.tsx's screen-space CSS vignette instead.
     const mistType = engine.mission.mistType ?? "mist2";
-    const worldMistIntensity = mistType === "vignette" ? 0 : (engine.mission.mistIntensity ?? 0.2);
+    const worldMistIntensity = mistType === "vignette" || mistType === "vignette2" || mistType === "vignette3" || mistType === "vignette4" ? 0 : (engine.mission.mistIntensity ?? 0.2);
     const tier: AtmosphereTier = {
       // Plain default, not a forced floor — a floor would override an explicit 0 the author
       // deliberately set to turn mist off on a specific map ("if I don't want it somewhere I'll
@@ -815,11 +971,16 @@ export class ThreeAtmosphere {
     const mist3Tier: AtmosphereTier = { ...tier, mistIntensity: mistType === "mist3" ? worldMistIntensity : 0 };
     const mist4Tier: AtmosphereTier = { ...tier, mistIntensity: mistType === "mist4" ? worldMistIntensity : 0 };
     this.mist2.rebuild(engine.cols, engine.rows, tile, engine.mission.id, mist2Tier);
+    if (mistType === "mist2" && viewport) this.mist2.coverViewport(viewport.cssW, viewport.cssH, viewport.camX, viewport.camY);
     this.mist2.sync(dt, sunLight, mistSpeed);
     this.mist3.rebuild(engine.cols, engine.rows, tile, engine.mission.id, mist3Tier);
+    if (mistType === "mist3" && viewport) this.mist3.coverViewport(viewport.cssW, viewport.cssH, viewport.camX, viewport.camY);
     this.mist3.sync(dt, sunLight, mistSpeed);
     this.mist4.rebuild(engine.cols, engine.rows, tile, engine.mission.id, mist4Tier);
+    if (mistType === "mist4" && viewport) this.mist4.coverViewport(viewport.cssW, viewport.cssH, viewport.camX, viewport.camY);
     this.mist4.sync(dt, sunLight, mistSpeed);
+    this.fogArtwork.rebuild(engine.cols, engine.rows, tile, engine.mission.id, 0);
+    this.fogArtwork.sync(dt, mistSpeed);
 
     this.scratchSunColor.copy(sunLight.color).multiplyScalar(Math.min(1.5, sunLight.intensity * 0.6));
     this.scratchHemiColor.copy(hemiLight.color).multiplyScalar(Math.min(1.5, hemiLight.intensity * 1.2));
@@ -834,6 +995,7 @@ export class ThreeAtmosphere {
     this.mist2.dispose();
     this.mist3.dispose();
     this.mist4.dispose();
+    this.fogArtwork.dispose();
     this.dust.dispose();
     this.embers.dispose();
   }

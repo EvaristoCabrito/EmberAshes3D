@@ -4777,12 +4777,15 @@ function MapEditorScreen({
             <select
               className="bg-bg border border-border rounded-md px-2 py-1 flex-1"
               value={draft.mistType ?? "mist2"}
-              onChange={(e) => setDraft((d) => ({ ...d, mistType: e.target.value as "mist2" | "mist3" | "mist4" | "vignette" }))}
+              onChange={(e) => setDraft((d) => ({ ...d, mistType: e.target.value as "mist2" | "mist3" | "mist4" | "vignette" | "vignette2" | "vignette3" | "vignette4" }))}
             >
               <option value="mist2">Névoa 2 (textura suave, mundo inteiro)</option>
               <option value="mist3">Névoa 3 (ruído original, mundo inteiro)</option>
               <option value="mist4">Névoa 4 (vórtice nas bordas do mapa, centro sempre limpo)</option>
-              <option value="vignette">Vinheta (tela, descontinuada — nunca funcionou direito)</option>
+              <option value="vignette">Vinheta (tela inteira, bordas suaves)</option>
+              <option value="vignette2">Vinheta 2 (bancos de névoa profundos, centro limpo)</option>
+              <option value="vignette3">Vinheta 3 (névoa rasteira em faixas, sem bordas escuras)</option>
+              <option value="vignette4">Vinheta 4 (névoa monocromática nas bordas)</option>
             </select>
           </label>
           <label className="flex items-center gap-2 text-sm" title="Névoa, só na batalha real (não aparece nesta prévia) — 1.0 é bem pesada de propósito">
@@ -6566,7 +6569,7 @@ function BattleScreen({
             </div>
           </div>
         )}
-        <div className="pointer-events-none absolute inset-x-2 top-[max(0.5rem,env(safe-area-inset-top))] flex items-start justify-end gap-1">
+        <div className="pointer-events-none absolute inset-x-2 top-[max(0.5rem,env(safe-area-inset-top))] z-20 flex items-start justify-end gap-1">
           <p className="bg-surface/90 border border-border rounded-md px-1.5 py-0.5 text-[10px] tabular-nums text-muted pointer-events-none">
             T{hud.turn} · {hud.playerAlive}/{hud.enemyAlive}
           </p>

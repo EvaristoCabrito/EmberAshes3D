@@ -229,6 +229,14 @@ export class ThreeBattleRenderer {
   private camera: THREE.OrthographicCamera;
   private tileGroup = new THREE.Group();
   private tileMeshes = new Map<number, TileMeshEntry>();
+  // A camera-locked, cover-cropped copy of BattleEngine.renderGround's painted backdrop.
+  // The legacy 2D path had this from day one; keeping it here prevents WebGL missions from
+  // silently dropping any mission-specific background artwork.
+  private backdropGeometry = new THREE.PlaneGeometry(1, 1);
+  private backdropMaterial = new THREE.MeshBasicMaterial({ color: 0x949494, depthWrite: false, depthTest: false });
+  private backdropMesh = new THREE.Mesh(this.backdropGeometry, this.backdropMaterial);
+  private backdropTexture: THREE.Texture | null = null;
+  private backdropImage: HTMLImageElement | null = null;
   // MeshLambertMaterial (not MeshBasicMaterial) — MILESTONE 2 terrain needs to actually receive
   // light/shadow. Decor and unit sprites deliberately stay MeshBasicMaterial (unlit) below, so
   // their art is untouched by this — only the ground gets the uniform lit tint (see the
@@ -290,6 +298,8 @@ export class ThreeBattleRenderer {
   private overlayGroup = new THREE.Group();
   private overlayMatCache = new Map<string, THREE.MeshBasicMaterial>();
   private overlayMeshPool: THREE.Mesh[] = [];
+  private overlayGlowGroup = new THREE.Group();
+  private overlayGlowPool: THREE.Sprite[] = [];
   // The old 2D marker used Canvas shadowBlur, which has a broad soft falloff rather than a
   // flat, expanding polygon. This sprite is that same falloff in world space, so WebGL keeps
   // the familiar 2D read while still sitting under units and props.
@@ -314,9 +324,9 @@ export class ThreeBattleRenderer {
   /** The elemental-FX canvas is intentionally between the ground renderer and the visual
    * actors/props canvas. Keep Three's copies of sprites and decorations off the ground canvas
    * whenever that compositing path is active, otherwise an authored effect can cover them. */
-  setSpritesAndDecorationsVisible(visible: boolean): void {
-    this.unitGroup.visible = visible;
-    this.decorGroup.visible = visible;
+  setSpritesAndDecorationsVisible(unitsVisible: boolean, decorationsVisible = unitsVisible): void {
+    this.unitGroup.visible = unitsVisible;
+    this.decorGroup.visible = decorationsVisible;
   }
 
   // MILESTONE 3 — real world-space ground mist + drift particles, owned end-to-end by
@@ -381,7 +391,9 @@ export class ThreeBattleRenderer {
     this.scene.add(this.sunLight);
     this.scene.add(this.sunLight.target);
     this.scene.add(this.shadowCasterGroup);
+    this.scene.add(this.backdropMesh);
     this.scene.add(this.tileGroup);
+    this.scene.add(this.overlayGlowGroup);
     this.scene.add(this.overlayGroup);
     this.scene.add(this.activeTurnGlow);
     this.scene.add(this.decorGroup);
@@ -638,7 +650,9 @@ export class ThreeBattleRenderer {
       const def = DECORATIONS[p.id];
       if (!def) continue;
       const decorLayer = def.unitLayer ?? (def.foreground ? "front" : "ground");
-      if (decorLayer === "front") continue;
+      // Fog 2 deliberately sits above every decoration but below units. Front props therefore
+      // belong in this same Three layer too; keeping them on the top 2D unit canvas would make
+      // them unavoidably render over the fog regardless of their world Z.
 
       const facing = decorationFacing(p.id, p.rot ?? 0, (file) => this.decorImageReady(file) !== null);
       const fileId = facing.own ? facing.file : p.id;
@@ -733,6 +747,9 @@ export class ThreeBattleRenderer {
       if (!entry) {
         const material = new THREE.MeshBasicMaterial({ map: this.unitTextureFor(img), transparent: true, depthWrite: false });
         const mesh = new THREE.Mesh(this.quadGeo, material);
+        // Atmosphere's Fog 2 sheets use renderOrder 1: units must remain the final visible
+        // sprite layer (2), while decorations remain the base layer (0).
+        mesh.renderOrder = 2;
         this.unitGroup.add(mesh);
         // MILESTONE 2 — invisible box, real elevation (see UNIT_SHADOW_HEIGHT_SCALE's comment),
         // repositioned every frame below alongside the visible sprite.
@@ -829,6 +846,66 @@ export class ThreeBattleRenderer {
     return mat;
   }
 
+  /** Mirrors the 2D renderer's `drawImage(..., cover)` plus its 42% black wash. Most scenes
+   * remain camera-backed, while O Vau's artwork is pinned to its terrain so the painted river
+   * continues the river made from map hexes as the camera pans. */
+  private syncBackdrop(cssW: number, cssH: number, tile: number): void {
+    const image = this.engine.art.backdrops[this.engine.mission.id] ?? null;
+    if (image !== this.backdropImage) {
+      this.backdropTexture?.dispose();
+      this.backdropImage = image;
+      this.backdropTexture = image ? new THREE.Texture(image) : null;
+      if (this.backdropTexture) {
+        this.backdropTexture.needsUpdate = true;
+        this.backdropTexture.colorSpace = THREE.SRGBColorSpace;
+      }
+      this.backdropMaterial.map = this.backdropTexture;
+      this.backdropMaterial.needsUpdate = true;
+    }
+    this.backdropMesh.visible = !!image;
+    if (!image) return;
+    const imageRatio = image.width / Math.max(1, image.height);
+    if (this.engine.mission.id === "vau") {
+      // O Vau's river occupies rows 5–6 (with shore rows 4 and 7). The supplied panorama's
+      // water band sits at ~56% down the frame. Anchor those two centers together in world
+      // space; unlike a decorative screen background, it now moves exactly with the map.
+      const boardWidth = tile * SQRT3 * this.engine.cols;
+      const width = Math.max(boardWidth * 1.35, cssW, cssH * imageRatio);
+      const height = width / imageRatio;
+      const mapRiverY = tile * (2.4 + 1.5 * 5.5 + 1);
+      const panoramaRiverY = 0.56;
+      const centerY = mapRiverY - (panoramaRiverY - 0.5) * height;
+      this.backdropMesh.position.set(boardWidth / 2, -centerY, -2);
+      this.backdropMesh.scale.set(width, height, 1);
+      return;
+    }
+    const viewRatio = cssW / Math.max(1, cssH);
+    const width = imageRatio > viewRatio ? cssH * imageRatio : cssW;
+    const height = imageRatio > viewRatio ? cssH : cssW / imageRatio;
+    this.backdropMesh.position.set(this.engine.camX + cssW / 2, -this.engine.camY - cssH / 2, -2);
+    this.backdropMesh.scale.set(width, height, 1);
+  }
+
+  /** A faint, pooled halo restores the depth that the 2D renderer's shadowBlur gave blue
+   * movement/range cells. Only blue tactical overlays receive it; spell and danger colors stay
+   * deliberately flat so the board remains calm and readable. */
+  private placeBlueOverlayGlow(x: number, y: number, tile: number, index: number): void {
+    let glow = this.overlayGlowPool[index];
+    if (!glow) {
+      glow = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: this.activeTurnGlowTexture, color: 0x8cc8f5, transparent: true, depthWrite: false, opacity: 0.15 }),
+      );
+      this.overlayGlowGroup.add(glow);
+      this.overlayGlowPool.push(glow);
+    }
+    const { wx, wy } = hexWorld(x, y, tile);
+    const pulse = 0.5 + 0.5 * Math.sin(this.engine.time * 3.8);
+    glow.position.set(wx, -wy, 0.42);
+    glow.scale.setScalar(tile * (2.08 + pulse * 0.24));
+    (glow.material as THREE.SpriteMaterial).opacity = 0.1 + pulse * 0.1;
+    glow.visible = true;
+  }
+
   /** Movement/attack/spell-range highlight + the active-turn ring, from the same cell/color
    * data renderBoardOverlays (Canvas2D path) draws from — see overlayGroup's own comment for
    * why this renders as real geometry instead of a 2D fill. Pool index reused across frames
@@ -837,6 +914,7 @@ export class ThreeBattleRenderer {
   private syncOverlay(tile: number): void {
     const engine = this.engine;
     let idx = 0;
+    let glowIdx = 0;
     const place = (x: number, y: number, fill: string) => {
       let mesh = this.overlayMeshPool[idx];
       if (!mesh) {
@@ -858,7 +936,12 @@ export class ThreeBattleRenderer {
       idx++;
     };
     for (const layer of engine.boardOverlayLayers()) {
-      for (const c of layer.cells) place(c.x, c.y, layer.fill);
+      const rgb = /rgba?\(([^,]+),([^,]+),([^,]+)/.exec(layer.fill);
+      const isBlue = !!rgb && Number(rgb[3]) > Number(rgb[1]) && Number(rgb[3]) > Number(rgb[2]);
+      for (const c of layer.cells) {
+        place(c.x, c.y, layer.fill);
+        if (isBlue) this.placeBlueOverlayGlow(c.x, c.y, tile, glowIdx++);
+      }
     }
     const active = engine.activeTurnHighlight();
     if (active) {
@@ -880,6 +963,7 @@ export class ThreeBattleRenderer {
     const blocked = !TERRAIN[tileAt(engine.tiles, engine.cols, cur.x, cur.y)].passable;
     place(cur.x, cur.y, blocked ? "rgba(255,90,72,0.28)" : "rgba(240,235,227,0.16)");
     for (; idx < this.overlayMeshPool.length; idx++) this.overlayMeshPool[idx]!.visible = false;
+    for (; glowIdx < this.overlayGlowPool.length; glowIdx++) this.overlayGlowPool[glowIdx]!.visible = false;
   }
 
   /** Call once per frame in place of BattleEngine.renderGround — updateCameraLayout runs the
@@ -887,6 +971,7 @@ export class ThreeBattleRenderer {
    * comment), just without drawing through the Canvas2D shim afterward. */
   render(cssW: number, cssH: number): void {
     const tile = this.engine.updateCameraLayout(cssW, cssH);
+    this.syncBackdrop(cssW, cssH, tile);
     this.ensureBuilt(tile);
     this.syncDirtyTiles();
     this.ensureDecorBuilt(tile);
@@ -899,12 +984,17 @@ export class ThreeBattleRenderer {
     const now = performance.now();
     const dt = Math.min(0.1, (now - this.lastFrameTime) / 1000);
     this.lastFrameTime = now;
-    this.atmosphere.sync(this.engine, tile, dt, this.sunLight, this.hemiLight);
     // The camera moves; the tiles never do — see module comment. This is the one line that
     // has to run every frame for panning/zooming to work. Y is `-camY - cssH` to match the
     // mesh placement's own Y-negation (see module comment) — verified numerically to
     // reproduce BattleEngine's cx/cy screen-pixel formula exactly.
     this.camera.position.set(this.engine.camX, -this.engine.camY - cssH, 100);
+    this.atmosphere.sync(this.engine, tile, dt, this.sunLight, this.hemiLight, {
+      cssW,
+      cssH,
+      camX: this.engine.camX,
+      camY: this.engine.camY,
+    });
     // MILESTONE 2 — the sun has to re-aim every frame too, for the same reason the camera does:
     // the shadow-caster boxes are fixed in world space, only the view of them pans.
     this.updateSun(cssW, cssH, this.engine.camX, this.engine.camY);
@@ -928,6 +1018,9 @@ export class ThreeBattleRenderer {
     this.atmosphere.dispose();
     this.hexGeo.dispose();
     this.quadGeo.dispose();
+    this.backdropGeometry.dispose();
+    this.backdropMaterial.dispose();
+    this.backdropTexture?.dispose();
     this.fallbackMaterial.dispose();
     for (const mat of this.materialCache.values()) {
       mat.map?.dispose();
@@ -940,6 +1033,7 @@ export class ThreeBattleRenderer {
     for (const tex of this.unitTexCache.values()) tex.dispose();
     for (const entry of this.unitEntries.values()) entry.material.dispose();
     for (const mat of this.overlayMatCache.values()) mat.dispose();
+    for (const glow of this.overlayGlowPool) (glow.material as THREE.SpriteMaterial).dispose();
     this.activeTurnGlowMaterial.dispose();
     this.activeTurnGlowTexture.dispose();
     this.shadowCasterGeo.dispose();

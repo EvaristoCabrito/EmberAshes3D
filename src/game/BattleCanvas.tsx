@@ -49,9 +49,9 @@ export function BattleCanvas({
     try {
       if (threeGround) {
         rendererThree = new ThreeBattleRenderer(canvas, engine);
-        // Map-authored elemental FX occupy the layer above this canvas. Units and every
-        // decoration are drawn in the dedicated transparent canvas below, after the FX pass.
-        rendererThree.setSpritesAndDecorationsVisible(false);
+        // Units stay on the transparent top canvas. Decorations stay in Three so Fog 2 can sit
+        // over every prop while remaining below every unit.
+        rendererThree.setSpritesAndDecorationsVisible(false, true);
       }
       else renderer2D = new WebGL2DRenderer(canvas);
     } catch {
@@ -266,13 +266,13 @@ export function BattleCanvas({
           wrap.clientWidth,
           wrap.clientHeight,
           fx ? (px: number, py: number) => fx.lightBoostAt(px, py, (col, row) => engine.effectAnchor(col, row)) : undefined,
-          // With Three, terrain remains on the bottom canvas but every visual actor and prop
-          // is deliberately redrawn here, ABOVE the elemental-FX canvas. This is the permanent
-          // layer boundary that prevents authored water/earth/fire from ever covering a sprite
-          // or any decoration (ground, behind, or front).
+          // With Three, terrain and decorations remain in the bottom renderer so Fog 2 can sit
+          // over every prop. Units, bars and status effects stay here on the transparent top
+          // canvas, preserving the requested decoration → fog → unit layering.
+          !!rendererThree,
           false,
           false,
-          false,
+          !!rendererThree,
           !!rendererThree,
         );
       }
@@ -550,13 +550,15 @@ export function BattleCanvas({
   // center (where the actual battle happens) is always guaranteed clear by construction — it
   // never grows past clearRadius no matter how high intensity goes.
   const isVignetteMist = engine.mission.mistType === "vignette";
+  const isVignette2Mist = engine.mission.mistType === "vignette2";
+  const isVignette3Mist = engine.mission.mistType === "vignette3";
+  const isVignette4Mist = engine.mission.mistType === "vignette4";
   const vignetteIntensity = engine.mission.mistIntensity ?? 0.5;
-  // Recalibrated per direct feedback: this must read as decoration on the extreme edges/corners,
-  // not something that blocks meaningfully into the battlefield. Even at max intensity the clear
-  // radius only pulls back to 74% (was 38%) — only the outermost sliver near the screen edges is
-  // ever affected, and the peak alpha is much lower too (was up to 0.92, now capped at 0.5).
-  const vignetteAlpha = isVignetteMist ? Math.min(0.5, 0.08 + vignetteIntensity * 0.32) : 0.4;
-  const vignetteClearRadius = isVignetteMist ? Math.max(74, 92 - vignetteIntensity * 18) : 52;
+  // A proper vignette is a dependable screen-space radial falloff: foggy/dark around the full
+  // edge and completely clear at the battle's center. It deliberately avoids CSS masks and blend
+  // isolation, which was why the former animated treatment could disappear in some browsers.
+  const vignetteAlpha = Math.min(isVignette2Mist ? 0.46 : 0.52, 0.12 + vignetteIntensity * (isVignette2Mist ? 0.30 : 0.36));
+  const vignetteClearRadius = Math.max(isVignette2Mist ? 55 : 48, (isVignette2Mist ? 76 : 68) - vignetteIntensity * 14);
 
   return (
     <div ref={wrapRef} className="relative h-full w-full min-h-0 touch-none">
@@ -576,65 +578,137 @@ export function BattleCanvas({
           mixBlendMode: "soft-light",
         }}
       />
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background: `radial-gradient(130% 130% at 50% 42%, transparent ${vignetteClearRadius}%, rgba(4,5,10,${vignetteAlpha}) 100%)`,
-          mixBlendMode: "multiply",
-        }}
-      />
-      {/* The layer above only darkens — it reads as shadow, not haze. Everything below adds
-          actual moving depth: two counter-rotating, blurred conic-gradient swirls (screen-
-          blended, so they lighten/wash out rather than darken) plus a slow drift/breathing
-          pulse — "spirals descending" rather than a flat static tint. A radial CSS mask keeps
-          it strictly confined to the same corner region as the darkening layer above, so the
-          center stays exactly as clear regardless of how the swirl itself is animating. Only
-          rendered for mistType==="vignette"; never touches the default diorama look or Mist 2/3
-          (those are Three.js world-space systems in ThreeAtmosphere.ts, untouched here). */}
-      {isVignetteMist && (
+      {/* A screen vignette belongs to the viewport rather than the world: it therefore covers the
+          complete painted backdrop and stays fixed while the map pans. */}
+      {isVignette2Mist && (
         <>
           <style>{`
-            @keyframes vignetteVortexA { from { transform: rotate(0deg) scale(1.2); } to { transform: rotate(360deg) scale(1.2); } }
-            @keyframes vignetteVortexB { from { transform: rotate(0deg) scale(1.35); } to { transform: rotate(-360deg) scale(1.35); } }
-            @keyframes vignetteVortexDrift { 0%, 100% { transform: translateY(0%) scale(1); } 50% { transform: translateY(3%) scale(1.05); } }
+            @keyframes vignetteMistPulse { 0%, 100% { opacity: 0.88; } 50% { opacity: 1; } }
+            @keyframes vignetteFogDrift { 0%, 100% { transform: scale(1.06) translate3d(-2.5%, -1.5%, 0); } 50% { transform: scale(1.13) translate3d(2.5%, 1.5%, 0); } }
+            @keyframes vignetteFogDriftNear { 0%, 100% { transform: scale(1.16) translate3d(2.2%, -1.8%, 0); } 50% { transform: scale(1.24) translate3d(-2.4%, 2.1%, 0); } }
+            @keyframes vignette2FarDrift { 0%, 100% { transform: scale(1.12) translate3d(-4%, 2%, 0) rotate(-2deg); } 50% { transform: scale(1.24) translate3d(4%, -3%, 0) rotate(2deg); } }
+            @keyframes vignette2NearDrift { 0%, 100% { transform: scale(1.3) translate3d(4%, -3%, 0) rotate(3deg); } 50% { transform: scale(1.18) translate3d(-4%, 3%, 0) rotate(-2deg); } }
           `}</style>
           <div
             className="pointer-events-none absolute inset-0 overflow-hidden"
             style={{
-              WebkitMaskImage: `radial-gradient(130% 130% at 50% 42%, transparent ${vignetteClearRadius}%, black 100%)`,
-              maskImage: `radial-gradient(130% 130% at 50% 42%, transparent ${vignetteClearRadius}%, black 100%)`,
-              // THE BUG: mix-blend-mode was on the CHILDREN below, but this element's own
-              // mask-image creates an isolated stacking context — a child's blend mode can only
-              // blend with what's painted inside that same isolated context (its siblings here),
-              // never with the actual game canvas behind it, so the whole effect silently
-              // composited as if invisible. Moving blend-mode to THIS wrapper instead: its two
-              // children first normal-composite together inside it, then this one wrapper blends
-              // the combined result against the canvas — reaches through correctly.
-              mixBlendMode: "screen",
+              background: isVignette2Mist
+                ? `radial-gradient(ellipse 118% 112% at 50% 46%, transparent ${vignetteClearRadius}%, rgba(96,108,108,${vignetteAlpha * 0.22}) 77%, rgba(14,19,22,${vignetteAlpha}) 100%)`
+                : `radial-gradient(ellipse 98% 92% at 50% 46%, transparent ${vignetteClearRadius}%, rgba(77,88,89,${vignetteAlpha * 0.42}) 76%, rgba(7,10,13,${vignetteAlpha}) 100%)`,
+              animation: "vignetteMistPulse 5.5s ease-in-out infinite",
+              zIndex: 5,
             }}
           >
-            <div
-              className="absolute"
+            {isVignette2Mist && (
+              <>
+                <img
+                  src="/game/assets/vignette-fog.png"
+                  alt=""
+                  draggable={false}
+                  className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover"
+                  style={{
+                    opacity: 0.38 + vignetteIntensity * 0.23,
+                    animation: "vignette2FarDrift 24s ease-in-out infinite",
+                  }}
+                />
+                <img
+                  src="/game/assets/vignette-fog.png"
+                  alt=""
+                  draggable={false}
+                  className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover"
+                  style={{
+                    opacity: 0.34 + vignetteIntensity * 0.18,
+                    animation: "vignette2NearDrift 31s ease-in-out infinite reverse",
+                  }}
+                />
+                <div
+                  className="pointer-events-none absolute -inset-[20%]"
+                  style={{
+                    background: `radial-gradient(ellipse 42% 30% at 8% 90%, rgba(164,178,174,${0.20 + vignetteIntensity * 0.14}) 0%, transparent 72%), radial-gradient(ellipse 38% 28% at 93% 8%, rgba(144,159,158,${0.16 + vignetteIntensity * 0.12}) 0%, transparent 74%)`,
+                    filter: "blur(18px)",
+                    animation: "vignette2FarDrift 27s ease-in-out infinite reverse",
+                    mixBlendMode: "screen",
+                  }}
+                />
+              </>
+            )}
+          </div>
+        </>
+      )}
+      {isVignetteMist && (
+        <>
+          <style>{`
+            @keyframes vignetteMistPulse { 0%, 100% { opacity: 0.88; } 50% { opacity: 1; } }
+            @keyframes vignetteFogDrift { 0%, 100% { transform: scale(1.06) translate3d(-2.5%, -1.5%, 0); } 50% { transform: scale(1.13) translate3d(2.5%, 1.5%, 0); } }
+            @keyframes vignetteFogDriftNear { 0%, 100% { transform: scale(1.16) translate3d(2.2%, -1.8%, 0); } 50% { transform: scale(1.24) translate3d(-2.4%, 2.1%, 0); } }
+          `}</style>
+          <div
+            className="pointer-events-none absolute inset-0 overflow-hidden"
+            style={{
+              background: `radial-gradient(ellipse 125% 115% at 50% 44%, transparent ${vignetteClearRadius}%, rgba(62,70,71,${vignetteAlpha * 0.34}) 78%, rgba(7,10,13,${vignetteAlpha}) 100%)`,
+              animation: "vignetteMistPulse 5.5s ease-in-out infinite",
+              zIndex: 5,
+            }}
+          >
+            <img
+              src="/game/assets/vignette-fog.png"
+              alt=""
+              draggable={false}
+              className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover"
               style={{
-                inset: "-35%",
-                background:
-                  "conic-gradient(from 0deg at 50% 50%, rgba(196,204,198,0.38) 0deg, rgba(196,204,198,0) 70deg, rgba(196,204,198,0.3) 150deg, rgba(196,204,198,0) 230deg, rgba(196,204,198,0.34) 300deg, rgba(196,204,198,0) 360deg)",
-                opacity: Math.min(1, 0.4 + vignetteIntensity * 0.7),
-                filter: "blur(7px)",
-                // Faster swirl at higher intensity — the "max means max" standard every other
-                // slider tonight was held to, not just a static image that gets paler/darker.
-                animation: `vignetteVortexA ${Math.max(14, 42 - vignetteIntensity * 24)}s linear infinite`,
+                opacity: 0.68 + vignetteIntensity * 0.26,
+                animation: "vignetteFogDrift 13s ease-in-out infinite",
               }}
             />
-            <div
-              className="absolute"
+            <img
+              src="/game/assets/vignette-fog.png"
+              alt=""
+              draggable={false}
+              className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover"
               style={{
-                inset: "-35%",
-                background:
-                  "conic-gradient(from 90deg at 48% 54%, rgba(168,178,172,0.3) 0deg, rgba(168,178,172,0) 90deg, rgba(168,178,172,0.26) 200deg, rgba(168,178,172,0) 300deg)",
-                opacity: Math.min(1, 0.3 + vignetteIntensity * 0.6),
-                filter: "blur(11px)",
-                animation: `vignetteVortexB ${Math.max(20, 56 - vignetteIntensity * 28)}s linear infinite, vignetteVortexDrift 8s ease-in-out infinite`,
+                opacity: 0.22 + vignetteIntensity * 0.16,
+                animation: "vignetteFogDriftNear 19s ease-in-out infinite",
+              }}
+            />
+          </div>
+        </>
+      )}
+      {isVignette3Mist && (
+        <>
+          <style>{`
+            @keyframes vinheta3Drift { 0%, 100% { transform: scale(1.025) translate3d(-1.2%, 0.8%, 0); } 50% { transform: scale(1.07) translate3d(1.2%, -0.8%, 0); } }
+          `}</style>
+          <div className="pointer-events-none absolute inset-0 overflow-hidden" style={{ zIndex: 5 }}>
+            <img
+              src="/game/assets/vinheta-3-fog.png"
+              alt=""
+              draggable={false}
+              className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover"
+              style={{
+                // One supplied artwork layer only. Its painted open center is deliberately
+                // preserved; it is never tiled, duplicated, mirrored, or masked into the board.
+                opacity: 0.38 + vignetteIntensity * 0.58,
+                animation: "vinheta3Drift 22s ease-in-out infinite",
+              }}
+            />
+          </div>
+        </>
+      )}
+      {isVignette4Mist && (
+        <>
+          <style>{`
+            @keyframes vinheta4Drift { 0%, 100% { transform: scale(1.02) translate3d(-0.8%, 0.6%, 0); opacity: .72; } 50% { transform: scale(1.06) translate3d(0.8%, -0.6%, 0); opacity: 1; } }
+          `}</style>
+          <div className="pointer-events-none absolute inset-0 overflow-hidden" style={{ zIndex: 5 }}>
+            <img
+              src="/game/assets/vinheta-4-fog.png"
+              alt=""
+              draggable={false}
+              className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover"
+              style={{
+                opacity: 0.28 + vignetteIntensity * 0.52,
+                mixBlendMode: "screen",
+                animation: "vinheta4Drift 24s ease-in-out infinite",
               }}
             />
           </div>

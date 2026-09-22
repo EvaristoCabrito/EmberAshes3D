@@ -8080,6 +8080,9 @@ export class BattleEngine {
     // same z it uses for boardOverlayLayers/activeTurnHighlight — genuinely behind decorations
     // and units rather than merely earlier in one canvas' own draw order.
     skipCursorHex?: boolean,
+    // Fog 2's requested stacking is decorations → fog → units. When Three owns decorations,
+    // foreground props must skip this top canvas too or they would leap above both fog and units.
+    skipFrontDecor?: boolean,
   ): void {
     const tile = ZOOM_RADII[this.zoom]!;
     const sqrt3 = Math.sqrt(3);
@@ -8825,7 +8828,7 @@ export class BattleEngine {
 
     // Foreground parapets are the nearest scenery: no unit, HP bar, projectile, or spell
     // effect that is physically behind their artwork may show through.
-    this.drawDecorations(ctx, tile, cssW, cssH, "front");
+    if (!skipFrontDecor) this.drawDecorations(ctx, tile, cssW, cssH, "front");
 
     if (shake) ctx.restore();
   }
