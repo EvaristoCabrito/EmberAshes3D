@@ -1,4 +1,4 @@
-import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expForHit, FIREBALL, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, weightedWeaponPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance } from "./data";
+import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expForHit, FIREBALL, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, weightedWeaponPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashFormula, shieldBashPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower } from "./data";
 import type { SpellTier } from "./data";
 import { canCounter, makeForecast, mulberry32, powerOf, protOf, rollDamage, rollDamageCustom } from "./combat";
 import {
@@ -27,7 +27,11 @@ import {
   terrainDistanceField,
   tileAt,
   unitSize,
+  axisWalk,
+  axisDir,
+  coneWedge,
   type ReachCell,
+  type Cube,
 } from "./pathfinding";
 import { packExplored, relight, sightReaches, unpackExplored } from "./fog";
 import { buildDecorOverlay, hexDef, type DecorOverlay } from "./hexprops";
@@ -106,6 +110,7 @@ const SPELL_ELEMENT_FX: Partial<Record<SpellKind, { kind: ElementKind; duration:
   // of the older, plain 2D bolt/spark cue (see emitLightningFx, still called separately for
   // all three in stepSpell) — that older cue is the only lightning FX any of them get now.
   divineWrath: { kind: "holy", duration: 0.9 },
+  burningHands: { kind: "fire", duration: 0.7 },
 };
 
 /** Seconds one step of a walk animation takes. Shared by the position and the
@@ -372,6 +377,14 @@ type Seq =
       /** Shield Bash: chance (0-1) the strike, if it lands, stuns the defender for their
        * next turn. */
       stunChance?: number;
+      /** Bull Rush: extra dice folded into the same hit/defence resolution as bonusDice,
+       * rolled only when the precomputed knockback (see knockTo) was blocked short of its
+       * full distance — never a second hit, never a second counter. */
+      wallImpact?: { dice: number; faces: number } | null;
+      /** Bull Rush: the target's knockback destination, precomputed at cast time (see
+       * castBullRush) since the board can't change mid-action — stepCombat just applies it
+       * once the hit lands and the target survives. */
+      knockTo?: Point | null;
     }
   | { type: "spell"; att: string; tiles: Point[]; ids: string[]; dice?: number; faces?: number; bonus?: number; moreDice?: number; moreFaces?: number; label?: string; echo?: { dice: number; faces: number; bonus: number }; dmgMul?: number; weaponBonusDice?: number; weaponBonusFaces?: number; weaponBonusBonus?: number; spellKind?: SpellKind; projectileTo?: Point; centerId?: string; centerDice?: number; centerFaces?: number; centerBonus?: number; poison?: boolean; spellMul?: number; centerMul?: number }
   | { type: "heal"; att: string; def: string; kind: HealId }
@@ -403,6 +416,8 @@ interface CombatAnim {
   customDice: { dice: number; faces: number; bonus: number } | null;
   dmgMul: number;
   stunChance: number;
+  wallImpact: { dice: number; faces: number } | null;
+  knockTo: Point | null;
 }
 
 interface SpellAnim {
@@ -1932,6 +1947,8 @@ export class BattleEngine {
         customDice: step.customDice ?? null,
         dmgMul: step.dmgMul ?? 1,
         stunChance: step.stunChance ?? 0,
+        wallImpact: step.wallImpact ?? null,
+        knockTo: step.knockTo ?? null,
       };
     } else if (step.type === "spell") {
       this.active = {
@@ -2185,8 +2202,27 @@ export class BattleEngine {
           this.pushLog(`${actor.name} atacou ${target.name}: Missed`);
           sfxPlay.miss();
         } else {
+          let bonusRoll = 0;
           if (a.stage === "hit" && a.bonusDice > 0) {
-            hit.dmg += rollDice(a.bonusDiceCount, a.bonusDice, a.bonusFlat, this.rng);
+            bonusRoll = rollDice(a.bonusDiceCount, a.bonusDice, a.bonusFlat, this.rng);
+            hit.dmg += bonusRoll;
+          }
+          // Bull Rush's wall-impact dice: folded into this same hit/defence resolution
+          // (never a second hit, never a second counter) — only rolled when the
+          // precomputed knockback (see knockTo/castBullRush) was blocked short.
+          if (a.stage === "hit" && a.wallImpact) {
+            hit.dmg += rollDice(a.wallImpact.dice, a.wallImpact.faces, 0, this.rng);
+          }
+          // Executioner's Strike: replaces, rather than stacks with, a normal crit —
+          // rebuilt from preCritDmg so any weapon crit rollDamage already applied is
+          // discarded in favor of the execution multiplier, never both at once.
+          let executed = false;
+          if (a.stage === "hit" && a.spellKind === "executionerStrike") {
+            const power = executionerStrikePower(actor.level);
+            if (target.maxHp > 0 && target.hp / target.maxHp <= power.threshold) {
+              hit.dmg = Math.max(1, Math.floor((hit.preCritDmg + bonusRoll) * power.mult));
+              executed = true;
+            }
           }
           if (a.stage === "hit" && a.dmgMul !== 1) {
             hit.dmg = Math.max(1, Math.floor(hit.dmg * a.dmgMul));
@@ -2229,6 +2265,9 @@ export class BattleEngine {
             this.doubleStrikeAlt = !this.doubleStrikeAlt;
             this.emitBladeFx("cross", target.x, target.y, { a0: base + (this.doubleStrikeAlt ? 0.7 : -0.7) });
           }
+          if (a.stage === "hit" && a.spellKind === "bullRush") this.emitBladeFx("lowCut", target.x, target.y);
+          if (a.stage === "hit" && a.spellKind === "shieldBash") this.emitBladeFx("shockRing", target.x, target.y);
+          if (a.stage === "hit" && a.spellKind === "executionerStrike" && executed) this.emitBladeFx("cross", target.x, target.y);
           if (target.hp <= 0) {
             this.markDead(target);
           } else {
@@ -2247,6 +2286,29 @@ export class BattleEngine {
                 target.mov = Math.max(1, Math.round(target.mov * keep));
               }
               sfxPlay.trip();
+            }
+            if (a.stage === "hit" && a.spellKind === "shieldBash") {
+              target.stunned = true;
+              target.stunTurns = shieldBashPower(actor.level).stunTurns;
+              sfxPlay.stun();
+            }
+            if (a.stage === "hit" && a.spellKind === "bullRush" && a.knockTo) {
+              target.x = a.knockTo.x;
+              target.y = a.knockTo.y;
+              target.drawX = a.knockTo.x;
+              target.drawY = a.knockTo.y;
+              this.emitParticle({
+                x: target.drawX,
+                y: target.drawY + 0.3,
+                vx: 0,
+                vy: 0,
+                life: 0,
+                max: 0.35,
+                size: 1,
+                color: "#c9b28a",
+                kind: "impact",
+                frame: 0,
+              });
             }
           }
         }
@@ -2456,7 +2518,8 @@ export class BattleEngine {
             a.spellKind === "sweep" ||
             a.spellKind === "divineWrath" ||
             a.spellKind === "shoulderSmash" ||
-            a.spellKind === "stampede";
+            a.spellKind === "stampede" ||
+            a.spellKind === "burningHands";
           const xpMul =
             foe.hp <= 0 && !isAoeSpell && (att.classId === "mage" || att.classId === "voss" || att.classId === "conjurer" || a.spellKind === "longShot")
               ? 2
@@ -3812,6 +3875,165 @@ export class BattleEngine {
     sfxPlay.ui();
   }
 
+  /** Warrior tier 1's alternative to Corte Duplo (shares its charge pool) — a straight-line
+   * charge, aimed by clicking an enemy at least 2 hexes away along an unobstructed hex axis. */
+  startBullRush(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    if (!u || u.acted || this.tierRemaining(u, "bullRush") <= 0) return;
+    this.mode = "awaitSpell";
+    this.spellKind = "bullRush";
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.hover = null;
+    const p = bullRushPower(u.level);
+    this.tip = `${BULL_RUSH.name}: carrega em linha reta (2-${p.chargeRange} hexes), ${bullRushFormula(u.level)}, sem contra-ataque, empurra ${p.knockback} hex${p.knockback > 1 ? "es" : ""}. Se o empurrão bater em algo, causa +${diceFormula(p.wallDice, p.wallFaces, 0)} de impacto. Toque num inimigo na linha.`;
+    sfxPlay.ui();
+  }
+
+  /** Every hex from `u` to `cell` walked strictly along one of the 6 true hex axes — the
+   * shared geometry behind Bull Rush's approach (spellAimValid/castBullRush) and its
+   * knockback (castBullRush's wall-impact precomputation). `blockedAt` reports true for
+   * anything that stops the charge: impassable terrain/walls/columns/barricades/locked
+   * doors/decorations (all folded into hexDef's `passable`, see hexprops.ts) or a live unit. */
+  private axisBlocked(x: number, y: number, occ: Map<string, Unit>): boolean {
+    if (!inBounds(x, y, this.cols, this.rows)) return true;
+    if (!hexDef(this.tiles, this.cols, x, y, this.decorOverlay).passable) return true;
+    return !!occ.get(key(x, y));
+  }
+
+  /** Bull Rush's charge: walks from `caster` toward `cell` along the exact hex axis between
+   * them, stopping the moment something occupies or blocks a hex. A valid charge target is
+   * one where that stop is `cell` itself, occupied by a living enemy, 2-`chargeRange` hexes
+   * away — the path before it is guaranteed clear (see axisWalk in pathfinding.ts). */
+  private bullRushCharge(caster: Unit, cell: Point, chargeRange: number): { dir: Cube; path: Point[] } | null {
+    const dir = axisDir(caster, cell);
+    if (!dir) return null;
+    const dist = hexDist(caster, cell);
+    if (dist < 2 || dist > chargeRange) return null;
+    const occ = this.occ();
+    const { path, stoppedAt } = axisWalk(caster, dir, this.cols, this.rows, chargeRange, (p) => this.axisBlocked(p.x, p.y, occ));
+    if (!stoppedAt || stoppedAt.x !== cell.x || stoppedAt.y !== cell.y) return null;
+    const foe = occ.get(key(cell.x, cell.y));
+    if (!foe || foe.alive === false || foe.side === caster.side) return null;
+    return { dir, path };
+  }
+
+  private castBullRush(unit: Unit, cell: Point): void {
+    const p = bullRushPower(unit.level);
+    const charge = this.bullRushCharge(unit, cell, p.chargeRange);
+    if (!charge) {
+      this.tip = "Toque num inimigo na linha, a 2+ hexes.";
+      sfxPlay.ui();
+      return;
+    }
+    const occ = this.occ();
+    const foe = occ.get(key(cell.x, cell.y));
+    if (!foe) return;
+    const stop = charge.path[charge.path.length - 1] ?? { x: unit.x, y: unit.y };
+    // Precompute the knockback here, before anything moves — the board is static for the
+    // rest of this single synchronous action, so this is exactly what the queued hit will
+    // see once it resolves (see wallImpact/knockTo on the "combat" Seq/CombatAnim).
+    const occAfterMove = new Map(occ);
+    occAfterMove.delete(key(unit.x, unit.y));
+    occAfterMove.set(key(stop.x, stop.y), unit);
+    const knock = axisWalk(cell, charge.dir, this.cols, this.rows, p.knockback, (pt) => this.axisBlocked(pt.x, pt.y, occAfterMove));
+    const knockTo = knock.path.length > 0 ? knock.path[knock.path.length - 1]! : null;
+    const wallImpact = knock.path.length < p.knockback;
+    this.spendTier(unit, "bullRush");
+    this.spellKind = null;
+    this.missileTargets = [];
+    this.tip = null;
+    this.mode = "locked";
+    if (stop.x !== unit.x || stop.y !== unit.y) {
+      // The real "move" step below already carries the charge's motion (the sprite slides
+      // hex-by-hex to `stop`) — no synthetic dash-streak FX layered on top, which would
+      // flash instantly right now, well before that animation actually plays.
+      this.queue.push({ type: "move", id: unit.id, path: [{ x: unit.x, y: unit.y }, ...charge.path] });
+    }
+    this.queue.push({
+      type: "combat",
+      att: unit.id,
+      def: foe.id,
+      noCounter: true,
+      bonusDice: p.faces,
+      bonusDiceCount: p.dice,
+      bonusFlat: 0,
+      wallImpact: wallImpact ? { dice: p.wallDice, faces: p.wallFaces } : null,
+      knockTo,
+      spellKind: "bullRush",
+    });
+  }
+
+  /** Warrior tier 3: adjacent, replaces (never stacks with) a normal crit — see
+   * stepCombat's executionerStrike branch. */
+  startExecutionerStrike(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    if (!u || u.acted || this.tierRemaining(u, "executionerStrike") <= 0) return;
+    this.mode = "awaitSpell";
+    this.spellKind = "executionerStrike";
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.hover = null;
+    this.tip = `${EXECUTIONER_STRIKE.name}: ${executionerStrikeFormula(u.level)}. Toque no inimigo.`;
+    sfxPlay.ui();
+  }
+
+  private castExecutionerStrike(unit: Unit, cell: Point): void {
+    if (!this.spellAimValid(unit, cell)) {
+      this.tip = "Toque no inimigo.";
+      sfxPlay.ui();
+      return;
+    }
+    const occ = this.occ();
+    const foe = occ.get(key(cell.x, cell.y));
+    if (!foe) return;
+    this.spendTier(unit, "executionerStrike");
+    this.spellKind = null;
+    this.missileTargets = [];
+    this.tip = null;
+    this.mode = "locked";
+    const power = executionerStrikePower(unit.level);
+    this.queue.push({ type: "combat", att: unit.id, def: foe.id, bonusDice: power.faces, bonusDiceCount: power.dice, bonusFlat: 0, spellKind: "executionerStrike" });
+  }
+
+  /** Warrior tier 2's shield-only option (shares Cleave's charge pool) — refuses to arm
+   * without a shield in the off hand, the mirror of startShoulderSmash's own "no shield"
+   * gate (which requires bare/two hands instead). */
+  startShieldBash(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    if (!u || u.acted || this.tierRemaining(u, "shieldBash") <= 0) return;
+    if (!u.offHandId || EQUIPMENT[u.offHandId]?.kind !== "shield") {
+      this.tip = "Requer um escudo equipado.";
+      sfxPlay.ui();
+      return;
+    }
+    this.mode = "awaitSpell";
+    this.spellKind = "shieldBash";
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.hover = null;
+    this.tip = `${SHIELD_BASH.name}: ${shieldBashFormula(u.level)}. Toque no inimigo.`;
+    sfxPlay.ui();
+  }
+
+  private castShieldBash(unit: Unit, cell: Point): void {
+    if (!this.spellAimValid(unit, cell)) {
+      this.tip = "Toque no inimigo.";
+      sfxPlay.ui();
+      return;
+    }
+    const occ = this.occ();
+    const foe = occ.get(key(cell.x, cell.y));
+    if (!foe) return;
+    this.spendTier(unit, "shieldBash");
+    this.spellKind = null;
+    this.missileTargets = [];
+    this.tip = null;
+    this.mode = "locked";
+    const power = shieldBashPower(unit.level);
+    this.queue.push({ type: "combat", att: unit.id, def: foe.id, bonusDice: power.faces, bonusDiceCount: power.dice, bonusFlat: 0, spellKind: "shieldBash" });
+  }
+
   startPiercingThrust(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || u.acted || this.tierRemaining(u, "piercingThrust") <= 0) return;
@@ -4019,6 +4241,37 @@ export class BattleEngine {
     sfxPlay.ui();
   }
 
+  /** Healer tier 3: self-only, resolves instantly like Aura of Protection/Intimidating
+   * Presence — never arms awaitSpell, so it never reaches spellAimValid/confirmSpell. Tops
+   * off the CASTER'S OWN hunger only (never an ally's) and adds plain Rations to the same
+   * pool a battle-picked-up ration would (see lootRations, reconciled back into save.rations
+   * at battle end — see GameApp.tsx). */
+  startCreateFoodAndWater(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    if (!u || u.acted || this.tierRemaining(u, "createFoodAndWater") <= 0) return;
+    const power = createFoodAndWaterPower(u.level);
+    if (fullness(u.fullness) >= power.fullness) {
+      this.tip = "Já está bem alimentado.";
+      sfxPlay.ui();
+      return;
+    }
+    u.fullness = power.fullness;
+    u.hungerPenaltyPct = 0;
+    this.reapplyGear(u);
+    const gained = power.dice > 0 ? rollDice(power.dice, power.faces, power.bonus, this.rng) : 0;
+    this.lootRations += gained;
+    u.healGlow = 1;
+    u.healGlowKind = "holyMinor";
+    this.spendTier(u, "createFoodAndWater");
+    this.spellKind = null;
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.mode = "locked";
+    this.tip = `${CREATE_FOOD_AND_WATER.name}: fome restaurada${power.fullness > 100 ? ` (${power.fullness}%)` : ""}${gained > 0 ? `, +${gained} rações` : ""}.`;
+    this.queue.push({ type: "banner", text: CREATE_FOOD_AND_WATER.name, dur: 1.1 });
+    sfxPlay.heal();
+  }
+
   startDivineWrath(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || u.acted || this.tierRemaining(u, "divineWrath") <= 0) return;
@@ -4160,8 +4413,24 @@ export class BattleEngine {
       this.castStampede(u, cell);
       return;
     }
+    if (this.spellKind === "bullRush") {
+      this.castBullRush(u, cell);
+      return;
+    }
+    if (this.spellKind === "executionerStrike") {
+      this.castExecutionerStrike(u, cell);
+      return;
+    }
+    if (this.spellKind === "shieldBash") {
+      this.castShieldBash(u, cell);
+      return;
+    }
+    if (this.spellKind === "burningHands") {
+      this.castBurningHands(u, cell);
+      return;
+    }
     // instant, resolved directly by their own startX() — never reaches here
-    if (this.spellKind === "auraOfProtection" || this.spellKind === "intimidatingPresence") return;
+    if (this.spellKind === "auraOfProtection" || this.spellKind === "intimidatingPresence" || this.spellKind === "createFoodAndWater") return;
     // secondWind is a passive triggered from startOfTurnEffects, never armed via a startX()
     if (this.spellKind === "secondWind") return;
     // Choque is enemy-AI only — never armed from the player hotbar
@@ -4178,6 +4447,20 @@ export class BattleEngine {
     this.spellAim = null;
     this.hover = null;
     this.tip = `${CURES[kind].name}: ${healFormula(u.mag, kind)} HP, alcance ${CURES[kind].range}. Toque num aliado ferido.`;
+    sfxPlay.ui();
+  }
+
+  /** Priest tier 2: a short frontal fire cone, aimed by clicking through a direction like
+   * Divine Wrath/Stampede. Friendly fire on purpose — see BURNING_HANDS's own comment. */
+  startBurningHands(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    if (!u || u.acted || this.tierRemaining(u, "burningHands") <= 0) return;
+    this.mode = "awaitSpell";
+    this.spellKind = "burningHands";
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.hover = null;
+    this.tip = `${BURNING_HANDS.name}: cone curto à frente, ${burningHandsFormula(u.level, u.mag)} contra RES. Atinge aliados também — mire com cuidado. Toque para mirar.`;
     sfxPlay.ui();
   }
 
@@ -4580,12 +4863,18 @@ export class BattleEngine {
       if (manhattan(caster, cell) > WEB_OF_DREAMS.range) return false;
       return clearShot(caster, fireballOrigin(cell, this.cols, this.rows), this.tiles, this.cols, "bolt", this.decorOverlay);
     }
-    if (this.spellKind === "doubleStrike" || this.spellKind === "trip" || this.spellKind === "lifeDrain") {
+    if (this.spellKind === "doubleStrike" || this.spellKind === "trip" || this.spellKind === "lifeDrain" || this.spellKind === "executionerStrike" || this.spellKind === "shieldBash") {
       const here = this.occ().get(key(cell.x, cell.y));
       return !!here && here.alive && here.side !== caster.side && canHitFrom(caster, caster, here, this.tiles, this.cols, this.decorOverlay);
     }
     if (this.spellKind === "cleave" || this.spellKind === "shoulderSmash") {
       return hexNeighbors(caster.x, caster.y).some((p) => p.x === cell.x && p.y === cell.y);
+    }
+    if (this.spellKind === "bullRush") {
+      return this.bullRushCharge(caster, cell, bullRushPower(caster.level).chargeRange) !== null;
+    }
+    if (this.spellKind === "burningHands") {
+      return this.wrathRay(caster, cell, burningHandsPower(caster.level).range) !== null;
     }
     if (this.spellKind === "multiShot") {
       const d = manhattan(caster, cell);
@@ -5409,6 +5698,43 @@ export class BattleEngine {
       weaponBonusFaces: power.faces,
       weaponBonusBonus: 0,
       spellKind: "stampede",
+    });
+  }
+
+  /** Priest tier 2: derives a facing axis from the aimed cell (wrathRay's first step is
+   * always one exact hex-neighbor away, so it maps 1:1 onto one of the 6 CUBE_DIRS), then
+   * hits every unit in the resulting wedge — no side filter, friendly fire is intentional. */
+  private castBurningHands(unit: Unit, cell: Point): void {
+    const power = burningHandsPower(unit.level);
+    const ray = this.wrathRay(unit, cell, power.range);
+    const dir = ray && ray[0] ? axisDir(unit, ray[0]) : null;
+    if (!dir) {
+      this.tip = "Alcance ou linha inválidos.";
+      sfxPlay.ui();
+      return;
+    }
+    const tiles = coneWedge(unit, dir, power.wide, this.cols, this.rows);
+    const ids: string[] = [];
+    for (const t of tiles) {
+      const who = this.units.find((x) => x.alive && occupies(x, t.x, t.y));
+      if (who && who.id !== unit.id && !ids.includes(who.id)) ids.push(who.id);
+    }
+    this.spendTier(unit, "burningHands");
+    this.spellKind = null;
+    this.missileTargets = [];
+    this.tip = null;
+    this.mode = "locked";
+    this.queue.push({
+      type: "spell",
+      att: unit.id,
+      tiles,
+      ids,
+      dice: power.dice,
+      faces: power.faces,
+      bonus: 0,
+      label: BURNING_HANDS.name,
+      spellMul: power.mul,
+      spellKind: "burningHands",
     });
   }
 
@@ -7443,6 +7769,9 @@ export class BattleEngine {
     const malrecAtkFrame27WidthScale = isMalrecAtkFrame27 ? 1.49 : 1;
     const cultistV2WalkScale = isCultistV2 && walk ? 1.02 : 1;
     const familiar3Scale = u.classId === "familiar3" ? 1.4 : 1;
+    // Titan V2 is a wide 16:9 creature frame, so give Familiar 3 its natural
+    // horizontal footprint rather than squeezing the silhouette into the old square box.
+    const familiar3WidthScale = u.classId === "familiar3" ? 1.9 : 1;
     const h =
       cell *
       (s >= 4 ? 3.35 : s === 2 ? 1.72 : boss ? 1.44 : 1.42) *
@@ -7470,7 +7799,8 @@ export class BattleEngine {
       malrecAtkScale *
       malrecAtkFrame27WidthScale *
       cultistV2WalkScale *
-      familiar3Scale;
+      familiar3Scale *
+      familiar3WidthScale;
     // The cast cut's own content also sits higher inside its canvas than idle/attack's does
     // (feet reach only ~87% of the way down vs idle's ~99%) — without this, boosting h above
     // would float the feet even further off the ground than they already subtly are. Shifts
@@ -7482,7 +7812,7 @@ export class BattleEngine {
     const footY = s >= 4 ? tile * 0.9 : cell * 0.42;
     // Dedicated left/right walk+attack cuts already face the enemy, so flipping
     // them would put the spear/staff on the wrong side. Idle still flips.
-    const dirActionWalk = (u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval" || u.sprite === "theButcher" || u.sprite === "familiar2" || u.sprite === "cultist-v2") && moving;
+    const dirActionWalk = (u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval" || u.sprite === "theButcher" || u.sprite === "familiar2" || u.sprite === "familiar3" || u.sprite === "cultist-v2") && moving;
     const dirActionAttack = (u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval") && atk != null;
     const dirAction = dirActionWalk || dirActionAttack;
     // The familiar's art is drawn facing left by default — the opposite of every other
@@ -7492,7 +7822,15 @@ export class BattleEngine {
     // facing right — see the identical comment this replaced in renderUnitsAndOverlays for
     // the full reasoning on both of these.
     const defaultWarriorIdleOrWalkReversed = u.sprite === "defaultWarrior" && atk == null;
-    const facing = u.classId === "familiar" || defaultWarriorIdleOrWalkReversed ? -u.facing : u.facing;
+    // Neera's move-*.png cut (WALK_FRAMES.neera in assets.ts) was shot facing left, same
+    // situation as the familiar/defaultWarrior cases above, but only for the walk pose —
+    // her idle/attack art faces right as normal. Without this she read backwards in BOTH
+    // directions: facing right drew the raw left-facing footage unflipped (walked right
+    // while visibly facing left), and facing left then mirrored that already-left-facing
+    // footage into facing right (walked left while visibly facing right) — reported as
+    // "two reverse walk" rather than the one intended mirror-for-left-only.
+    const neeraWalkReversed = u.sprite === "neera" && walk != null;
+    const facing = u.classId === "familiar" || defaultWarriorIdleOrWalkReversed || neeraWalkReversed ? -u.facing : u.facing;
     const flip = dirAction ? 1 : facing;
     // A fixed set of sprites skip the breath squash/stretch entirely (ctx.scale(flip, 1)) —
     // see the identical branch this replaced in renderUnitsAndOverlays.
@@ -7980,6 +8318,37 @@ export class BattleEngine {
         const cell = this.hover ?? this.spellAim;
         const line = cell ? this.wrathRay(selected, cell, STAMPEDE.range) : null;
         if (line) push(line, "rgba(200,90,60,0.6)");
+      } else if (selected && this.spellKind === "bullRush") {
+        const range = bullRushPower(selected.level).chargeRange;
+        push(allAxisRays(selected, this.cols, this.rows).filter((p) => hexDist(selected, p) <= range), "rgba(220,120,80,0.4)");
+        const cell = this.hover ?? this.spellAim;
+        const charge = cell ? this.bullRushCharge(selected, cell, range) : null;
+        if (cell && charge) {
+          push(charge.path, "rgba(235,120,80,0.6)");
+          push([cell], "rgba(255,90,60,0.7)");
+          const p = bullRushPower(selected.level);
+          const stop = charge.path[charge.path.length - 1] ?? { x: selected.x, y: selected.y };
+          const occAfterMove = new Map(this.occ());
+          occAfterMove.delete(key(selected.x, selected.y));
+          occAfterMove.set(key(stop.x, stop.y), selected);
+          const knock = axisWalk(cell, charge.dir, this.cols, this.rows, p.knockback, (pt) => this.axisBlocked(pt.x, pt.y, occAfterMove));
+          if (knock.path.length > 0) {
+            // Blocked short of the full knockback distance = the wall-impact bonus fires —
+            // colored distinctly (redder) from a clean knockback so it reads at a glance.
+            push([knock.path[knock.path.length - 1]!], knock.path.length < p.knockback ? "rgba(255,60,40,0.8)" : "rgba(255,180,120,0.6)");
+          }
+        }
+      } else if (selected && (this.spellKind === "executionerStrike" || this.spellKind === "shieldBash")) {
+        push(this.healRangeTiles(selected, selected.maxRange), "rgba(220,120,80,0.45)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.spellAimValid(selected, cell)) push([cell], "rgba(235,120,80,0.55)");
+      } else if (selected && this.spellKind === "burningHands") {
+        const power = burningHandsPower(selected.level);
+        push(allAxisRays(selected, this.cols, this.rows).filter((p) => hexDist(selected, p) <= power.range), "rgba(235,140,70,0.35)");
+        const cell = this.hover ?? this.spellAim;
+        const ray = cell ? this.wrathRay(selected, cell, power.range) : null;
+        const dir = ray && ray[0] ? axisDir(selected, ray[0]) : null;
+        if (dir) push(coneWedge(selected, dir, power.wide, this.cols, this.rows), "rgba(235,140,70,0.55)");
       }
     }
 

@@ -3,7 +3,7 @@
 
 .hunger-bar {
   position: relative;
-  display: block;
+  display: flex;
   height: 4px;
   width: 100%;
   margin-top: 4px;
@@ -17,10 +17,10 @@
   transition: width 240ms ease;
 }
 .hunger-bar > .hunger-bonus {
-  position: absolute;
-  top: 0;
-  right: 0;
-  background: var(--color-fg);
+  /* A genuinely distinct warm gold, not --color-fg (which used to sit almost on top of
+     --color-accent's own fill color, making the 100-120% "overfed" segment nearly invisible
+     even before it was fixed to actually extend the bar instead of painting over it). */
+  background: #c9a227;
 }
 .overworld-step {
   z-index: 10;

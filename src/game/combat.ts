@@ -79,17 +79,18 @@ export function rollDamage(
   attTile: TerrainId,
   defTile: TerrainId,
   rng: () => number,
-): { dmg: number; crit: boolean; landed: boolean; hitChance: number } {
+): { dmg: number; crit: boolean; landed: boolean; hitChance: number; preCritDmg: number } {
   const b = terrainBonus(attacker, defender, attTile, defTile);
   const weapon = weaponRoll(attacker.weaponId, attacker.weaponEnh, rng);
   const { att, def, magical } = effectivePower(attacker, defender, weapon, b);
   const hitChance = hitChanceFor(att, def, magical);
-  if (rng() * 100 >= hitChance) return { dmg: 0, crit: false, landed: false, hitChance };
+  if (rng() * 100 >= hitChance) return { dmg: 0, crit: false, landed: false, hitChance, preCritDmg: 0 };
   const raw = powerOf(attacker) + weapon + b.atk - protOf(attacker, defender) - b.def;
-  let dmg = Math.max(1, Math.floor(Math.max(1, raw) * weaponClassBonusMul(attacker)));
+  const preCritDmg = Math.max(1, Math.floor(Math.max(1, raw) * weaponClassBonusMul(attacker)));
+  let dmg = preCritDmg;
   const crit = rng() < 0.08;
   if (crit) dmg = Math.max(1, Math.floor(dmg * 1.5));
-  return { dmg, crit, landed: true, hitChance };
+  return { dmg, crit, landed: true, hitChance, preCritDmg };
 }
 
 /** Same formula as rollDamage, but rolling explicit dice instead of the attacker's
@@ -104,17 +105,18 @@ export function rollDamageCustom(
   faces: number,
   bonus: number,
   rng: () => number,
-): { dmg: number; crit: boolean; landed: boolean; hitChance: number } {
+): { dmg: number; crit: boolean; landed: boolean; hitChance: number; preCritDmg: number } {
   const b = terrainBonus(attacker, defender, attTile, defTile);
   const weapon = rollDice(dice, faces, bonus, rng);
   const { att, def, magical } = effectivePower(attacker, defender, weapon, b);
   const hitChance = hitChanceFor(att, def, magical);
-  if (rng() * 100 >= hitChance) return { dmg: 0, crit: false, landed: false, hitChance };
+  if (rng() * 100 >= hitChance) return { dmg: 0, crit: false, landed: false, hitChance, preCritDmg: 0 };
   const raw = powerOf(attacker) + weapon + b.atk - protOf(attacker, defender) - b.def;
-  let dmg = Math.max(1, Math.floor(raw));
+  const preCritDmg = Math.max(1, Math.floor(raw));
+  let dmg = preCritDmg;
   const crit = rng() < 0.08;
   if (crit) dmg = Math.max(1, Math.floor(dmg * 1.5));
-  return { dmg, crit, landed: true, hitChance };
+  return { dmg, crit, landed: true, hitChance, preCritDmg };
 }
 
 export function previewDamage(

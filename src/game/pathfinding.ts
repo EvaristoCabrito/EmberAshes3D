@@ -216,6 +216,74 @@ export function cleaveHexes(from: Point, start: Point, count: number, cols: numb
   return out;
 }
 
+/**
+ * Walks a straight hex-axis ray from `from` in the exact direction `dir` (one of the 6
+ * `CUBE_DIRS`), stopping at the first hex `blockedAt` reports true for. `blockedAt` is
+ * supplied by the caller so this stays free of any live Unit/occupancy state (same
+ * one-way-dependency reasoning as `buildDecorOverlay`'s injected `cellsOf` in
+ * ./hexprops) — it composes terrain/decoration passability and live-unit occupancy
+ * however the caller needs.
+ *
+ * Used both for Bull Rush's charge approach (walking toward the target, stopping the
+ * instant something occupies or blocks a hex) and for its knockback (walking away from
+ * the attacker along that same `dir`, past the target, to find where a wall-impact
+ * would land).
+ */
+export function axisWalk(
+  from: Point,
+  dir: Cube,
+  cols: number,
+  rows: number,
+  maxSteps: number,
+  blockedAt: (p: Point) => boolean,
+): { path: Point[]; stoppedAt: Point | null } {
+  const ray = hexRay(from, dir, cols, rows).slice(0, Math.max(0, maxSteps));
+  const path: Point[] = [];
+  for (const p of ray) {
+    if (blockedAt(p)) return { path, stoppedAt: p };
+    path.push(p);
+  }
+  return { path, stoppedAt: null };
+}
+
+/** The 3 hexes of `ringOrigin`'s own neighbor ring centered on `target` — `target` itself
+ * plus the one neighbor on each side of it in the ring. Used to build Burning Hands' cone
+ * as a symmetric wedge (front hex + one flank each side), unlike `cleaveHexes`, which
+ * always starts AT its `start` hex and sweeps one direction around the ring. */
+function centeredArc(ringOrigin: Point, target: Point): Point[] {
+  const ring = hexNeighbors(ringOrigin.x, ringOrigin.y);
+  const i = ring.findIndex((p) => p.x === target.x && p.y === target.y);
+  if (i < 0) return [target];
+  return [ring[(i + 5) % 6]!, ring[i]!, ring[(i + 1) % 6]!];
+}
+
+/**
+ * Burning Hands' cone: a symmetric wedge centered on `dir`. Ring 1 is the 3-hex front rank
+ * (the facing hex plus one flank each side). When `wide`, ring 2 adds a second, wider rank
+ * further out — 5 more hexes fanning out from the ring-1 hexes pushed one more step along
+ * `dir` — for the higher-level "5-hex cone" tiers.
+ */
+function stepFrom(p: Point, dir: Cube): Point {
+  const c = cubeAdd(oddrToCube(p.x, p.y), dir);
+  return cubeToOddr(c.q, c.r);
+}
+
+export function coneWedge(from: Point, dir: Cube, wide: boolean, cols: number, rows: number): Point[] {
+  const front1 = stepFrom(from, dir);
+  const ring1 = centeredArc(from, front1).filter((p) => inBounds(p.x, p.y, cols, rows));
+  const out: Point[] = [...ring1];
+  const push = (p: Point) => {
+    if (inBounds(p.x, p.y, cols, rows) && !out.some((o) => o.x === p.x && o.y === p.y)) out.push(p);
+  };
+  if (wide && ring1.length === 3) {
+    const front2 = stepFrom(front1, dir);
+    for (const p of centeredArc(front1, front2)) push(p);
+    push(stepFrom(ring1[0]!, dir));
+    push(stepFrom(ring1[2]!, dir));
+  }
+  return out;
+}
+
 export interface ReachCell {
   x: number;
   y: number;
