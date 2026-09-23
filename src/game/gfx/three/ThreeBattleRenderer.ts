@@ -110,6 +110,15 @@ const INDOOR_AMBIENT_INTENSITY = 0.65;
  * comment. Bloom now applies to the whole scene (see render()'s own comment), not just wisp
  * embers, so a high intensity CAN wash out bright ground art too — that's expected now. */
 export const DEFAULT_BLOOM_INTENSITY = 0.9;
+
+/** An overlay fill with its alpha scaled by `fade`, quantized to 0.02 so the per-fill material
+ * cache (overlayMaterialFor) only ever sees a small, bounded set of fade steps. */
+function fadedFill(fill: string, fade: number): string {
+  const m = /rgba?\(([^,]+),([^,]+),([^,)]+)(?:,([^)]+))?\)/.exec(fill);
+  if (!m) return fill;
+  const a = (m[4] !== undefined ? Number(m[4]) : 1) * fade;
+  return `rgba(${m[1]},${m[2]},${m[3]},${(Math.round(a * 50) / 50).toFixed(2)})`;
+}
 const BLOOM_RADIUS = 0.4;
 /** Full-scene bloom (see render()'s own comment) needs a threshold well above the old
  * selective-only 0.2 — that value only ever had to separate wisp embers from a pass that was
@@ -1060,7 +1069,7 @@ export class ThreeBattleRenderer {
   /** A faint, pooled halo restores the depth that the 2D renderer's shadowBlur gave blue
    * movement/range cells. Only blue tactical overlays receive it; spell and danger colors stay
    * deliberately flat so the board remains calm and readable. */
-  private placeBlueOverlayGlow(x: number, y: number, tile: number, index: number): void {
+  private placeBlueOverlayGlow(x: number, y: number, tile: number, index: number, fade = 1): void {
     let glow = this.overlayGlowPool[index];
     if (!glow) {
       glow = new THREE.Sprite(
@@ -1073,7 +1082,7 @@ export class ThreeBattleRenderer {
     const pulse = 0.5 + 0.5 * Math.sin(this.engine.time * 3.8);
     glow.position.set(wx, -wy, 0.42);
     glow.scale.setScalar(tile * (2.08 + pulse * 0.24));
-    (glow.material as THREE.SpriteMaterial).opacity = 0.1 + pulse * 0.1;
+    (glow.material as THREE.SpriteMaterial).opacity = (0.1 + pulse * 0.1) * fade;
     glow.visible = true;
   }
 
@@ -1106,12 +1115,15 @@ export class ThreeBattleRenderer {
       mesh.position.set(wx, -wy, 0.5);
       idx++;
     };
-    for (const layer of engine.boardOverlayLayers()) {
+    // Hidden while anything is playing, fading back in afterwards — see BattleEngine.overlayFade.
+    const fade = engine.overlayFade;
+    for (const layer of fade > 0.001 ? engine.boardOverlayLayers() : []) {
       const rgb = /rgba?\(([^,]+),([^,]+),([^,]+)/.exec(layer.fill);
       const isBlue = !!rgb && Number(rgb[3]) > Number(rgb[1]) && Number(rgb[3]) > Number(rgb[2]);
+      const fill = fade >= 1 ? layer.fill : fadedFill(layer.fill, fade);
       for (const c of layer.cells) {
-        place(c.x, c.y, layer.fill);
-        if (isBlue) this.placeBlueOverlayGlow(c.x, c.y, tile, glowIdx++);
+        place(c.x, c.y, fill);
+        if (isBlue) this.placeBlueOverlayGlow(c.x, c.y, tile, glowIdx++, fade);
       }
     }
     const active = engine.activeTurnHighlight();

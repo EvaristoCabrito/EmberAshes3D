@@ -6825,6 +6825,7 @@ function BattleScreen({
                 <img
                   src={portraitFor(unit.sprite).src}
                   alt=""
+                  style={{ objectPosition: portraitFor(unit.sprite).position }}
                   className={portraitFor(unit.sprite).framed ? "h-16 w-12 sm:h-20 sm:w-14 object-cover rounded-md" : "h-14 w-14 object-contain"}
                 />
                 {unit.side === "player" && <HungerBar name={unit.name} value={unit.fullness} />}
@@ -7451,12 +7452,13 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                     crop is a no-op. Malrec's face portrait reads correctly at its natural
                     scale, so it fills the panel directly rather than being cropped again. */}
                 {unit.sprite === "conjurer" || unit.sprite === "malrec" ? (
-                  <img src={portraitFor(unit.sprite).src} alt="" className="h-full w-full object-cover" />
+                  <img src={portraitFor(unit.sprite).src} alt="" style={{ objectPosition: portraitFor(unit.sprite).position }} className="h-full w-full object-cover" />
                 ) : (
                   <span className="block w-full shrink-0" style={{ aspectRatio: "2 / 3" }}>
                     <img
                       src={portraitFor(unit.sprite).src}
                       alt=""
+                      style={{ objectPosition: portraitFor(unit.sprite).position }}
                       className="h-full w-full object-cover"
                     />
                   </span>

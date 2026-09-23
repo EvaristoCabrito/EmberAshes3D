@@ -30,6 +30,7 @@ import {
   axisWalk,
   axisDir,
   coneWedge,
+  coneSector,
   type ReachCell,
   type Cube,
 } from "./pathfinding";
@@ -168,6 +169,9 @@ function blankLevelUpSpark(): LevelUpSpark {
  * the normal 0.18, so slowing this down keeps the impact flash/number landing right as the
  * bolt visually arrives instead of drifting out of sync with it. */
 const MISSILE_TRAVEL = 0.18;
+/** Phantasmal Force is an apparition, not a bolt: give its attacking silhouette enough
+ * screen time to read before its claws land. */
+const PHANTASMAL_FORCE_TRAVEL = 0.38;
 /** stepSpell's hit tick, per spellKind — every other spell keeps the original 0.18; only
  * Magic Missile's is tied to its own (now longer) travel time. */
 const MISSILE_HIT_AT = MISSILE_TRAVEL;
@@ -198,7 +202,7 @@ interface MissileFx {
   travel: number;
   max: number;
   hue: number;
-  kind: "magicMissile" | "fireball" | "causticVenom" | "longShot" | "arcaneBolt" | "webOfDreams";
+  kind: "magicMissile" | "phantasmalForce" | "fireball" | "causticVenom" | "longShot" | "arcaneBolt" | "webOfDreams";
   seed: number;
 }
 
@@ -279,10 +283,13 @@ interface PortalFx {
   t: number;
   max: number;
   seed: number;
+  /** Body shape of what steps out (FOOTPRINT_TYPE_*), so the portal centres on the whole
+   * body rather than just its anchor hex. Null for a one-hex summon. */
+  body: { dx: number; dy: number }[] | null;
 }
 const PORTAL_FX_CAP = 4;
 function blankPortalFx(): PortalFx {
-  return { live: false, x: 0, y: 0, t: 0, max: 0.85, seed: 0 };
+  return { live: false, x: 0, y: 0, t: 0, max: 0.85, seed: 0, body: null };
 }
 
 /** Divine light / potion burst sitting on a character. Independent of healGlow so the old
@@ -401,6 +408,23 @@ interface MoveAnim {
   t: number;
 }
 
+/** Global playback rule for long sprite sheets, keyed only on frame count (never on a sprite
+ * name), so every 36-frame FINAL sprite — and any added later — plays at a real frame rate
+ * instead of being squeezed into the timing built for 4-12 frame sheets. Sheets shorter than
+ * LONG_SHEET_FRAMES are untouched. */
+const LONG_SHEET_FRAMES = 24;
+/** Seconds the movement/range grid takes to fade in once every action and effect is done. */
+const OVERLAY_FADE_IN = 0.4;
+/** Default: one full pass of any long sheet (idle, walk, attack, cast) lasts this many
+ * seconds, whatever its frame count — a 36-frame sheet plays at 12 fps. */
+const LONG_ANIM_SECONDS = 3;
+/** Walk cycles run faster than the rest: one full pass of a long walk sheet takes this long. */
+const LONG_WALK_SECONDS = 1.5;
+/** Bow shots on a long sheet: the arrow leaves at this point of the LONG_ANIM_SECONDS sheet,
+ * and the archer plays the rest of it (the follow-through) while the arrow flies. Spells
+ * still go off at the very end of their sheet. */
+const LONG_ARROW_RELEASE_SECONDS = 2;
+
 interface CombatAnim {
   type: "combat";
   att: string;
@@ -418,11 +442,21 @@ interface CombatAnim {
   stunChance: number;
   wallImpact: { dice: number; faces: number } | null;
   knockTo: Point | null;
+  /** The attacker already played its full sheet in a wind-up: finish the rest of it, then hold the last frame. */
+  held?: boolean;
+  /** Seconds of the sheet the wind-up already played, and engine time the step started. */
+  heldFrom?: number;
+  heldAt?: number;
 }
 
 interface SpellAnim {
   type: "spell";
   att: string;
+  /** The caster already played its full sheet in a wind-up: finish the rest of it, then hold the last frame. */
+  held?: boolean;
+  /** Seconds of the sheet the wind-up already played, and engine time the step started. */
+  heldFrom?: number;
+  heldAt?: number;
   tiles: Point[];
   ids: string[];
   t: number;
@@ -459,6 +493,11 @@ interface SpellAnim {
 interface HealAnim {
   type: "heal";
   att: string;
+  /** The healer already played its full sheet in a wind-up: finish the rest of it, then hold the last frame. */
+  held?: boolean;
+  /** Seconds of the sheet the wind-up already played, and engine time the step started. */
+  heldFrom?: number;
+  heldAt?: number;
   def: string;
   kind: HealId;
   t: number;
@@ -480,7 +519,10 @@ type Active =
   | HealAnim
   | CureDiseaseAnim
   | { type: "banner"; text: string; t: number; dur: number }
-  | { type: "delay"; t: number; dur: number };
+  | { type: "delay"; t: number; dur: number }
+  /** Long-sheet wind-up (see startSeq): the caster/archer plays its whole cast or attack
+   * sheet before the spell, skill or arrow step it precedes is allowed to start. */
+  | { type: "windup"; id: string; t: number; dur: number; pose: "cast" | "attack" };
 
 function pub(u: Unit, restrained: boolean, movLeft: number): UnitPublic {
   return {
@@ -1119,6 +1161,12 @@ export class BattleEngine {
   private frameShakeDy = 0;
   private queue: Seq[] = [];
   private active: Active | null = null;
+  /** Queue steps whose long-sheet wind-up already played (see startSeq), with how many
+   * seconds of the sheet it covered — the step picks the pose up from there. */
+  private woundUp = new WeakMap<Seq, number>();
+  /** Work a queued step defers until it really starts (after any wind-up) — e.g. a summon's
+   * familiar appearing. Run once, then dropped. */
+  private onSeqStart = new WeakMap<Seq, () => void>();
   private particles: Particle[] = Array.from({ length: PARTICLE_CAP }, blankParticle);
   private particleLive = 0;
   private levelUpFx: LevelUpSpark[] = Array.from({ length: LEVEL_UP_FX_CAP }, blankLevelUpSpark);
@@ -1135,6 +1183,9 @@ export class BattleEngine {
   private bladeFxLive = 0;
   private portalFx: PortalFx[] = Array.from({ length: PORTAL_FX_CAP }, blankPortalFx);
   private portalFxLive = 0;
+  /** 0-1: how visible the movement/range grid is right now (see OVERLAY_FADE_IN). Read by
+   * both renderers when they draw boardOverlayLayers. */
+  overlayFade = 1;
   /** Flips each time Double Strike lands, so its two hits swoosh opposite diagonals and read
    * as one crossing pair of slashes rather than the same cut drawn twice. */
   private doubleStrikeAlt = false;
@@ -1863,6 +1914,18 @@ export class BattleEngine {
     }
     if (!this.active && this.queue.length) this.startSeq(this.queue.shift()!);
     if (this.active) this.stepActive(cap);
+    // Movement/range grid: hidden while anything is still playing (a walk, attack or spell,
+    // or a projectile/impact FX still on screen), then fades in once the board is quiet.
+    const boardBusy =
+      !!this.active ||
+      this.queue.length > 0 ||
+      this.missileFxLive > 0 ||
+      this.fireballBurstFxLive > 0 ||
+      this.lightningFxLive > 0 ||
+      this.holyFxLive > 0 ||
+      this.bladeFxLive > 0 ||
+      this.portalFxLive > 0;
+    this.overlayFade = boardBusy ? 0 : Math.min(1, this.overlayFade + cap / OVERLAY_FADE_IN);
     if (!this.result && !this.active && this.queue.length === 0) {
       const active = this.activeTurnUnit();
       const activeId = active?.id ?? null;
@@ -1907,6 +1970,56 @@ export class BattleEngine {
   }
 
   private startSeq(step: Seq): void {
+    // Long sheets only (LONG_SHEET_FRAMES+): a spell, skill, heal or ranged shot waits for the
+    // caster's/archer's whole cast or attack sheet to finish before it goes off — the arrow
+    // leaves the bow only after the draw, not halfway through it. The step is put back at the
+    // front of the queue and runs unchanged once the wind-up ends. Short sheets and melee
+    // swings skip this entirely.
+    if ((step.type === "spell" || step.type === "heal" || step.type === "combat") && !this.woundUp.has(step) && !this.reducedMotion) {
+      const actor = this.units.find((u) => u.id === step.att);
+      const target =
+        step.type === "combat" || step.type === "heal"
+          ? this.units.find((u) => u.id === step.def)
+          : step.ids[0]
+            ? this.units.find((u) => u.id === step.ids[0])
+            : null;
+      // Warrior/Lancer physical skills land together with their swing — no wind-up (same
+      // melee-skill list stepSpell's hit cue uses).
+      const meleeSkill =
+        step.type === "spell" &&
+        (step.spellKind === "doubleStrike" || step.spellKind === "cleave" || step.spellKind === "piercingThrust" || step.spellKind === "sweep" || step.spellKind === "trip" || step.spellKind === "shoulderSmash" || step.spellKind === "stampede");
+      const ranged = !meleeSkill && (step.type !== "combat" || (!!actor && (this.isArrowAttack(actor) || this.isArcaneCaster(actor))));
+      const pose = step.type === "combat" ? "attack" : "cast";
+      const frames = actor
+        ? pose === "cast"
+          ? (this.art.casts[actor.sprite] ?? this.art.attacks[actor.sprite])
+          : actor.idleAlt
+            ? (this.art.attacks2[actor.sprite] ?? this.art.attacks[actor.sprite])
+            : this.art.attacks[actor.sprite]
+        : undefined;
+      const targetAlive = step.type !== "combat" || !!target?.alive;
+      if (actor && ranged && targetAlive && (frames?.length ?? 0) >= LONG_SHEET_FRAMES) {
+        const arrow =
+          (step.type === "combat" && this.isArrowAttack(actor)) ||
+          (step.type === "spell" && (step.spellKind === "longShot" || step.spellKind === "multiShot" || step.spellKind === "piercing"));
+        const release = arrow ? LONG_ARROW_RELEASE_SECONDS : LONG_ANIM_SECONDS;
+        this.woundUp.set(step, release);
+        this.queue.unshift(step);
+        const tx = target?.x ?? (step.type === "spell" ? step.tiles[0]?.x : undefined);
+        if (tx != null) this.faceSpriteToward(actor.id, tx);
+        this.ensureVisible(actor.x, actor.y);
+        this.active = { type: "windup", id: actor.id, t: 0, dur: release, pose };
+        return;
+      }
+    }
+    const held = this.woundUp.has(step);
+    const heldFrom = this.woundUp.get(step);
+    const heldAt = this.time;
+    const deferred = this.onSeqStart.get(step);
+    if (deferred) {
+      this.onSeqStart.delete(step);
+      deferred();
+    }
     if (step.type === "move") {
       this.active = { type: "move", id: step.id, path: step.path, i: 0, t: 0 };
       // Cultist V2 has its own dedicated left/right walk cues (see assets.ts's move-left-*
@@ -1939,7 +2052,12 @@ export class BattleEngine {
         att: step.att,
         def: step.def,
         stage: "lunge",
-        t: 0,
+        // After a wind-up the draw is already done: start at the end of the lunge so the
+        // arrow/bolt leaves on the very next tick.
+        t: held ? 0.2 : 0,
+        held,
+        heldFrom,
+        heldAt,
         swapped: false,
         bonusDice: step.bonusDice ?? 0,
         bonusDiceCount: step.bonusDiceCount ?? 1,
@@ -1956,6 +2074,9 @@ export class BattleEngine {
       this.active = {
         type: "spell",
         att: step.att,
+        held,
+        heldFrom,
+        heldAt,
         tiles: step.tiles,
         ids: step.ids,
         t: 0,
@@ -2003,12 +2124,10 @@ export class BattleEngine {
         const caster = this.units.find((u) => u.id === step.att);
         if (caster) for (const t of step.tiles) this.emitMissileFx(caster.x, caster.y, t.x, t.y, "magicMissile");
       }
-      // No dedicated art yet — reuses Magic Missile's own bolt FX, same as Phantasmal Force's
-      // spell-icon fallback in GameApp.tsx.
       if (step.spellKind === "phantasmalForce") {
         const caster = this.units.find((u) => u.id === step.att);
         const target = step.tiles[0];
-        if (caster && target) this.emitMissileFx(caster.x, caster.y, target.x, target.y, "magicMissile");
+        if (caster && target) this.emitMissileFx(caster.x, caster.y, target.x, target.y, "phantasmalForce");
       }
       if (step.spellKind === "fireball" || step.spellKind === "causticVenom") {
         const caster = this.units.find((u) => u.id === step.att);
@@ -2034,7 +2153,7 @@ export class BattleEngine {
         for (const t of step.tiles) this.emitLightningFx(t.x, t.y, power);
       }
     } else if (step.type === "heal") {
-      this.active = { type: "heal", att: step.att, def: step.def, kind: step.kind, t: 0, applied: false };
+      this.active = { type: "heal", att: step.att, def: step.def, kind: step.kind, t: 0, applied: false, held, heldFrom, heldAt };
       this.banner = CURES[step.kind].name;
       sfxPlay.ui();
       const healed = this.units.find((u) => u.id === step.def);
@@ -2061,6 +2180,11 @@ export class BattleEngine {
   private stepActive(dt: number): void {
     const a = this.active;
     if (!a) return;
+    if (a.type === "windup") {
+      a.t += dt;
+      if (a.t >= a.dur) this.active = null;
+      return;
+    }
     if (a.type === "delay" || a.type === "banner") {
       a.t += dt;
       if (a.type === "banner" && a.t >= a.dur) this.banner = null;
@@ -2099,13 +2223,14 @@ export class BattleEngine {
       if (toScreen.cx !== fromScreen.cx) unit.facing = toScreen.cx > fromScreen.cx ? 1 : -1;
       unit.walkPose = to.y < from.y ? "back" : to.y > from.y ? "front" : "side";
       a.t += dt;
-      const dur = this.speedMode === "fast" ? 0.12 : this.speedMode === "slow" ? 0.36 : 0.22;
-      const k = easeOut(Math.min(1, a.t / dur));
+      const dur = this.moveStepDur();
+      const k = Math.min(1, a.t / dur);
       unit.drawX = from.x + (to.x - from.x) * k;
       unit.drawY = from.y + (to.y - from.y) * k;
       if (a.t >= dur) {
         a.i += 1;
-        a.t = 0;
+        // Carry the leftover into the next hex so the glide never hitches between steps.
+        a.t = Math.min(a.t - dur, dur);
         unit.x = to.x;
         unit.y = to.y;
         unit.drawX = to.x;
@@ -2142,7 +2267,8 @@ export class BattleEngine {
     // are happy with it); "Normal" is deliberately slowed down some on its own, since this was
     // the direct, repeated report — the default pace read as too fast to actually see what
     // just happened; "Lenta" is slowed down a lot, enough to really watch a cast land.
-    const actionDt = dt * (this.speedMode === "fast" ? 1 : this.speedMode === "slow" ? 0.4 : 0.65);
+    const speedScale = this.speedMode === "fast" ? 1 : this.speedMode === "slow" ? 0.4 : 0.65;
+    const actionDt = dt * speedScale * this.longSheetActionPace(a, speedScale);
     if (a.type === "combat") this.stepCombat(a, actionDt);
     if (a.type === "spell") this.stepSpell(a, actionDt);
     if (a.type === "heal") this.stepHeal(a, actionDt);
@@ -2328,7 +2454,8 @@ export class BattleEngine {
       const k = Math.min(1, a.t / 0.16);
       actor.drawX = actor.drawX + (actor.x - actor.drawX) * k;
       actor.drawY = actor.drawY + (actor.y - actor.drawY) * k;
-      if (a.t >= 0.16) {
+      // A wound-up bow shot also waits for the archer's follow-through to finish.
+      if (a.t >= 0.16 && (a.stage !== "recover" || this.heldDone(a))) {
         actor.drawX = actor.x;
         actor.drawY = actor.y;
         a.t = 0;
@@ -2378,7 +2505,7 @@ export class BattleEngine {
     }
     a.t += dt;
     const arrowSpell = a.spellKind === "longShot" || a.spellKind === "multiShot" || a.spellKind === "piercing";
-    const hitAt = arrowSpell ? ARROW_TRAVEL : a.spellKind === "magicMissile" || a.spellKind === "fireball" || a.spellKind === "causticVenom" ? MISSILE_HIT_AT : 0.18;
+    const hitAt = arrowSpell ? ARROW_TRAVEL : a.spellKind === "phantasmalForce" ? PHANTASMAL_FORCE_TRAVEL : a.spellKind === "magicMissile" || a.spellKind === "fireball" || a.spellKind === "causticVenom" ? MISSILE_HIT_AT : 0.18;
     // Weapon-based skills routed through this same SpellAnim machinery for their multi-target
     // reach (bow shots, Cleave, Sweep, the two charge skills) are not magic — only the actual
     // spellcasters' kinds get the casting cue below.
@@ -2569,7 +2696,7 @@ export class BattleEngine {
     // The Conjurer has a 36-frame casting sheet. Let it finish its visual motion without
     // changing the hit timing above; every other spell keeps the existing duration.
     const spellEnd = att.sprite === "conjurer" ? 0.72 : 0.55;
-    if (a.t >= spellEnd) this.finishCombat(att);
+    if (a.t >= spellEnd && this.heldDone(a)) this.finishCombat(att);
   }
 
   private stepHeal(a: HealAnim, dt: number): void {
@@ -3256,7 +3383,7 @@ export class BattleEngine {
   }
 
   /** One glowing bolt per target, hex-to-hex — see MissileFx. */
-  private emitMissileFx(fromX: number, fromY: number, toX: number, toY: number, kind: "magicMissile" | "fireball" | "causticVenom" | "longShot" | "arcaneBolt" | "webOfDreams"): void {
+  private emitMissileFx(fromX: number, fromY: number, toX: number, toY: number, kind: "magicMissile" | "phantasmalForce" | "fireball" | "causticVenom" | "longShot" | "arcaneBolt" | "webOfDreams"): void {
     if (this.reducedMotion) return;
     let slot = this.missileFx.find((m) => !m.live);
     if (!slot) {
@@ -3275,9 +3402,9 @@ export class BattleEngine {
     slot.toX = toX;
     slot.toY = toY;
     slot.t = 0;
-    slot.travel = kind === "longShot" ? ARROW_TRAVEL : kind === "webOfDreams" ? WEB_SHOT_TRAVEL : MISSILE_TRAVEL;
+    slot.travel = kind === "longShot" ? ARROW_TRAVEL : kind === "webOfDreams" ? WEB_SHOT_TRAVEL : kind === "phantasmalForce" ? PHANTASMAL_FORCE_TRAVEL : MISSILE_TRAVEL;
     slot.max = slot.travel + MISSILE_AFTERGLOW;
-    slot.hue = kind === "fireball" ? 22 : kind === "causticVenom" ? 104 : kind === "longShot" ? 205 : kind === "arcaneBolt" ? 2 : kind === "webOfDreams" ? 276 : 268;
+    slot.hue = kind === "fireball" ? 22 : kind === "causticVenom" ? 104 : kind === "longShot" ? 205 : kind === "arcaneBolt" ? 2 : kind === "webOfDreams" ? 276 : kind === "phantasmalForce" ? 202 : 268;
     slot.kind = kind;
     slot.seed = this.rng() * Math.PI * 2;
   }
@@ -3329,7 +3456,7 @@ export class BattleEngine {
   }
 
   /** Summon Familiar's conjuring circle — see PortalFx/drawPortalFx. */
-  private emitPortalFx(x: number, y: number): void {
+  private emitPortalFx(x: number, y: number, body: { dx: number; dy: number }[] | null = null): void {
     if (this.reducedMotion) return;
     let slot = this.portalFx.find((p) => !p.live);
     if (!slot) {
@@ -3346,8 +3473,10 @@ export class BattleEngine {
     slot.x = x;
     slot.y = y;
     slot.t = 0;
-    slot.max = 0.85;
+    // A multi-hex body gets a bigger circle (sized in drawPortalFx) that stays open longer.
+    slot.max = body && body.length > 1 ? 1.3 : 0.85;
     slot.seed = this.rng() * Math.PI * 2;
+    slot.body = body && body.length > 1 ? body : null;
   }
 
   /** One steel-swoosh effect — see BladeFx/BladeKind. Shared by every warrior/lancer/knight
@@ -3892,7 +4021,7 @@ export class BattleEngine {
     this.spellAim = null;
     this.hover = null;
     const p = bullRushPower(u.level);
-    this.tip = `${BULL_RUSH.name}: carrega em linha reta (2-${p.chargeRange} hexes), ${bullRushFormula(u.level)}, sem contra-ataque, empurra ${p.knockback} hex${p.knockback > 1 ? "es" : ""}. Se o empurrão bater em algo, causa +${diceFormula(p.wallDice, p.wallFaces, 0)} de impacto. Toque num inimigo na linha.`;
+    this.tip = `${BULL_RUSH.name}: avance sobre qualquer inimigo, ${bullRushFormula(u.level)}, sem contra-ataque, empurra ${p.knockback} hex${p.knockback > 1 ? "es" : ""}. Se o empurrão bater em algo, causa +${diceFormula(p.wallDice, p.wallFaces, 0)} de impacto.`;
     sfxPlay.ui();
   }
 
@@ -3907,19 +4036,23 @@ export class BattleEngine {
     return !!occ.get(key(x, y));
   }
 
-  /** Bull Rush's charge follows the direct hex line to an enemy 2-`chargeRange` hexes away.
-   * The intervening path must be clear; the last step supplies the knockback direction. */
-  private bullRushCharge(caster: Unit, cell: Point, chargeRange: number): { dir: Cube; path: Point[] } | null {
-    const dist = hexDist(caster, cell);
-    if (dist < 2 || dist > chargeRange) return null;
+  /** Terrain stops a charge; creatures do not. They are resolved as Bull Rush collateral
+   * hits in castBullRush instead of being treated as an invalid-target gate. */
+  private chargeTerrainBlocked(x: number, y: number): boolean {
+    return !inBounds(x, y, this.cols, this.rows) || !hexDef(this.tiles, this.cols, x, y, this.decorOverlay).passable;
+  }
+
+  /** Bull Rush reaches any living enemy at any range, but terrain and decorations remain
+   * solid. Intervening creatures are valid collateral targets, not blockers. */
+  private bullRushCharge(caster: Unit, cell: Point, _chargeRange: number): { dir: Cube; path: Point[] } | null {
     const occ = this.occ();
+    const foe = occ.get(key(cell.x, cell.y));
+    if (!foe || foe.alive === false || foe.side === caster.side) return null;
     const line = hexLine(caster, cell).slice(1);
     const path = line.slice(0, -1);
     const beforeTarget = path[path.length - 1] ?? caster;
     const dir = axisDir(beforeTarget, cell);
-    if (!dir || path.some((p) => this.axisBlocked(p.x, p.y, occ))) return null;
-    const foe = occ.get(key(cell.x, cell.y));
-    if (!foe || foe.alive === false || foe.side === caster.side) return null;
+    if (!dir || path.some((p) => this.chargeTerrainBlocked(p.x, p.y))) return null;
     return { dir, path };
   }
 
@@ -3927,13 +4060,21 @@ export class BattleEngine {
     const p = bullRushPower(unit.level);
     const charge = this.bullRushCharge(unit, cell, p.chargeRange);
     if (!charge) {
-      this.tip = "Toque num inimigo na linha, a 2+ hexes.";
+      this.tip = "Toque num inimigo.";
       sfxPlay.ui();
       return;
     }
     const occ = this.occ();
     const foe = occ.get(key(cell.x, cell.y));
     if (!foe) return;
+    // A charge does not ghost through a creature: every distinct unit standing on its route
+    // receives the same no-counter Bull Rush hit before the primary target is resolved.
+    const collateral = Array.from(
+      new Map(charge.path.map((pt) => {
+        const hit = occ.get(key(pt.x, pt.y));
+        return [hit?.id, hit] as const;
+      })).values(),
+    ).filter((hit): hit is Unit => !!hit && hit.id !== foe.id);
     const stop = charge.path[charge.path.length - 1] ?? { x: unit.x, y: unit.y };
     // Precompute the knockback here, before anything moves — the board is static for the
     // rest of this single synchronous action, so this is exactly what the queued hit will
@@ -3954,6 +4095,18 @@ export class BattleEngine {
       // hex-by-hex to `stop`) — no synthetic dash-streak FX layered on top, which would
       // flash instantly right now, well before that animation actually plays.
       this.queue.push({ type: "move", id: unit.id, path: [{ x: unit.x, y: unit.y }, ...charge.path] });
+    }
+    for (const hit of collateral) {
+      this.queue.push({
+        type: "combat",
+        att: unit.id,
+        def: hit.id,
+        noCounter: true,
+        bonusDice: p.faces,
+        bonusDiceCount: p.dice,
+        bonusFlat: 0,
+        spellKind: "bullRush",
+      });
     }
     this.queue.push({
       type: "combat",
@@ -5489,24 +5642,29 @@ export class BattleEngine {
       dialog: null,
       moveBudgetUsed: 0,
     };
-    this.units.push(familiar);
     this.spendTier(unit, spellKind);
     this.spellKind = null;
     this.missileTargets = [];
-    this.emitPortalFx(cell.x, cell.y);
-    sfxPlay.summonFamiliar();
     this.tip = `${unit.name} invocou ${familiar.name}.`;
     // Unlike the original instant summon, route the completed summon through the same
     // queued spell action that Birolho uses. The familiar remains exactly the same;
     // this only gives its caster the authored casting sequence before the turn ends.
-    this.queue.push({
+    const step: Seq = {
       type: "spell",
       att: unit.id,
       tiles: [cell],
       ids: [],
       label: spellName,
       spellKind,
+    };
+    // The familiar, its portal and its sound appear when this step actually starts — after a
+    // long-sheet caster's full wind-up (see startSeq), not the instant the spell is clicked.
+    this.onSeqStart.set(step, () => {
+      this.units.push(familiar);
+      this.emitPortalFx(cell.x, cell.y, cls.footprintOffsets ?? null);
+      sfxPlay.summonFamiliar();
     });
+    this.queue.push(step);
   }
 
   private castWebOfDreams(unit: Unit, click: Point): void {
@@ -5718,7 +5876,7 @@ export class BattleEngine {
       sfxPlay.ui();
       return;
     }
-    const tiles = coneWedge(unit, dir, power.wide, this.cols, this.rows);
+    const tiles = coneSector(unit, dir, power.radius, this.cols, this.rows);
     const ids: string[] = [];
     for (const t of tiles) {
       const who = this.units.find((x) => x.alive && occupies(x, t.x, t.y));
@@ -6930,7 +7088,11 @@ export class BattleEngine {
     }
     this.mode = "locked";
     if (at.x !== unit.x || at.y !== unit.y) {
-      const path = reconstructPath(this.reach, at);
+      // Unpruned pass, same reason as commitMove: this.reach drops pass-through cells (an ally's
+      // hex), which broke the path back to the unit — no move got queued and the attack landed
+      // from where the unit already stood, out of its real range.
+      const walkReach = computeReachable(this.effectiveUnitForReach(unit), this.tiles, this.cols, this.rows, this.units, false, this.decorOverlay);
+      const path = reconstructPath(walkReach, at);
       if (path.length > 1) this.queue.push({ type: "move", id: unit.id, path });
     }
     this.queue.push({ type: "combat", att: unit.id, def: foe.id });
@@ -7495,7 +7657,7 @@ export class BattleEngine {
       const from = a.path[a.i];
       const to = a.path[a.i + 1];
       if (from && to) {
-        const k = easeOut(Math.min(1, a.t / MOVE_STEP_DUR));
+        const k = Math.min(1, a.t / this.moveStepDur());
         const A = liftAt(from.x, from.y);
         const B = liftAt(to.x, to.y);
         return A + (B - A) * k;
@@ -7504,13 +7666,20 @@ export class BattleEngine {
     return liftAt(u.x, u.y);
   }
 
+  /** One hex step's duration — the single clock both the move stepper and every drawn
+   * position (unitPixel/unitAnchor/unitLift) use, so the sprite glides at a constant speed
+   * instead of dashing ahead and waiting for the step to finish. */
+  private moveStepDur(): number {
+    return this.speedMode === "fast" ? 0.12 : this.speedMode === "slow" ? 0.36 : 0.22;
+  }
+
   private unitPixel(u: Unit): { cx: number; cy: number } {
     if (this.active && this.active.type === "move" && this.active.id === u.id) {
       const a = this.active;
       const from = a.path[a.i];
       const to = a.path[a.i + 1];
       if (from && to) {
-        const k = easeOut(Math.min(1, a.t / MOVE_STEP_DUR));
+        const k = Math.min(1, a.t / this.moveStepDur());
         const A = this.footprintCentroid(from.x, from.y, u.size, u.footprintW, u.footprintOffsets);
         const B = this.footprintCentroid(to.x, to.y, u.size, u.footprintW, u.footprintOffsets);
         return { cx: A.cx + (B.cx - A.cx) * k, cy: A.cy + (B.cy - A.cy) * k };
@@ -7531,7 +7700,7 @@ export class BattleEngine {
       const from = a.path[a.i];
       const to = a.path[a.i + 1];
       if (from && to) {
-        const k = easeOut(Math.min(1, a.t / MOVE_STEP_DUR));
+        const k = Math.min(1, a.t / this.moveStepDur());
         const A = this.footprintCentroidWorld(from.x, from.y, u.size, u.footprintW, u.footprintOffsets);
         const B = this.footprintCentroidWorld(to.x, to.y, u.size, u.footprintW, u.footprintOffsets);
         return { worldX: A.worldX + (B.worldX - A.worldX) * k, worldY: A.worldY + (B.worldY - A.worldY) * k };
@@ -7558,7 +7727,8 @@ export class BattleEngine {
     // through 3-6x more frames per hex than a 6-12 frame sheet and read as frantic next to
     // them. Capping the frames-per-hex rate at what a 12-frame sheet already gets leaves every
     // sheet at n<=12 untouched and only slows the oversized ones down to match its pace.
-    const framesPerHex = Math.min(n / 2, 6) * (u.sprite === "conjurer" || u.sprite === "malrec" ? 0.9 : 1);
+    const framesPerHex =
+      n >= LONG_SHEET_FRAMES ? (n / LONG_WALK_SECONDS) * dur : Math.min(n / 2, 6) * (u.sprite === "conjurer" || u.sprite === "malrec" ? 0.9 : 1);
     return Math.floor(steps * framesPerHex) % n;
   }
 
@@ -7587,14 +7757,70 @@ export class BattleEngine {
     const rate = base * (moving ? 2.2 : 1) * animationRate;
     if (moving || this.reducedMotion) return Math.floor(u.bob * rate) % n;
     const cycle = Math.max(2, n * 2 - 2);
-    const pace = (cycle / 2.6) * animationRate;
+    const pace = (n >= LONG_SHEET_FRAMES ? n / LONG_ANIM_SECONDS : cycle / 2.6) * animationRate;
     const x = Math.floor(u.bob * pace) % cycle;
     return x < n ? x : cycle - x;
+  }
+
+  /** Long sheets (see LONG_SHEET_FRAMES): stretches an attack/cast's whole clock so its
+   * sheet lasts LONG_ANIM_SECONDS, the same uniform dt scaling speedMode already uses, so
+   * the hit, damage and FX stay in sync with the pose — they just happen later. Never makes
+   * anything faster than the chosen speedMode; returns 1 for every short sheet. */
+  private longSheetActionPace(a: Active, speedScale: number): number {
+    let frames: unknown[] | undefined;
+    let span: number;
+    if (a.type === "combat") {
+      if (a.stage === "fade") return 1;
+      const counter = a.stage.startsWith("counter");
+      // Already played in full during its wind-up (see startSeq) — no stretching on top.
+      if (a.held && !counter) return 1;
+      const sprite = this.units.find((u) => u.id === (counter ? a.def : a.att))?.sprite;
+      if (!sprite) return 1;
+      frames = (counter ? this.art.counters[sprite] : undefined) ?? this.art.attacks[sprite];
+      // stepCombat's lunge + hit + recover clocks, which attackPose spreads the sheet across.
+      span = 0.2 + 0.18 + 0.16;
+    } else if (a.type === "spell" || a.type === "heal") {
+      if (a.held) return 1;
+      const sprite = this.units.find((u) => u.id === a.att)?.sprite;
+      if (!sprite) return 1;
+      frames = this.art.casts[sprite] ?? this.art.attacks[sprite];
+      // attackPose's castDuration.
+      span = sprite === "conjurer" || sprite === "malrec" ? 0.65 : 0.4;
+    } else return 1;
+    const n = frames?.length ?? 0;
+    if (n < LONG_SHEET_FRAMES) return 1;
+    return Math.min(1, span / speedScale / LONG_ANIM_SECONDS);
+  }
+
+  /** After a wind-up: carry on from where it stopped (a bow's follow-through after the
+   * arrow left), then hold the last frame. */
+  private heldFrame(a: { heldFrom?: number; heldAt?: number }, n: number): number {
+    const played = (a.heldFrom ?? LONG_ANIM_SECONDS) + (this.time - (a.heldAt ?? this.time));
+    return Math.min(n - 1, Math.floor((played / LONG_ANIM_SECONDS) * n));
+  }
+
+  /** Whether a wound-up step's remaining sheet (see heldFrame) has finished playing. */
+  private heldDone(a: { held?: boolean; heldFrom?: number; heldAt?: number }): boolean {
+    if (!a.held) return true;
+    return (a.heldFrom ?? LONG_ANIM_SECONDS) + (this.time - (a.heldAt ?? this.time)) >= LONG_ANIM_SECONDS;
   }
 
   private attackPose(u: Unit): number | null {
     const a = this.active;
     if (!a) return null;
+    // Long-sheet wind-up (see startSeq): the whole sheet, start to finish, over its duration.
+    if (a.type === "windup") {
+      if (a.id !== u.id) return null;
+      const frames =
+        a.pose === "cast"
+          ? (this.art.casts[u.sprite] ?? this.art.attacks[u.sprite])
+          : u.idleAlt
+            ? (this.art.attacks2[u.sprite] ?? this.art.attacks[u.sprite])
+            : this.art.attacks[u.sprite];
+      const n = frames?.length ?? 0;
+      if (n < 1) return null;
+      return Math.min(n - 1, Math.floor((a.t / LONG_ANIM_SECONDS) * n));
+    }
     // Visual-only pacing: the Conjurer holds each authored pose 10% longer. Every stage
     // duration below (cast lead-in and the lunge/hit/recover splits) has to scale by the
     // same factor as animationT, or the frame index caps out at 90% of a stage's range
@@ -7611,6 +7837,7 @@ export class BattleEngine {
       const castFrames = this.art.casts[u.sprite] ?? this.art.attacks[u.sprite];
       if (!castFrames || castFrames.length < 3) return null;
       const n = castFrames.length;
+      if (a.held) return this.heldFrame(a, n);
       if (n === 4) {
         if (animationT < 0.12) return 0;
         if (animationT < 0.22) return 1;
@@ -7637,6 +7864,7 @@ export class BattleEngine {
       const frames = (counter ? this.art.counters[u.sprite] : undefined) ?? attackPool;
       if (!frames || frames.length < 4) return null;
       const n = frames.length;
+      if (a.held && !counter) return this.heldFrame(a, n);
       const long = n >= 12;
       // stepCombat's real per-stage clocks (see lunge/impactAt/recover there): 0.2s lunge,
       // 0.18s hit, 0.16s recover, same for every sprite. animationT runs at `pace` of real
@@ -7737,7 +7965,10 @@ export class BattleEngine {
     // attackPose computes its index against whichever pool it picked (casts for a spell/heal
     // cast, counters for the defender's own counter stages, attacks otherwise), so this has
     // to mirror that same choice or the index lands in the wrong array.
-    const casting = this.active && (this.active.type === "spell" || this.active.type === "heal") && this.active.att === u.id;
+    const casting =
+      this.active &&
+      (((this.active.type === "spell" || this.active.type === "heal") && this.active.att === u.id) ||
+        (this.active.type === "windup" && this.active.pose === "cast" && this.active.id === u.id));
     const castPool = faceRight ? this.art.casts[u.sprite] : (this.art.castsLeft[u.sprite] ?? this.art.casts[u.sprite]);
     const countering = this.active?.type === "combat" && this.active.stage.startsWith("counter") && this.active.def === u.id;
     const counterPool = faceRight ? this.art.counters[u.sprite] : (this.art.countersLeft[u.sprite] ?? this.art.counters[u.sprite]);
@@ -8177,7 +8408,10 @@ export class BattleEngine {
     // ordered between terrain and decorations, instead of a Canvas2D fill — so the cell/color
     // logic (the mode/spell switch that used to live inline here) can never drift between the
     // two renderers. This method only knows how to paint a layer once it has one.
-    for (const layer of this.boardOverlayLayers()) drawLayer(layer.cells, layer.fill, layer.glow);
+    ctx.save();
+    ctx.globalAlpha = this.overlayFade;
+    if (this.overlayFade > 0.001) for (const layer of this.boardOverlayLayers()) drawLayer(layer.cells, layer.fill, layer.glow);
+    ctx.restore();
 
     // Whose turn it is, drawn last (after the walkable/attack overlays above) so it's never
     // washed out underneath them — the active unit always stands on its own reach overlay,
@@ -8363,7 +8597,9 @@ export class BattleEngine {
         if (line) push(line, "rgba(200,90,60,0.6)");
       } else if (selected && this.spellKind === "bullRush") {
         const range = bullRushPower(selected.level).chargeRange;
-        push(allAxisRays(selected, this.cols, this.rows).filter((p) => hexDist(selected, p) <= range), "rgba(220,120,80,0.4)");
+        // Bull Rush is an unrestricted enemy charge, so highlight every legal enemy instead
+        // of misleadingly painting only the old short straight-line range.
+        push(this.units.filter((u) => u.alive && u.side !== selected.side).map((u) => ({ x: u.x, y: u.y })), "rgba(220,120,80,0.4)");
         const cell = this.hover ?? this.spellAim;
         const charge = cell ? this.bullRushCharge(selected, cell, range) : null;
         if (cell && charge) {
@@ -8391,7 +8627,7 @@ export class BattleEngine {
         const cell = this.hover ?? this.spellAim;
         const ray = cell ? this.wrathRay(selected, cell, power.range) : null;
         const dir = ray && ray[0] ? axisDir(selected, ray[0]) : null;
-        if (dir) push(coneWedge(selected, dir, power.wide, this.cols, this.rows), "rgba(235,140,70,0.55)");
+        if (dir) push(coneSector(selected, dir, power.radius, this.cols, this.rows), "rgba(235,140,70,0.55)");
       }
     }
 
@@ -8670,7 +8906,8 @@ export class BattleEngine {
         ctx.shadowBlur = w * (u.healGlowKind === "holyMedium" ? 0.58 : 0.42) * u.healGlow * pulse;
         ctx.drawImage(img, -w / 2, -h + footOffset, w, h);
       }
-      this.drawStatusFx(ctx, u, w, h);
+      // Status FX is one fixed size (a normal one-hex unit's box), never the sprite's own size.
+      this.drawStatusFx(ctx, u, cell * 1.11 * 1.2, cell * 1.42 * 1.2);
       ctx.filter = "none";
       ctx.shadowBlur = 0;
       ctx.restore();
@@ -8943,7 +9180,8 @@ export class BattleEngine {
           ctx.rotate(flightAngle + Math.PI / 4);
           ctx.globalCompositeOperation = "source-over";
           ctx.globalAlpha = 1 - afterglow;
-          ctx.drawImage(this.art.arrowCore, -tile * 0.54, -tile * 0.54, tile * 1.08, tile * 1.08);
+          // 25% larger (was 1.08) so the arrow reads over the hex grid.
+          ctx.drawImage(this.art.arrowCore, -tile * 0.675, -tile * 0.675, tile * 1.35, tile * 1.35);
           ctx.restore();
           continue;
         }
@@ -8953,6 +9191,81 @@ export class BattleEngine {
         // drives it (fromX/Y, toX/Y, t, travel), so it's kept alive and aged like any other
         // missile, it just draws nothing of its own here.
         if (m.kind === "webOfDreams") continue;
+
+        if (m.kind === "phantasmalForce") {
+          // A translucent attacker races along the cast path rather than behaving like a
+          // coloured projectile: skull, streaming lower body and two reaching claws make the
+          // hit read as a brief hostile apparition on the victim's hex.
+          const head = along(kHead);
+          const fade = 1 - afterglow;
+          const pulse = 0.9 + 0.1 * Math.sin(this.time * 15 + m.seed);
+          const reachAngle = Math.atan2(dyT, dxT);
+          ctx.save();
+          ctx.translate(head.x, head.y);
+          ctx.globalCompositeOperation = "lighter";
+          ctx.globalAlpha = fade;
+          ctx.shadowColor = "rgba(64,196,255,0.95)";
+          ctx.shadowBlur = tile * 0.38;
+
+          // The tapering, ragged body remains upright so the figure reads at a glance even
+          // when it is flying sideways across the battlefield.
+          const body = ctx.createLinearGradient(0, -tile * 0.35, 0, tile * 0.58);
+          body.addColorStop(0, "rgba(188,246,255,0.80)");
+          body.addColorStop(0.34, "rgba(43,165,255,0.55)");
+          body.addColorStop(1, "rgba(19,82,222,0)");
+          ctx.fillStyle = body;
+          ctx.beginPath();
+          ctx.moveTo(-tile * 0.20 * pulse, -tile * 0.08);
+          ctx.quadraticCurveTo(-tile * 0.34, tile * 0.22, -tile * 0.17, tile * 0.57);
+          ctx.quadraticCurveTo(0, tile * 0.38, tile * 0.08, tile * 0.62);
+          ctx.quadraticCurveTo(tile * 0.24, tile * 0.24, tile * 0.20 * pulse, -tile * 0.08);
+          ctx.closePath();
+          ctx.fill();
+
+          // Pale face and hollow eyes give the effect a figure-like presence without needing
+          // a separate sprite sheet.
+          ctx.shadowBlur = tile * 0.18;
+          ctx.fillStyle = "rgba(180,242,255,0.92)";
+          ctx.beginPath();
+          ctx.ellipse(0, -tile * 0.24, tile * 0.16, tile * 0.19, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(9,45,118,0.92)";
+          for (const eye of [-1, 1]) {
+            ctx.beginPath();
+            ctx.ellipse(eye * tile * 0.058, -tile * 0.25, tile * 0.034, tile * 0.045, 0, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // Two long spectral arms aim into the direction of travel; their three-fingered
+          // tips close on impact.
+          ctx.rotate(reachAngle);
+          ctx.strokeStyle = "rgba(127,225,255,0.86)";
+          ctx.lineCap = "round";
+          ctx.lineWidth = tile * 0.07;
+          for (const side of [-1, 1]) {
+            ctx.beginPath();
+            ctx.moveTo(0, side * tile * 0.04);
+            ctx.quadraticCurveTo(tile * 0.20, side * tile * 0.20, tile * 0.39, side * tile * 0.13);
+            ctx.stroke();
+            for (let claw = -1; claw <= 1; claw += 1) {
+              ctx.beginPath();
+              ctx.moveTo(tile * 0.35, side * tile * 0.13);
+              ctx.lineTo(tile * 0.49, side * tile * (0.13 + claw * 0.07));
+              ctx.stroke();
+            }
+          }
+          if (kHead >= 1) {
+            ctx.strokeStyle = `rgba(212,251,255,${0.9 * fade})`;
+            ctx.lineWidth = tile * 0.035;
+            for (const side of [-1, 1]) {
+              ctx.beginPath();
+              ctx.arc(tile * 0.48, side * tile * 0.10, tile * (0.16 + afterglow * 0.28), side < 0 ? -1.9 : 1.9, side < 0 ? -0.35 : 0.35);
+              ctx.stroke();
+            }
+          }
+          ctx.restore();
+          continue;
+        }
 
         const minorArcaneBolt = m.kind === "arcaneBolt";
 
@@ -9120,101 +9433,109 @@ export class BattleEngine {
         const fade = k < hold ? 1 : Math.max(0, 1 - (k - hold) / (1 - hold));
         if (fade <= 0) continue;
 
-        const n = l.segs.length;
-        const mainPts: { x: number; y: number }[] = [{ x: cx, y: topY }];
-        for (let i = 1; i <= n; i++) {
-          const f = i / (n + 1);
-          if (f > reveal) break;
-          mainPts.push({ x: cx + l.segs[i - 1]! * tile, y: topY + (cy - topY) * f });
-        }
-        if (reveal >= (n + 1 - 0.001) / (n + 1)) mainPts.push({ x: cx, y: cy });
-        if (mainPts.length < 2) continue;
-
         ctx.save();
         ctx.globalCompositeOperation = "lighter";
         const pulse = t3 ? 0.82 + 0.18 * Math.abs(Math.sin(l.t * 52 + l.hue)) : 1;
+        // Real strikes restrike down the same channel two or three times in a fraction of a
+        // second — a hard strobe rather than a smooth fade.
+        const strobe = l.t < 0.05 ? 1 : l.t < 0.08 ? 0.22 : l.t < 0.14 ? 1 : l.t < 0.17 ? 0.35 : l.t < 0.21 ? 0.95 : 0.8;
+        const glow = fade * pulse * strobe;
 
-        if (t3 || raio) {
-          const colW = tile * (t3 ? 1.8 : 0.55);
-          const col = ctx.createLinearGradient(cx, topY, cx, cy);
-          col.addColorStop(0, `hsla(${l.hue}, 100%, 90%, ${(t3 ? 0.28 : 0.18) * fade * pulse})`);
-          col.addColorStop(0.72, `hsla(${l.hue}, 100%, 70%, ${(t3 ? 0.12 : 0.08) * fade})`);
-          col.addColorStop(1, `hsla(${l.hue}, 100%, 80%, 0)`);
-          ctx.fillStyle = col;
-          ctx.beginPath();
-          ctx.rect(cx - colW, topY, colW * 2, cy - topY);
-          ctx.fill();
-        }
-
-        const strokeBolt = (pts: { x: number; y: number }[], glowWidth: number, coreWidth: number) => {
-          ctx.beginPath();
-          pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-          ctx.lineJoin = "round";
-          ctx.lineCap = "round";
-          if (t3) {
-            ctx.strokeStyle = `hsla(${l.hue}, 100%, 72%, ${0.35 * fade * pulse})`;
-            ctx.lineWidth = glowWidth * 1.7;
-            ctx.shadowColor = `hsla(${l.hue}, 100%, 80%, ${0.95 * fade})`;
-            ctx.shadowBlur = tile * 1.4;
-            ctx.stroke();
-            ctx.shadowBlur = 0;
-            ctx.strokeStyle = `hsla(${l.hue}, 100%, 78%, ${0.7 * fade * pulse})`;
-            ctx.lineWidth = glowWidth;
-            ctx.stroke();
-            ctx.strokeStyle = `rgba(255,255,255,${0.98 * fade * pulse})`;
-            ctx.lineWidth = coreWidth;
-            ctx.stroke();
-            ctx.strokeStyle = `rgba(255,255,255,${0.9 * fade * pulse})`;
-            ctx.lineWidth = coreWidth * 0.38;
-            ctx.stroke();
-            return;
-          }
-          ctx.strokeStyle = `hsla(${l.hue}, 100%, 70%, ${0.55 * fade * pulse})`;
-          ctx.lineWidth = glowWidth;
-          ctx.shadowColor = `hsla(${l.hue}, 100%, 78%, ${0.95 * fade * pulse})`;
-          ctx.shadowBlur = tile * (raio ? 0.85 : 0.5);
-          ctx.stroke();
-          ctx.shadowBlur = 0;
-          ctx.strokeStyle = `rgba(255,255,255,${0.96 * fade * pulse})`;
-          ctx.lineWidth = coreWidth;
-          ctx.stroke();
-          if (raio) {
-            ctx.strokeStyle = `rgba(255,255,255,${0.72 * fade * pulse})`;
-            ctx.lineWidth = coreWidth * 0.35;
-            ctx.stroke();
-          }
+        // Seeded from the shape rolled at emit time, so the channel holds one fixed shape for
+        // the whole strike instead of re-rolling every frame.
+        const makeRng = (s: number) => () => {
+          s = (s + 0x6d2b79f5) >>> 0;
+          let r = Math.imul(s ^ (s >>> 15), 1 | s);
+          r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+          return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+        };
+        const baseSeed = (Math.floor(l.hue * 1000) ^ Math.floor((l.segs[0] ?? 0) * 1e6) ^ (l.branches.length * 7919)) >>> 0;
+        const rnd = makeRng(baseSeed);
+        const minSeg = tile * 0.08;
+        // Midpoint displacement: each halving adds a smaller kink, which is what gives
+        // lightning its fractal, crackling edge instead of a few straight zigzags.
+        const zig = (ax: number, ay: number, bx: number, by: number, rough: number, r: () => number) => {
+          const out = [{ x: ax, y: ay }];
+          const rec = (x0: number, y0: number, x1: number, y1: number, d: number) => {
+            const dx = x1 - x0;
+            const dy = y1 - y0;
+            const len = Math.hypot(dx, dy);
+            if (len < minSeg) {
+              out.push({ x: x1, y: y1 });
+              return;
+            }
+            const off = (r() - 0.5) * d;
+            const mx = (x0 + x1) / 2 - (dy / len) * off;
+            const my = (y0 + y1) / 2 + (dx / len) * off;
+            rec(x0, y0, mx, my, d * 0.55);
+            rec(mx, my, x1, y1, d * 0.55);
+          };
+          rec(ax, ay, bx, by, Math.hypot(bx - ax, by - ay) * rough);
+          return out;
         };
 
-        strokeBolt(
-          mainPts,
-          tile * (t3 ? 0.9 : raio ? 0.42 : 0.24),
-          tile * (t3 ? 0.26 : raio ? 0.14 : 0.08),
-        );
+        const main = zig(cx + (rnd() - 0.5) * tile * (t3 ? 0.5 : 1.1), topY, cx, cy, t3 ? 0.14 : 0.2, rnd);
+        const mainShown = Math.max(2, Math.ceil(main.length * reveal));
 
+        // Forks: every one is generated (keeps the shape stable) but only drawn once the
+        // descending leader has passed its split point.
+        const forks: { pts: { x: number; y: number }[]; shown: number; w: number; a: number }[] = [];
         for (const b of l.branches) {
-          const startIdx = Math.min(mainPts.length - 1, Math.round(b.at * (n + 1)));
-          if (startIdx < 1) continue;
-          const start = mainPts[startIdx]!;
+          const idx = Math.min(main.length - 2, Math.floor(b.at * main.length));
+          const start = main[idx]!;
+          const ang = Math.PI / 2 + b.side * (0.35 + rnd() * 0.55);
+          const len = Math.max(tile * 0.6, (cy - start.y) * (0.3 + rnd() * 0.35));
+          const pts = zig(start.x, start.y, start.x + Math.cos(ang) * len, start.y + Math.sin(ang) * len, 0.3, rnd);
           const forkReveal = Math.max(0, Math.min(1, (reveal - b.at) / (1 - b.at + 0.001)));
-          const segCount = b.segs.length;
-          const shown = Math.round(forkReveal * segCount);
-          if (shown < 1) continue;
-          const branchPts = [start];
-          const reach = t3 ? 0.95 : raio ? 0.85 : 0.7;
-          const side = t3 ? 0.85 : raio ? 0.72 : 0.5;
-          for (let i = 0; i < shown; i++) {
-            const f = (i + 1) / segCount;
-            branchPts.push({
-              x: start.x + b.side * tile * side * f + b.segs[i]! * tile,
-              y: start.y + (cy - topY) * (1 - b.at) * f * reach,
-            });
+          const shown = idx < mainShown ? Math.ceil(pts.length * forkReveal) : 0;
+          forks.push({ pts, shown, w: 0.55, a: 0.8 });
+          if (rnd() < 0.65) {
+            const sIdx = Math.floor(pts.length * (0.3 + rnd() * 0.4));
+            const s = pts[sIdx]!;
+            const sAng = ang + b.side * (0.3 + rnd() * 0.5);
+            const sLen = len * (0.3 + rnd() * 0.25);
+            const sub = zig(s.x, s.y, s.x + Math.cos(sAng) * sLen, s.y + Math.sin(sAng) * sLen, 0.32, rnd);
+            forks.push({ pts: sub, shown: shown > sIdx ? Math.ceil(sub.length * Math.min(1, (shown - sIdx) / Math.max(1, pts.length - sIdx))) : 0, w: 0.32, a: 0.55 });
           }
-          if (branchPts.length >= 2) {
-            strokeBolt(
-              branchPts,
-              tile * (t3 ? 0.42 : raio ? 0.2 : 0.13),
-              tile * (t3 ? 0.12 : raio ? 0.07 : 0.045),
-            );
+        }
+
+        // Three passes per channel: a tight coloured glow, a pale inner sheath and a thin
+        // white-hot core — the core stays hairline-thin, which is what reads as electricity.
+        const mainW = t3 ? 2.2 : raio ? 1.5 : 1;
+        const drawChannel = (pts: { x: number; y: number }[], shown: number, w: number, a: number) => {
+          if (shown < 2) return;
+          ctx.beginPath();
+          ctx.moveTo(pts[0]!.x, pts[0]!.y);
+          for (let i = 1; i < shown; i++) ctx.lineTo(pts[i]!.x, pts[i]!.y);
+          ctx.lineJoin = "round";
+          ctx.lineCap = "round";
+          ctx.shadowColor = `hsla(${l.hue}, 100%, 66%, ${Math.min(1, a * glow)})`;
+          ctx.shadowBlur = tile * 0.45 * w;
+          ctx.strokeStyle = `hsla(${l.hue}, 100%, 64%, ${0.42 * a * glow})`;
+          ctx.lineWidth = tile * 0.085 * w;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+          ctx.strokeStyle = `hsla(${l.hue}, 100%, 86%, ${0.8 * a * glow})`;
+          ctx.lineWidth = tile * 0.032 * w;
+          ctx.stroke();
+          ctx.strokeStyle = `rgba(255,255,255,${Math.min(1, a * glow)})`;
+          ctx.lineWidth = Math.max(1, tile * 0.014 * w);
+          ctx.stroke();
+        };
+        for (const f of forks) drawChannel(f.pts, f.shown, mainW * f.w, f.a);
+        drawChannel(main, mainShown, mainW, 1);
+
+        // Ground discharge: short arcs crawling out from the impact, re-rolled fast so they
+        // crackle while the bolt is connected.
+        if (mainShown >= main.length && k < 0.5) {
+          const crackle = makeRng((baseSeed ^ (Math.floor(l.t * 40) * 2654435761)) >>> 0);
+          const arcs = t3 ? 6 : raio ? 5 : 3;
+          const reachT = tile * (t3 ? 1.3 : raio ? 0.9 : 0.6);
+          for (let i = 0; i < arcs; i++) {
+            const ang = crackle() * Math.PI * 2;
+            const len = reachT * (0.45 + crackle() * 0.55);
+            const arc = zig(cx, cy, cx + Math.cos(ang) * len, cy + Math.sin(ang) * len * 0.5, 0.35, crackle);
+            drawChannel(arc, arc.length, mainW * 0.3, 0.7 * (1 - k / 0.5));
           }
         }
 
@@ -9285,44 +9606,100 @@ export class BattleEngine {
     const ease = (x: number) => 1 - (1 - Math.min(1, Math.max(0, x))) ** 3;
     for (const p of this.portalFx) {
       if (!p.live) continue;
-      const { cx, cy } = this.hexCenter(p.x, p.y);
+      // Centre on the whole body that steps out, and size the circle to its on-screen width,
+      // so a multi-hex familiar (e.g. Familiar Titã's 3x2 Type 6) gets a portal it fits in.
+      let cx: number;
+      let cy: number;
+      let maxR = tile * 0.95;
+      if (p.body) {
+        const cells = footprint({ x: p.x, y: p.y, size: 4, footprintOffsets: p.body }).map((c) => this.hexCenter(c.x, c.y));
+        cx = cells.reduce((s, c) => s + c.cx, 0) / cells.length;
+        cy = cells.reduce((s, c) => s + c.cy, 0) / cells.length;
+        const spread = Math.max(...cells.map((c) => Math.abs(c.cx - cx)));
+        maxR = Math.max(maxR, spread + tile * 0.95);
+      } else {
+        ({ cx, cy } = this.hexCenter(p.x, p.y));
+      }
       const k = p.t / p.max;
       const openEnd = 0.35;
       const closeStart = 0.65;
       const radiusK = k < openEnd ? ease(k / openEnd) : k < closeStart ? 1 : Math.max(0, 1 - ease((k - closeStart) / (1 - closeStart)));
       if (radiusK <= 0.01) continue;
-      const maxR = tile * 0.95;
+      const big = maxR / (tile * 0.95);
       const r = maxR * radiusK;
+      const flat = 0.55;
       const spin = p.t * 3.2 + p.seed;
 
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
 
+      // Ground glow under the circle.
       const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 1.3);
       glow.addColorStop(0, `rgba(150,195,255,${0.55 * radiusK})`);
       glow.addColorStop(0.6, `rgba(95,145,255,${0.32 * radiusK})`);
       glow.addColorStop(1, "rgba(60,110,255,0)");
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.ellipse(cx, cy, r * 1.3, r * 1.3 * 0.55, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx, cy, r * 1.3, r * 1.3 * flat, 0, 0, Math.PI * 2);
       ctx.fill();
+
+      // Swirling vortex: curved arms spiralling into the centre, spinning fast.
+      ctx.lineCap = "round";
+      ctx.shadowColor = "rgba(140,190,255,0.9)";
+      ctx.shadowBlur = tile * 0.2;
+      const arms = big > 1.5 ? 5 : 4;
+      for (let i = 0; i < arms; i++) {
+        const base = spin * 2.1 + (i / arms) * Math.PI * 2;
+        ctx.strokeStyle = `rgba(185,220,255,${0.5 * radiusK})`;
+        ctx.lineWidth = Math.max(1, tile * 0.03);
+        ctx.beginPath();
+        for (let s = 0; s <= 14; s++) {
+          const f = s / 14;
+          const a = base + f * 2.4;
+          const rr = r * 0.85 * (1 - f);
+          const x = cx + Math.cos(a) * rr;
+          const y = cy + Math.sin(a) * rr * flat;
+          if (s === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+
+      // Outer rim: one solid thin ring plus rune ticks marching around it.
+      ctx.strokeStyle = `rgba(200,230,255,${0.75 * radiusK})`;
+      ctx.lineWidth = Math.max(1, tile * 0.02);
+      ctx.shadowBlur = tile * 0.2;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, r * 1.08, r * 1.08 * flat, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      const ticks = Math.round(18 * Math.max(1, big * 0.8));
+      ctx.lineWidth = Math.max(1, tile * 0.025);
+      for (let i = 0; i < ticks; i++) {
+        const a = -spin * 0.6 + (i / ticks) * Math.PI * 2;
+        const x0 = cx + Math.cos(a) * r * 0.96;
+        const y0 = cy + Math.sin(a) * r * 0.96 * flat;
+        const x1 = cx + Math.cos(a) * r * 1.08;
+        const y1 = cy + Math.sin(a) * r * 1.08 * flat;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+      }
 
       // Outer ring: a broken circle of arcs rotating one way — the "magic circle" border.
       const segs = 10;
       ctx.strokeStyle = `rgba(175,218,255,${0.85 * radiusK})`;
       ctx.lineWidth = Math.max(1.5, tile * 0.035);
-      ctx.shadowColor = "rgba(140,190,255,0.9)";
       ctx.shadowBlur = tile * 0.25;
       for (let i = 0; i < segs; i++) {
         const a0 = spin + (i / segs) * Math.PI * 2;
         const a1 = a0 + ((Math.PI * 2) / segs) * 0.55;
         ctx.beginPath();
-        ctx.ellipse(cx, cy, r, r * 0.55, 0, a0, a1);
+        ctx.ellipse(cx, cy, r, r * flat, 0, a0, a1);
         ctx.stroke();
       }
 
-      // Inner ring: tighter, thinner, spinning the opposite way — reads as a second rune
-      // band rather than a duplicate of the outer one.
+      // Inner ring: tighter, thinner, spinning the opposite way.
       ctx.strokeStyle = `rgba(222,240,255,${0.7 * radiusK})`;
       ctx.lineWidth = Math.max(1, tile * 0.018);
       ctx.shadowBlur = tile * 0.15;
@@ -9331,21 +9708,39 @@ export class BattleEngine {
         const a0 = -spin * 1.4 + (i / innerSegs) * Math.PI * 2;
         const a1 = a0 + ((Math.PI * 2) / innerSegs) * 0.6;
         ctx.beginPath();
-        ctx.ellipse(cx, cy, r * 0.6, r * 0.6 * 0.55, 0, a0, a1);
+        ctx.ellipse(cx, cy, r * 0.6, r * 0.6 * flat, 0, a0, a1);
         ctx.stroke();
       }
 
-      // A few motes drifting up out of the circle.
+      // Column of light rising out of the circle while it's open.
       ctx.shadowBlur = 0;
-      const motes = 6;
+      const colH = tile * (1.6 + big * 0.9) * radiusK;
+      const colW = r * 0.75;
+      const col = ctx.createLinearGradient(cx, cy, cx, cy - colH);
+      col.addColorStop(0, `rgba(170,210,255,${0.32 * radiusK})`);
+      col.addColorStop(0.5, `rgba(120,170,255,${0.14 * radiusK})`);
+      col.addColorStop(1, "rgba(90,140,255,0)");
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(cx - colW, cy);
+      ctx.quadraticCurveTo(cx - colW * 0.55, cy - colH * 0.5, cx - colW * 0.3, cy - colH);
+      ctx.lineTo(cx + colW * 0.3, cy - colH);
+      ctx.quadraticCurveTo(cx + colW * 0.55, cy - colH * 0.5, cx + colW, cy);
+      // Base follows the circle's own near edge, never a hard straight cut across it.
+      ctx.ellipse(cx, cy, colW, colW * flat, 0, 0, Math.PI);
+      ctx.closePath();
+      ctx.fill();
+
+      // Motes drifting up out of the circle.
+      const motes = Math.round(8 * Math.max(1, big));
       for (let i = 0; i < motes; i++) {
         const ang = p.seed + i * 2.4;
         const rise = (p.t * 0.6 + i * 0.17) % 1;
-        const mx = cx + Math.cos(ang) * r * 0.5;
-        const my = cy - rise * tile * 0.9 - r * 0.1;
-        ctx.fillStyle = `rgba(195,222,255,${(1 - rise) * 0.6 * radiusK})`;
+        const mx = cx + Math.cos(ang) * r * 0.6;
+        const my = cy + Math.sin(ang) * r * 0.6 * flat - rise * tile * (0.9 + big * 0.4);
+        ctx.fillStyle = `rgba(195,222,255,${(1 - rise) * 0.7 * radiusK})`;
         ctx.beginPath();
-        ctx.arc(mx, my, tile * 0.025, 0, Math.PI * 2);
+        ctx.arc(mx, my, tile * 0.028, 0, Math.PI * 2);
         ctx.fill();
       }
 

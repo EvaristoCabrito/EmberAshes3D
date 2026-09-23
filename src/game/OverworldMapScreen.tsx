@@ -680,7 +680,7 @@ export function OverworldMapScreen({
           {([['Kael', 'kaelFinal'], ['Neera', 'neera'], ['Voss', 'voss'], ['Salazar', 'salazar'], ['Aldric', 'aldric'], ['Malrec', 'conjurer']] as const).filter(([name]) => test || heroRecruited(name, save.completed)).map(([name, sprite]) => (
             <div key={name} className="w-10" title={name}>
               <button type="button" aria-label={`Inventário de ${name}`} onClick={() => setInventoryHero(name)} className="min-h-11">
-                <img src={portraitFor(sprite).src} alt={name} className="w-10 h-12 object-cover rounded" />
+                <img src={portraitFor(sprite).src} alt={name} style={{ objectPosition: portraitFor(sprite).position }} className="w-10 h-12 object-cover rounded" />
               </button>
               <HungerBar name={name} value={heroHunger[name]} />
             </div>

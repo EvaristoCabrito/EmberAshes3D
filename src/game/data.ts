@@ -3427,14 +3427,22 @@ export function spellFormula(mag: number, mul: number, dice: number, faces: numb
  * that rank plus a second, wider rank further out (the "5-hex cone" tiers). */
 export const BURNING_HANDS = { name: "Mãos Flamejantes" };
 
-export function burningHandsPower(level: number): { range: number; dice: number; faces: number; mul: number; wide: boolean } {
-  if (level >= 25) return { range: 2, dice: 2, faces: 10, mul: 1.35, wide: true };
-  if (level >= 21) return { range: 2, dice: 2, faces: 8, mul: 1.3, wide: true };
-  if (level >= 17) return { range: 2, dice: 2, faces: 6, mul: 1.25, wide: true };
-  if (level >= 13) return { range: 2, dice: 2, faces: 4, mul: 1.2, wide: true };
-  if (level >= 9) return { range: 2, dice: 1, faces: 8, mul: 1.15, wide: false };
-  if (level >= 5) return { range: 1, dice: 1, faces: 6, mul: 1.1, wide: false };
-  return { range: 1, dice: 1, faces: 4, mul: 1.05, wide: false };
+/** Burning Hands' cone radius: grows in even steps from 1 hex at level 1 to 6 at level 15
+ * (1-3: 1, 4-6: 2, 7-9: 3, 10-12: 4, 13-14: 5, 15+: 6). Aim range always equals it. The cone
+ * itself is slim (see coneSector): 3, 6, 11, 16, 23, 30 hexes for radius 1-6. */
+export function burningHandsRadius(level: number): number {
+  return Math.min(6, 1 + Math.floor((Math.max(1, level) - 1) * 5 / 14));
+}
+
+export function burningHandsPower(level: number): { range: number; radius: number; dice: number; faces: number; mul: number } {
+  const radius = burningHandsRadius(level);
+  if (level >= 25) return { range: radius, radius, dice: 2, faces: 10, mul: 1.35 };
+  if (level >= 21) return { range: radius, radius, dice: 2, faces: 8, mul: 1.3 };
+  if (level >= 17) return { range: radius, radius, dice: 2, faces: 6, mul: 1.25 };
+  if (level >= 13) return { range: radius, radius, dice: 2, faces: 4, mul: 1.2 };
+  if (level >= 9) return { range: radius, radius, dice: 1, faces: 8, mul: 1.15 };
+  if (level >= 5) return { range: radius, radius, dice: 1, faces: 6, mul: 1.1 };
+  return { range: radius, radius, dice: 1, faces: 4, mul: 1.05 };
 }
 
 export function burningHandsFormula(level: number, mag: number): string {

@@ -284,6 +284,35 @@ export function coneWedge(from: Point, dir: Cube, wide: boolean, cols: number, r
   return out;
 }
 
+/** A slim hex cone out to `radius` rows from `from`, centred on `dir`: rows are 3, 3, 5, 5,
+ * 7, 7 hexes wide (widening by 2 every other row), so radius 1..6 covers 3, 6, 11, 16, 23, 30
+ * hexes. Row 1 is the same 3 hexes coneWedge's narrow form gives. Used by Burning Hands'
+ * level-scaled cone. */
+export function coneSector(from: Point, dir: Cube, radius: number, cols: number, rows: number): Point[] {
+  const i = CUBE_DIRS.findIndex((d) => d.q === dir.q && d.r === dir.r && d.s === dir.s);
+  if (i < 0) return [];
+  const left = CUBE_DIRS[(i + 5) % 6]!;
+  const right = CUBE_DIRS[(i + 1) % 6]!;
+  const o = oddrToCube(from.x, from.y);
+  const out: Point[] = [];
+  for (let k = 1; k <= radius; k++) {
+    // Row k of the full 120° wedge, left corner -> straight ahead (k*dir) -> right corner:
+    // 2k+1 hexes. Keep only the centred `width` of them.
+    const row: Cube[] = [];
+    for (let a = k; a >= 0; a--) row.push({ q: left.q * a + dir.q * (k - a), r: left.r * a + dir.r * (k - a), s: 0 });
+    for (let a = 1; a <= k; a++) row.push({ q: right.q * a + dir.q * (k - a), r: right.r * a + dir.r * (k - a), s: 0 });
+    const width = 3 + 2 * Math.floor((k - 1) / 2);
+    const half = (width - 1) / 2;
+    for (let j = k - half; j <= k + half; j++) {
+      const c = row[j];
+      if (!c) continue;
+      const p = cubeToOddr(o.q + c.q, o.r + c.r);
+      if (inBounds(p.x, p.y, cols, rows)) out.push(p);
+    }
+  }
+  return out;
+}
+
 export interface ReachCell {
   x: number;
   y: number;
@@ -318,7 +347,11 @@ export function footprint(
   // player, where the feet render); the rest of the shape trails behind it, never past
   // unit.y, so nothing sits hidden behind the sprite from the player's view.
   if (unit.footprintOffsets) {
-    return unit.footprintOffsets.map((o) => ({ x: unit.x + o.dx, y: unit.y + o.dy }));
+    // Offsets are authored for an even anchor row. On an odd-r grid, an odd-dy row sits half a
+    // hex the other way when the anchor row is odd, so shift it one column right to keep the
+    // blocked cells under the sprite (which always centers on the front row) on every row.
+    const shift = unit.y & 1;
+    return unit.footprintOffsets.map((o) => ({ x: unit.x + o.dx + (o.dy & 1 ? shift : 0), y: unit.y + o.dy }));
   }
   if (s >= 4) {
     // Fallback: a plain footprintW x footprintH rectangle (default 2x4). Hex rows alternate
@@ -413,6 +446,10 @@ export function footprintCost(
     const who = occ.get(key(p.x, p.y));
     if (!who || who.id === self.id) continue;
     if (who.side !== self.side) return null;
+    // A creature's body-type target zone (FOOTPRINT_TYPE_*) is never walked into or through,
+    // friend or foe, so nobody ends up hidden under a larger monster. This only restricts
+    // OTHER movers — the creature's own pathfinding still checks just its front row (above).
+    if (who.footprintOffsets) return null;
     if (stop) return null;
   }
   return cost;

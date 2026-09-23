@@ -71,15 +71,19 @@ const HERO_PORTRAIT: Partial<Record<string, string>> = {
   // Malrec is the named Conjurer hero: always use his face portrait, never a battle sprite frame.
   malrec: "/game/portraits/conjurer-002.png?v=2",
   theButcher: "/game/portraits/the-butcher-portrait-001.jpg?v=1",
+  // Familiar Titã uses a direct crop of the player's supplied concept art; no art is generated.
+  familiar3: "/game/portraits/familiar3-profile.jpeg?v=3",
 };
 
 /** The one place the portrait-or-sprite-frame fallback lives — used by the unit inspect
  * popup, the footer portrait button, and DialogOverlay. Every "framed" portrait renders in
  * the same fixed box via object-cover, so the frame is always the same size regardless of
  * the source image's own dimensions. */
-export function portraitFor(sprite: SpriteId): { src: string; framed: boolean } {
+export function portraitFor(sprite: SpriteId): { src: string; framed: boolean; position?: string } {
   const framed = HERO_PORTRAIT[sprite];
-  return framed ? { src: framed, framed: true } : { src: `/game/sprites/${sprite}/1.png`, framed: false };
+  return framed
+    ? { src: framed, framed: true }
+    : { src: `/game/sprites/${sprite}/1.png`, framed: false };
 }
 
 const TILES = Object.keys(TILE_VARIANT_COUNT) as TerrainId[];
