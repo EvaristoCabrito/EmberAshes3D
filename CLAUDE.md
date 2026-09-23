@@ -6,6 +6,42 @@
 - **`main` must always have everything — it can never be left behind.** Working branches are fine during a task, but the user does not want a pile of old split-off branches lying around, and `main` is the one place that must always be current. Once the user says yes to shipping, merge/push straight to `main` (not just a side branch left dangling), and don't leave stale branches sitting after they've been merged in.
 - **No pull requests unless explicitly asked.** Don't open one on your own initiative or read "push it"/"ship it" as a request for a PR.
 
+## Change scope
+
+This is an existing working codebase. Preserve existing behavior by default.
+
+1. Only modify code explicitly required by the user's request.
+2. Never refactor, rewrite, reorganize, rename, optimize, clean up, or modernize unrelated code.
+3. Never modify unrelated files merely because you think they could be improved.
+4. Never change working systems to make them "more consistent."
+5. Never alter global behavior unless the user explicitly requests a global change.
+6. Preserve existing APIs, function signatures, constants, file structure, and behavior unless changing them is directly required.
+7. Do not remove code that appears unused — it may be used dynamically elsewhere.
+8. Do not change formatting across an entire file when making a small modification.
+9. Prefer the smallest possible patch. If a request can be completed by modifying 10 lines, do not rewrite 100.
+10. If solving the request appears to require modifying another subsystem, stop and explain what additional file/system would need to change before modifying it.
+11. Do not fix unrelated bugs discovered while working — flag them instead.
+12. Do not add features the user did not request.
+13. Before finishing, inspect the diff (`git diff`) and revert every changed block that was not necessary for the requested task. For each changed file/block ask: "was this modification necessary to satisfy the user's exact request?" — if no, revert it. The final diff must contain only the minimum changes necessary.
+
+The existing implementation is authoritative. "Better", "cleaner", or "more maintainable" is NOT permission to change it.
+
+### Protected systems
+
+Treat existing working systems as locked unless the user's current request explicitly names that system. A task involving one subsystem does NOT grant permission to "improve" neighboring subsystems. Do not modify without being explicitly asked:
+- sprite animation behavior
+- sprite rendering
+- camera behavior
+- movement speeds
+- spell speeds
+- lighting
+- shadows
+- map rendering
+- asset loading
+- combat calculations
+- UI behavior
+- WebGL/Three.js rendering configuration
+
 ## Locked behavior — do not touch without an explicit new request
 
 These were each fixed after repeated regressions and re-fixes — this list exists because the

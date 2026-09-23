@@ -374,11 +374,11 @@ export function OverworldMapScreen({
             <button
               type="button"
               onClick={() => setFieldSpellsOpen((o) => !o)}
-              className="size-9 overflow-hidden rounded-md border border-border bg-bg/70"
+              className="size-11 overflow-hidden rounded-md bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               aria-label="Feitiços de campo"
               aria-expanded={fieldSpellsOpen}
             >
-              <img src="/game/icons/field-spells.png" alt="" draggable={false} className="h-full w-full object-cover" />
+              <img src="/game/icons/field-spells.png" alt="" draggable={false} className="block h-full w-full object-cover" />
             </button>
             {fieldSpellsOpen && (
               <div className="absolute right-0 top-full mt-2 w-72 rounded-md border border-border bg-bg/95 p-3 flex flex-col gap-2 shadow-lg shadow-bg/40 z-20">

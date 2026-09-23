@@ -1033,6 +1033,8 @@ export interface SaveData {
   /** The movement/hunger explainer, shown once the first time the RPG overworld map
    * screen opens for this party. Absent reads as not yet seen. */
   seenOverworldIntro?: boolean;
+  /** The campaign's chosen map/travel style. Test mode never persists this choice. */
+  mapMode?: "classic" | "rpg";
   /** RPG map only: current hex position and day count. Unused by the classic map. */
   overworldPos: { col: number; row: number };
   gameClock: number;

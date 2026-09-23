@@ -623,6 +623,7 @@ function migrateRecord(raw: Record<string, unknown>, muted: boolean): SaveData {
     battle: cleanBattle(raw.battle, pending),
     seenSmithIntro: raw.seenSmithIntro === true,
     seenOverworldIntro: raw.seenOverworldIntro === true,
+    mapMode: raw.mapMode === "classic" || raw.mapMode === "rpg" ? raw.mapMode : undefined,
     overworldPos,
     gameClock: clampInt(raw.gameClock, 0, 999999),
     overworldMoveBudgetUsed: clampInt(raw.overworldMoveBudgetUsed ?? raw.gameClock, 0, 999999),

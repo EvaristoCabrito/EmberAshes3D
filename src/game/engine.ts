@@ -1,4 +1,4 @@
-import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expForHit, FIREBALL, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, weightedWeaponPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashFormula, shieldBashPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower } from "./data";
+import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expForHit, FIREBALL, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, weightedWeaponPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashFormula, shieldBashPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower } from "./data";
 import type { SpellTier } from "./data";
 import { canCounter, makeForecast, mulberry32, powerOf, protOf, rollDamage, rollDamageCustom } from "./combat";
 import {
@@ -167,7 +167,7 @@ function blankLevelUpSpark(): LevelUpSpark {
  * for a magicMissile cast fires at exactly this time (see MISSILE_HIT_AT below) instead of
  * the normal 0.18, so slowing this down keeps the impact flash/number landing right as the
  * bolt visually arrives instead of drifting out of sync with it. */
-const MISSILE_TRAVEL = 0.34;
+const MISSILE_TRAVEL = 0.18;
 /** stepSpell's hit tick, per spellKind — every other spell keeps the original 0.18; only
  * Magic Missile's is tied to its own (now longer) travel time. */
 const MISSILE_HIT_AT = MISSILE_TRAVEL;
@@ -651,7 +651,8 @@ const HERO_SPRITE_BY_NAME: Partial<Record<string, SpriteId>> = {
  * — see its doc comment in types.ts) applied first: set, it renders with classId's own class
  * sprite instead, so any enemy/creature classId dropped into a hero-named slot actually shows
  * up as itself rather than snapping back to that hero's pinned look. */
-function resolveHeroSprite(name: string, classSprite: SpriteId, useClassSprite?: boolean): SpriteId {
+/** Resolves the persistent visual identity used by battle units and out-of-battle hero views. */
+export function heroSpriteFor(name: string, classSprite: SpriteId, useClassSprite?: boolean): SpriteId {
   if (useClassSprite) return classSprite;
   return HERO_SPRITE_BY_NAME[name] ?? classSprite;
 }
@@ -723,7 +724,7 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
     className: cls.name,
     role: cls.role,
     side,
-    sprite: resolveHeroSprite(spawn.name, cls.sprite, spawn.useClassSprite),
+    sprite: heroSpriteFor(spawn.name, cls.sprite, spawn.useClassSprite),
     useClassSprite: spawn.useClassSprite,
     x: spawn.x,
     y: spawn.y,
@@ -838,7 +839,7 @@ function unitFromSnap(snap: BattleUnitSnap): Unit {
     className: cls?.name ?? classId,
     role: cls?.role ?? "",
     side: snap.side,
-    sprite: resolveHeroSprite(snap.name, cls?.sprite ?? "soldier", snap.useClassSprite),
+    sprite: heroSpriteFor(snap.name, cls?.sprite ?? "soldier", snap.useClassSprite),
     useClassSprite: snap.useClassSprite,
     x: snap.x,
     y: snap.y,
@@ -1897,7 +1898,8 @@ export class BattleEngine {
         u.sprite !== "malrec" &&
         u.sprite !== "familiar3" &&
         u.sprite !== "morvenian-wolf" &&
-        u.sprite !== "mordavian-wolf")
+        u.sprite !== "mordavian-wolf" &&
+        u.sprite !== "neera")
     )
       return;
     if (x > u.x) u.facing = 1;
@@ -3875,11 +3877,15 @@ export class BattleEngine {
     sfxPlay.ui();
   }
 
-  /** Warrior tier 1's alternative to Corte Duplo (shares its charge pool) — a straight-line
-   * charge, aimed by clicking an enemy at least 2 hexes away along an unobstructed hex axis. */
+  /** Warrior tier 1's alternative to Corte Duplo (shares its charge pool), available at level 3. */
   startBullRush(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || u.acted || this.tierRemaining(u, "bullRush") <= 0) return;
+    if (u.level < BULL_RUSH_UNLOCK_LEVEL) {
+      this.tip = `${BULL_RUSH.name} disponível a partir do nível ${BULL_RUSH_UNLOCK_LEVEL}.`;
+      sfxPlay.ui();
+      return;
+    }
     this.mode = "awaitSpell";
     this.spellKind = "bullRush";
     this.spellArmed = false;
@@ -3901,18 +3907,17 @@ export class BattleEngine {
     return !!occ.get(key(x, y));
   }
 
-  /** Bull Rush's charge: walks from `caster` toward `cell` along the exact hex axis between
-   * them, stopping the moment something occupies or blocks a hex. A valid charge target is
-   * one where that stop is `cell` itself, occupied by a living enemy, 2-`chargeRange` hexes
-   * away — the path before it is guaranteed clear (see axisWalk in pathfinding.ts). */
+  /** Bull Rush's charge follows the direct hex line to an enemy 2-`chargeRange` hexes away.
+   * The intervening path must be clear; the last step supplies the knockback direction. */
   private bullRushCharge(caster: Unit, cell: Point, chargeRange: number): { dir: Cube; path: Point[] } | null {
-    const dir = axisDir(caster, cell);
-    if (!dir) return null;
     const dist = hexDist(caster, cell);
     if (dist < 2 || dist > chargeRange) return null;
     const occ = this.occ();
-    const { path, stoppedAt } = axisWalk(caster, dir, this.cols, this.rows, chargeRange, (p) => this.axisBlocked(p.x, p.y, occ));
-    if (!stoppedAt || stoppedAt.x !== cell.x || stoppedAt.y !== cell.y) return null;
+    const line = hexLine(caster, cell).slice(1);
+    const path = line.slice(0, -1);
+    const beforeTarget = path[path.length - 1] ?? caster;
+    const dir = axisDir(beforeTarget, cell);
+    if (!dir || path.some((p) => this.axisBlocked(p.x, p.y, occ))) return null;
     const foe = occ.get(key(cell.x, cell.y));
     if (!foe || foe.alive === false || foe.side === caster.side) return null;
     return { dir, path };
@@ -6788,7 +6793,7 @@ export class BattleEngine {
       return;
     }
 
-    if (here && here.side === "player" && here.alive && !here.moved && this.phase === "player") {
+    if (here && here.side === "player" && here.alive && this.phase === "player") {
       if (selected && this.mode === "awaitAction") {
         if (here.id === selected.id) return;
         this.deselect();
@@ -7753,7 +7758,9 @@ export class BattleEngine {
     const isFamiliar = u.classId === "familiar" || u.sprite === "familiar";
     const isKaelFinal = u.sprite === "kaelFinal";
     const isCultistV2 = u.classId === "cultistV2" || u.sprite === "cultist-v2";
-    const spriteScale = isLancer ? 1.4 : isSandoval ? 1.2 : isFamiliar ? 0.5 : isKaelFinal ? 0.9 : isCultistV2 ? 0.98 : 1;
+    const isNeera = u.sprite === "neera";
+    const isSoldier = u.sprite === "soldier";
+    const spriteScale = isLancer ? 1.4 : isSandoval ? 1.2 : isFamiliar ? 0.5 : isKaelFinal ? 0.9 : isCultistV2 ? 0.98 : isNeera ? 0.9 : isSoldier ? 0.9 : 1;
     const familiar2WidthMul = u.sprite === "familiar2" ? 2.544 : 1;
     const familiar2WalkScale = u.sprite === "familiar2" && walk ? 0.97 : 1;
     const isCultistV2Casting = isCultistV2 && casting;
@@ -7768,6 +7775,25 @@ export class BattleEngine {
     const isMalrecAtkFrame27 = isMalrecAttacking && fi === 26;
     const malrecAtkFrame27WidthScale = isMalrecAtkFrame27 ? 1.49 : 1;
     const cultistV2WalkScale = isCultistV2 && walk ? 1.02 : 1;
+    // Kael Final's atk-*.png sheet is exported on a bigger, more-padded canvas than his
+    // stand-*.png idle sheet (432x640 vs 354x528, character filling ~90% of frame height on
+    // average during the swing vs ~98% standing) — since drawImage stretches the WHOLE sheet
+    // into the same fixed on-screen box regardless of the sheet's own resolution, that extra
+    // padding alone reads as him visibly shrinking the instant ATT starts and popping back on
+    // return to idle. Measured via alpha-bbox fill ratio (idle vs a spread of atk frames,
+    // matched on occupied-area so this doesn't stretch him, just restores his idle size) —
+    // see scratchpad measure_bbox.py from the neera/kael-final shrink report.
+    const isKaelFinalAttacking = isKaelFinal && atk != null;
+    const kaelFinalAtkScale = isKaelFinalAttacking ? 1.07 : 1;
+    // Same root cause as Kael Final above: Neera's atk-*.png (360x572) and cast-*.png
+    // (360x520) sheets both carry noticeably more padding around her than her idle stand
+    // sheet (318x556) does — atk fills ~66% of canvas width on average vs idle's ~84%, cast
+    // is padded even further. Two separate corrections because the two sheets are padded by
+    // different amounts (measured area-fill ratio, same method as Kael Final's above).
+    const isNeeraCasting = isNeera && casting;
+    const isNeeraAttacking = isNeera && atk != null && !isNeeraCasting;
+    const neeraAtkScale = isNeeraAttacking ? 1.14 : 1;
+    const neeraCastScale = isNeeraCasting ? 1.18 : 1;
     const familiar3Scale = u.classId === "familiar3" ? 1.4 : 1;
     // Titan V2 is a wide 16:9 creature frame, so give Familiar 3 its natural
     // horizontal footprint rather than squeezing the silhouette into the old square box.
@@ -7784,7 +7810,10 @@ export class BattleEngine {
       malrecAtkScale *
       cultistV2WalkScale *
       familiar3Scale *
-      familiar2WalkScale;
+      familiar2WalkScale *
+      kaelFinalAtkScale *
+      neeraAtkScale *
+      neeraCastScale;
     const w =
       cell *
       (s >= 4 ? 2.85 : s === 2 ? 1.85 : boss ? 1.12 : 1.11) *
@@ -7800,12 +7829,26 @@ export class BattleEngine {
       malrecAtkFrame27WidthScale *
       cultistV2WalkScale *
       familiar3Scale *
-      familiar3WidthScale;
+      familiar3WidthScale *
+      kaelFinalAtkScale *
+      neeraAtkScale *
+      neeraCastScale;
     // The cast cut's own content also sits higher inside its canvas than idle/attack's does
     // (feet reach only ~87% of the way down vs idle's ~99%) — without this, boosting h above
     // would float the feet even further off the ground than they already subtly are. Shifts
     // the whole draw down by that measured gap so the feet land back on the anchor point.
-    const footOffset = isCultistV2Casting ? h * 0.127 : 0;
+    // Kael Final's atk sheet and Neera's atk/cast sheets each measured a smaller, consistent
+    // version of the same gap (feet sitting a bit higher in their own canvas than idle's does)
+    // — same fix, smaller correction.
+    const footOffset = isCultistV2Casting
+      ? h * 0.127
+      : isKaelFinalAttacking
+        ? h * 0.025
+        : isNeeraAttacking
+          ? h * 0.042
+          : isNeeraCasting
+            ? h * 0.045
+            : 0;
     // Big creatures plant their feet at the bottom corner of their front hex (tile * 0.9,
     // matching the hex outline radius used elsewhere) instead of the smaller offset tuned
     // for normal-size sprites, so the feet don't float above the tile they stand on.

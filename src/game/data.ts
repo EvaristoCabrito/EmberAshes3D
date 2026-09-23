@@ -2880,13 +2880,14 @@ export function cleaveFormula(level: number): string {
   return `arma + ${diceFormula(p.dice, p.faces, 0)}`;
 }
 
-/** Warrior tier 1's alternative to Corte Duplo — shares the same tier-1 charge pool (see
+/** Warrior tier 1's alternative to Corte Duplo, unlocked at level 3 — shares the same tier-1 charge pool (see
  * SPELL_TIER). A straight-line charge: stops adjacent to the first enemy reached along an
  * unobstructed hex axis, hits it for weapon + bonus dice with no counter, then knocks it
  * straight away. If the knockback is blocked (wall/edge/column/barricade/locked door/
  * decoration/unit), it stops immediately and the wall-impact dice are folded into the same
  * damage roll (see castBullRush in engine.ts) rather than landing as a second hit. */
 export const BULL_RUSH = { name: "Investida Touro" };
+export const BULL_RUSH_UNLOCK_LEVEL = 3;
 
 export function bullRushPower(level: number): { chargeRange: number; dice: number; faces: number; knockback: number; wallDice: number; wallFaces: number } {
   if (level >= 27) return { chargeRange: 4, dice: 2, faces: 12, knockback: 3, wallDice: 2, wallFaces: 10 };

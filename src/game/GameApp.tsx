@@ -12,8 +12,8 @@ import { InnScreen } from "./InnScreen";
 import { PartyInventoryOverlay, ItemTip } from "./InventoryScreens";
 import { DialogOverlay } from "./DialogOverlay";
 import { DialogEditor } from "./DialogEditor";
-import { BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, decorationImage, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, EXECUTIONER_STRIKE, SHIELD_BASH, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
-import { BattleEngine } from "./engine";
+import { BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, decorationImage, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
+import { BattleEngine, heroSpriteFor } from "./engine";
 import { MapPreviewCanvas, type PreviewDecorationSelection, type PreviewUnitSelection } from "./MapPreviewCanvas";
 import { WorldMapScreen } from "./WorldMapScreen";
 import { OverworldMapScreen } from "./OverworldMapScreen";
@@ -395,7 +395,7 @@ const PRESTIGE_SPELLS: Partial<Record<ClassId, SpellKind[]>> = {
   elementalist: ["lightningTier3"],
 };
 
-function classSpells(classId: ClassId): SpellKind[] {
+function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY): SpellKind[] {
   // Promoted classes keep everything the base class already granted (hybrid, nothing
   // lost at PROMOTE_LEVEL), plus their own prestige-only spells from PRESTIGE_SPELLS.
   const base = ((): SpellKind[] => {
@@ -434,12 +434,12 @@ function classSpells(classId: ClassId): SpellKind[] {
         return [];
     }
   })();
-  return [...base, ...(PRESTIGE_SPELLS[classId] ?? [])];
+  return [...base, ...(PRESTIGE_SPELLS[classId] ?? [])].filter((spell) => spell !== "bullRush" || level >= BULL_RUSH_UNLOCK_LEVEL);
 }
 
-function defaultSlots(classId: ClassId): (SlotAction | null)[] {
+function defaultSlots(classId: ClassId, level = Number.POSITIVE_INFINITY): (SlotAction | null)[] {
   const combined: SlotAction[] = [
-    ...classSpells(classId).map((spell): SlotAction => ({ kind: "spell", spell })),
+    ...classSpells(classId, level).map((spell): SlotAction => ({ kind: "spell", spell })),
     ...ALL_POTIONS.map((potion): SlotAction => ({ kind: "potion", potion })),
   ];
   const slots: (SlotAction | null)[] = combined.slice(0, HOTBAR_SLOTS);
@@ -676,7 +676,7 @@ function mapStatusUnit(save: SaveData, hero: string): UnitPublic {
   const diseaseKeep = save.heroDiseases[hero] ? 0.9 : 1;
   const maxHp = Math.round((stats.hp + gearBonus.hp) * hungerKeep);
   return {
-    id: `map:${hero}`, name: hero, classId, className: cls.name, role: cls.role, side: "player", sprite: hero === "Kael" ? CLASSES.kaelFinal.sprite : cls.sprite,
+    id: `map:${hero}`, name: hero, classId, className: cls.name, role: cls.role, side: "player", sprite: heroSpriteFor(hero, cls.sprite),
     hp: Math.min(maxHp, save.unitHp[hero] ?? maxHp), maxHp,
     atk: Math.round((stats.atk + gearBonus.atk) * hungerKeep * diseaseKeep),
     mag: Math.round((stats.mag + gearBonus.mag) * hungerKeep * diseaseKeep),
@@ -707,9 +707,8 @@ export function GameApp() {
   const [resumeEditorDraft] = useState<MapDraft | null>(() => (typeof window === "undefined" ? null : readEditorResume()));
   const [screen, setScreen] = useState<ScreenId>(() => (resumeEditorDraft ? "mapEditor" : "title"));
   const loadingCurtain = useLoadingCurtain(screen);
-  // Which map the player picked this session — classic (click any unlocked pin) or the RPG
-  // hex-crawl. Deliberately not persisted: resets on every reload, so a new session asks
-  // again instead of silently remembering last time's choice.
+  // The currently active map style. Normal campaigns persist their choice in SaveData;
+  // test mode deliberately remains session-only.
   const [mapMode, setMapMode] = useState<"classic" | "rpg" | null>(null);
   const [overworldEvent, setOverworldEvent] = useState<OverworldEvent | null>(null);
   const [mapStatusHero, setMapStatusHero] = useState<string | null>(null);
@@ -1290,14 +1289,17 @@ export function GameApp() {
     playMenuMusic();
   }, [screen, muted, missionId]);
 
-  // Routes to the mapChoice screen every time. Every "return to the map" spot in this file
-  // goes through here rather than naming "worldMap" directly, so both maps share one entry
-  // point. Deliberately asks on every single trip back (finished mission, the Inn, Debug,
-  // etc.), not just the first — by explicit request, so either map is always one pick away
-  // instead of getting locked in for the rest of the tab's session.
+  // Normal campaigns keep the one travel style selected when the campaign began. Test mode
+  // deliberately has no persistent save, so it returns to the choice screen every time.
   const goToMap = useCallback(() => {
+    const mode = testMode ? null : save.mapMode;
+    if (mode) {
+      setMapMode(mode);
+      setScreen(mode === "classic" ? "worldMap" : "overworldMap");
+      return;
+    }
     setScreen("mapChoice");
-  }, []);
+  }, [save.mapMode, testMode]);
 
   const leaveBoot = useCallback(() => {
     // Entering the world map is a hard music boundary: do not leave intro.mp3 under it.
@@ -1567,6 +1569,7 @@ export function GameApp() {
           onBack={() => setScreen(testMode ? "testMenu" : "title")}
           onPick={(mode) => {
             setMapMode(mode);
+            if (!testMode) persistCurrent({ ...save, mapMode: mode });
             // Picking the RPG map on a brand-new campaign (nothing completed, nothing in
             // progress) plays its own intro before O Vau's briefing instead of landing on
             // the hex map first — a returning campaign, or the classic map, skips straight
@@ -6371,9 +6374,9 @@ function BattleScreen({
   const prevInspectedIdRef = useRef<string | null>(null);
   useEffect(() => {
     const id = hud.inspected?.id ?? null;
-    if (id && id !== prevInspectedIdRef.current && !hud.selected && !hud.pendingFoe) {
+    if (id && id !== prevInspectedIdRef.current && (!hud.selected && !hud.pendingFoe || hud.inspected?.side === "player")) {
       setShowStatus(true);
-      setBrowseId(null);
+      setBrowseId(hud.inspected?.side === "player" ? id : null);
     }
     prevInspectedIdRef.current = id;
   }, [hud.inspected?.id, hud.selected, hud.pendingFoe]);
@@ -6429,8 +6432,8 @@ function BattleScreen({
   const slots = actor
     ? (() => {
         const saved = hotbars[actor.name];
-        const expectedSpells = classSpells(actor.classId);
-        if (!saved) return defaultSlots(actor.classId);
+        const expectedSpells = classSpells(actor.classId, actor.level);
+        if (!saved) return defaultSlots(actor.classId, actor.level);
         // Repair hotbars persisted while a hero alias incorrectly resolved to no spells, or
         // to a stale class's spells (hotbars are keyed by hero NAME, not classId — a bar
         // saved for a name before that hero's class was fixed elsewhere, e.g. Malrec once
@@ -6959,7 +6962,7 @@ function BattleScreen({
                       type="button"
                       disabled={!editingSlots && disabled}
                       onClick={() => activateSlot(i)}
-                      className={`relative size-9 grid place-items-center overflow-hidden rounded-md border ${
+                      className={`relative size-9 grid place-items-center overflow-visible rounded-md border ${
                         action && slotActive(action) ? "border-accent bg-accent/20" : "border-border bg-bg"
                       } ${editingSlots ? "outline outline-1 outline-dashed outline-muted" : ""} disabled:opacity-40`}
                     >
@@ -7255,6 +7258,7 @@ function BattleScreen({
       {pickerSlot != null && actor && (
         <SlotPicker
           classId={actor.classId}
+          level={actor.level}
           onPick={(action) => {
             setSlot(pickerSlot, action);
             setPickerSlot(null);
@@ -7268,15 +7272,17 @@ function BattleScreen({
 
 function SlotPicker({
   classId,
+  level,
   onPick,
   onClose,
 }: {
   classId: ClassId;
+  level: number;
   onPick: (action: SlotAction | null) => void;
   onClose: () => void;
 }) {
   const options: SlotAction[] = [
-    ...classSpells(classId).map((spell): SlotAction => ({ kind: "spell", spell })),
+    ...classSpells(classId, level).map((spell): SlotAction => ({ kind: "spell", spell })),
     ...ALL_POTIONS.map((potion): SlotAction => ({ kind: "potion", potion })),
   ];
   return (
