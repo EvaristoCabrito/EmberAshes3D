@@ -1,4 +1,4 @@
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronLeft, ChevronUp, Dices, Grip, ListOrdered, Pencil, RotateCcw, Shuffle, SlidersHorizontal, Swords, Volume2, VolumeX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { loadGameArt, portraitFor, TILE_VARIANT_COUNT, tileVariantName, tileVariantSrc } from "./assets";
@@ -6,6 +6,7 @@ import { getAudioVolumes, installAudioUnlock, playFile, playMenuMusic, playTheme
 import { BattleCanvas } from "./BattleCanvas";
 import { ELEMENT_LABELS, PLACEABLE_ELEMENT_KINDS, type PlaceableElementKind } from "./gfx/params";
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_BLOOM_INTENSITY, DEFAULT_SUN_INTENSITY } from "./gfx/three/ThreeBattleRenderer";
+import { getDevGfx, setDevGfx, subscribeDevGfx, type DevGfxSettings } from "./gfx/three/devGfx";
 import { InnScreen } from "./InnScreen";
 import { PartyInventoryOverlay, ItemTip } from "./InventoryScreens";
 import { DialogOverlay } from "./DialogOverlay";
@@ -1509,8 +1510,11 @@ export function GameApp() {
           onBack={goToTitle}
           onDebug={goToMap}
           onMapEditor={() => setScreen("mapEditor")}
+          onDevControls={() => setScreen("devControls")}
         />
       )}
+
+      {screen === "devControls" && <DevControlsScreen onBack={() => setScreen("testMenu")} />}
 
       {screen === "mapChoice" && (
         <MapChoiceScreen
@@ -2718,10 +2722,12 @@ function TestMenuScreen({
   onBack,
   onDebug,
   onMapEditor,
+  onDevControls,
 }: {
   onBack: () => void;
   onDebug: () => void;
   onMapEditor: () => void;
+  onDevControls: () => void;
 }) {
   return (
     <section className="h-dvh min-h-0 flex flex-col bg-bg">
@@ -2751,6 +2757,61 @@ function TestMenuScreen({
           <p className="font-display text-2xl leading-tight">Map Editor</p>
           <p className="text-sm text-muted mt-1">Pinta terreno, posiciona spawns, testa na hora e exporta pra colar no jogo.</p>
         </button>
+        <button
+          type="button"
+          onClick={onDevControls}
+          className="text-left rounded-xl border border-border bg-bg/40 px-5 py-4 hover:border-accent"
+        >
+          <p className="font-display text-2xl leading-tight">Dev Controls</p>
+          <p className="text-sm text-muted mt-1">Liga/desliga sombras do renderizador 3D pra comparar em combate.</p>
+        </button>
+      </div>
+    </section>
+  );
+}
+
+const DEV_GFX_ROWS: { key: keyof DevGfxSettings; label: string; hint: string }[] = [
+  { key: "realShadows", label: "Sombras reais", hint: "Sombra projetada pelo sol (unidades e props)." },
+  { key: "softShadows", label: "Sombras suaves (PCF)", hint: "Borda da sombra suavizada em vez de serrilhada." },
+  { key: "contactShadows", label: "Contact shadows", hint: "Mancha escura curta nos pés de cada unidade." },
+];
+
+/** Dev-only toggles for the battle renderer's shadow features (see gfx/three/devGfx.ts) —
+ * saved per-browser and applied live, so flip here then open a fight via Debug to compare. */
+function DevControlsScreen({ onBack }: { onBack: () => void }) {
+  const gfx = useSyncExternalStore(subscribeDevGfx, getDevGfx);
+  return (
+    <section className="h-dvh min-h-0 flex flex-col bg-bg">
+      <header className="flex items-center gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-4 border-b border-border">
+        <button type="button" onClick={onBack} className="size-10 grid place-items-center rounded-md border border-border" aria-label="Voltar">
+          <ChevronLeft className="size-5" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm uppercase tracking-[0.18em] text-muted">Modo teste</p>
+          <h1 className="font-display text-3xl leading-none">Dev Controls</h1>
+        </div>
+      </header>
+      <div className="flex-1 min-h-0 flex flex-col justify-center gap-3 p-5 max-w-md mx-auto w-full">
+        <p className="text-sm uppercase tracking-[0.14em] text-muted">Sombras</p>
+        {DEV_GFX_ROWS.map((row) => (
+          <button
+            key={row.key}
+            type="button"
+            role="switch"
+            aria-checked={gfx[row.key]}
+            onClick={() => setDevGfx({ [row.key]: !gfx[row.key] })}
+            className="flex items-center gap-4 text-left rounded-xl border border-border bg-bg/40 px-5 py-4 hover:border-accent"
+          >
+            <span className="flex-1 min-w-0">
+              <span className="block font-display text-xl leading-tight">{row.label}</span>
+              <span className="block text-sm text-muted mt-1">{row.hint}</span>
+            </span>
+            <span className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${gfx[row.key] ? "bg-accent" : "bg-border"}`}>
+              <span className={`absolute top-0.5 size-5 rounded-full bg-bg transition-all ${gfx[row.key] ? "left-[1.375rem]" : "left-0.5"}`} />
+            </span>
+          </button>
+        ))}
+        <p className="text-xs text-muted leading-relaxed pt-1">Salvo neste navegador. Vale em qualquer combate com o renderizador 3D (padrão).</p>
       </div>
     </section>
   );

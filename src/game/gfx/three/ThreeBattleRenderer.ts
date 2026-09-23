@@ -48,6 +48,7 @@ import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECORATIONS, HOUSE_DECOR_IDS, TER
 import { tileAt } from "../../pathfinding";
 import type { DecorationDef, DecorationPlacement, TerrainId } from "../../types";
 import { ThreeAtmosphere } from "./ThreeAtmosphere";
+import { getDevGfx } from "./devGfx";
 
 const SQRT3 = Math.sqrt(3);
 /** Must match BattleEngine's private boardPad() (tile * 2.4) — duplicated here rather than
@@ -220,6 +221,35 @@ function decorSize(id: string, def: DecorationDef, tile: number): { w: number; h
   return { w, h, dy };
 }
 
+/** PCF filter radius (shadow-map texels) — 1 is Three's default hard-ish edge; the Dev Controls
+ * "soft shadows" toggle raises it. This Three.js version's PCF path samples a 5-tap Vogel disk
+ * scaled by this radius (see shadowmap_pars_fragment), so it softens without costing more taps. */
+const SHADOW_RADIUS_HARD = 1;
+const SHADOW_RADIUS_SOFT = 4;
+
+/** Contact-shadow footprint, relative to the unit's drawn sprite width: wider than tall, a
+ * stance shape rather than a circle. */
+const CONTACT_SHADOW_W = 0.6;
+const CONTACT_SHADOW_H = 0.24;
+const CONTACT_SHADOW_OPACITY = 0.7;
+
+/** Soft dark radial gradient shared by every unit's contact shadow — the same CanvasTexture
+ * technique activeTurnShadowCatcher already uses (proven to render in this renderer). A custom
+ * ShaderMaterial computing the falloff from UV was tried first and silently drew nothing here,
+ * even at 3x size / opacity 1, while a plain MeshBasicMaterial on the same mesh did. */
+function makeContactShadowTexture(): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const ctx = c.getContext("2d")!;
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, "rgba(20,16,12,1)");
+  g.addColorStop(0.45, "rgba(20,16,12,0.6)");
+  g.addColorStop(1, "rgba(20,16,12,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+
 interface DecorMeshEntry {
   mesh: THREE.Mesh;
   placement: DecorationPlacement;
@@ -240,6 +270,10 @@ interface UnitMeshEntry {
    * whenever the unit's current sprite frame changes, so the shadow always matches the current
    * pose instead of freezing on whatever frame first built this entry. */
   shadowMaterial: THREE.MeshBasicMaterial;
+  /** Dev Controls "contact shadows" footprint — owned per unit (its opacity tracks this unit's
+   * own fade/lift); the gradient texture itself is shared (contactShadowTexture). */
+  contactMesh: THREE.Mesh;
+  contactMaterial: THREE.MeshBasicMaterial;
 }
 
 export class ThreeBattleRenderer {
@@ -349,6 +383,11 @@ export class ThreeBattleRenderer {
   // BattleEngine.renderUnitsAndOverlays' skipUnitSprites param) — only the character sprite art
   // itself moves here.
   private unitGroup = new THREE.Group();
+  /** Contact-shadow footprints (z=0.51 — above tiles/overlay, below decorations and units).
+   * Deliberately NOT tied to unitGroup's visibility: BattleCanvas hides the Three unit sprites
+   * (units draw on the Canvas2D top layer), but these are ground marks, so they stay here. */
+  private contactShadowGroup = new THREE.Group();
+  private contactShadowTexture = makeContactShadowTexture();
   // Textures are shared by image (same pattern as tiles/decor — cheap, no per-unit GPU upload),
   // but each unit gets its OWN material (see UnitMeshEntry) so u.fade can drive real per-unit
   // opacity: a shared material (the tile/decor pattern) would make every unit sharing one sprite
@@ -459,6 +498,7 @@ export class ThreeBattleRenderer {
     this.scene.add(this.overlayGroup);
     this.scene.add(this.activeTurnGlow);
     this.scene.add(this.activeTurnShadowCatcher);
+    this.scene.add(this.contactShadowGroup);
     this.scene.add(this.decorGroup);
     this.scene.add(this.unitGroup);
     this.scene.add(this.atmosphere.group);
@@ -861,7 +901,10 @@ export class ThreeBattleRenderer {
         const shadowMesh = new THREE.Mesh(this.quadGeo, shadowMaterial);
         shadowMesh.castShadow = true;
         this.shadowCasterGroup.add(shadowMesh);
-        entry = { mesh, material, img: null, shadowMesh, shadowMaterial };
+        const contactMaterial = new THREE.MeshBasicMaterial({ map: this.contactShadowTexture, transparent: true, depthWrite: false });
+        const contactMesh = new THREE.Mesh(this.quadGeo, contactMaterial);
+        this.contactShadowGroup.add(contactMesh);
+        entry = { mesh, material, img: null, shadowMesh, shadowMaterial, contactMesh, contactMaterial };
         this.unitEntries.set(u.id, entry);
       }
       entry.mesh.visible = true;
@@ -911,6 +954,15 @@ export class ThreeBattleRenderer {
       entry.shadowMesh.scale.set(v.scaleX * v.w, elevation + UNIT_SHADOW_GROUND_INSET, 1);
       entry.shadowMesh.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY), elevation / 2 - UNIT_SHADOW_GROUND_INSET / 2);
       entry.shadowMesh.visible = true;
+
+      // Contact shadow: same ground-contact point as the caster above (ignores bob/lift so it
+      // stays on the ground), fading and shrinking as the unit lifts off it.
+      const liftFade = Math.max(0, 1 - v.lift / Math.max(1, tile * 0.6));
+      const footW = Math.abs(v.scaleX) * v.w;
+      entry.contactMesh.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY), 0.51);
+      entry.contactMesh.scale.set(footW * CONTACT_SHADOW_W * (0.7 + 0.3 * liftFade), footW * CONTACT_SHADOW_H * (0.7 + 0.3 * liftFade), 1);
+      entry.contactMaterial.opacity = CONTACT_SHADOW_OPACITY * u.fade * liftFade;
+      entry.contactMesh.visible = liftFade > 0;
     }
 
     for (const [id, entry] of this.unitEntries) {
@@ -920,11 +972,14 @@ export class ThreeBattleRenderer {
         // so it doesn't need rebuilding the instant it's visible again.
         entry.mesh.visible = false;
         entry.shadowMesh.visible = false;
+        entry.contactMesh.visible = false;
       } else {
         this.unitGroup.remove(entry.mesh);
         this.shadowCasterGroup.remove(entry.shadowMesh);
+        this.contactShadowGroup.remove(entry.contactMesh);
         entry.material.dispose(); // owned per-unit — see unitTexCache's comment; the texture itself is shared, kept
         entry.shadowMaterial.dispose(); // same reasoning, shadowMaterial is this unit's own instance too
+        entry.contactMaterial.dispose();
         this.unitEntries.delete(id);
       }
     }
@@ -1077,7 +1132,7 @@ export class ThreeBattleRenderer {
       // in the wrong spot relative to the character. None of the hex/glow lines above this are
       // read from or written to.
       const activeUnit = engine.units.find((u) => u.x === active.x && u.y === active.y && u.alive);
-      if (activeUnit) {
+      if (activeUnit && !getDevGfx().contactShadows) {
         const unitAnchor = engine.unitAnchor(activeUnit);
         const v = engine.unitVisual(activeUnit, tile);
         this.activeTurnShadowCatcher.visible = true;
@@ -1112,6 +1167,7 @@ export class ThreeBattleRenderer {
     this.syncDecorVisibility();
     this.syncOverlay(tile);
     this.syncUnits(tile);
+    this.applyDevGfx();
     // MILESTONE 3 — dt derived locally (render() itself only ever receives cssW/cssH, see this
     // method's own comment) since the mist noise drift and particle GPU animation are the only
     // things in this file that need real elapsed time rather than per-frame engine state.
@@ -1140,6 +1196,14 @@ export class ThreeBattleRenderer {
     // the old selective-only value now that everything bright enough can bloom.
     this.bloomComposer.render();
     this.finalComposer.render();
+  }
+
+  /** Dev Controls toggles (see devGfx.ts) — read every frame so a flip applies immediately. */
+  private applyDevGfx(): void {
+    const gfx = getDevGfx();
+    if (this.sunLight.castShadow !== gfx.realShadows) this.sunLight.castShadow = gfx.realShadows;
+    this.sunLight.shadow.radius = gfx.softShadows ? SHADOW_RADIUS_SOFT : SHADOW_RADIUS_HARD;
+    this.contactShadowGroup.visible = gfx.contactShadows;
   }
 
   dispose(): void {
@@ -1172,6 +1236,7 @@ export class ThreeBattleRenderer {
     for (const entry of this.unitEntries.values()) {
       entry.material.dispose();
       entry.shadowMaterial.dispose();
+      entry.contactMaterial.dispose();
     }
     for (const mat of this.overlayMatCache.values()) mat.dispose();
     for (const glow of this.overlayGlowPool) (glow.material as THREE.SpriteMaterial).dispose();
@@ -1179,6 +1244,7 @@ export class ThreeBattleRenderer {
     this.activeTurnGlowTexture.dispose();
     this.activeTurnShadowCatcherMaterial.dispose();
     this.activeTurnShadowCatcherTexture.dispose();
+    this.contactShadowTexture.dispose();
     this.renderer.dispose();
   }
 }

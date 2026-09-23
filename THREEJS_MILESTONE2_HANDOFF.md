@@ -109,6 +109,16 @@ both.
 
 ## The critical gotchas already found — do not reintroduce them
 
+**Dev Controls (v0.323): a custom `ShaderMaterial` decal silently drew nothing in this renderer.**
+Contact shadows were first built as a ShaderMaterial computing a radial falloff from UV; the meshes
+were confirmed visible, in-frustum and at opacity 1 (even at 3x size) yet nothing rendered, while a
+plain `MeshBasicMaterial` on the same meshes did. Root cause not chased — switched to the same
+CanvasTexture-gradient + `MeshBasicMaterial` technique `activeTurnShadowCatcher` already uses
+(see `makeContactShadowTexture`). Also note: `BattleCanvas` hides the Three unit sprites
+(`setSpritesAndDecorationsVisible(false, true)` — units draw on the Canvas2D top layer), so never
+tie ground-level unit effects to `unitGroup`'s visibility. The toggles themselves live in
+`gfx/three/devGfx.ts` (localStorage `emberash:devGfx`), read by the renderer every frame.
+
 **MILESTONE 2: shadow-casters can't be hidden from the main pass with layers, in this Three.js
 version.** The obvious way to have an object cast a shadow without ever being drawn is to put it
 on a layer only the light's `shadow.camera` enables. That does **not** work here — read
