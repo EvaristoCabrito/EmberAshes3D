@@ -6,7 +6,7 @@ import type { GameArt, SpriteId, TerrainId } from "./types";
 // different variant in Mission.tileVariants — keep it as the tile that's safe
 // for existing maps.
 export const TILE_VARIANT_COUNT: Record<TerrainId, number> = {
-  plains: 17,
+  plains: 22,
   woods: 9,
   ruins: 7,
   water: 22,
@@ -33,6 +33,10 @@ export function tileVariantName(id: TerrainId, variant: number): string {
     if (variant === 2) return "plains001";
     if (variant === 15) return "plains017";
     if (variant === 16) return "plains018";
+    // 17-21: dirt (pebbles), dirt (mud + footprints), lush grass, grass + clover, grass +
+    // bushes. Named explicitly — the padded fallback below would land 17 on plains017,
+    // which variant 15 already uses.
+    if (variant >= 17 && variant <= 21) return `plains${String(variant + 2).padStart(3, "0")}`;
     return `plains${String(variant).padStart(3, "0")}`;
   }
   if (id === "water" && variant === 0) return "water023";

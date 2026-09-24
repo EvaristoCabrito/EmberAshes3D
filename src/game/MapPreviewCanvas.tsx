@@ -250,8 +250,7 @@ export function MapPreviewCanvas({
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    if (event.button === 2) {
-      event.preventDefault();
+    if (event.button === 0) {
       const canvas = canvasRef.current;
       const engine = engineRef.current;
       if (!canvas || !engine) return;
@@ -272,7 +271,14 @@ export function MapPreviewCanvas({
         viewport.setPointerCapture(event.pointerId);
         onDecorationSelect?.(decoration);
         setIsDragging(true);
+        return;
       }
+    }
+    if (event.button === 2) {
+      event.preventDefault();
+      dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, armed: true, moved: false };
+      viewport.setPointerCapture(event.pointerId);
+      setIsPanning(true);
       return;
     }
     if (event.button !== 0) return;

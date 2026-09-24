@@ -7,13 +7,35 @@ export interface DevGfxSettings {
   /** Widens the PCF filter radius so shadow edges soften instead of stair-stepping.
    * (PCFSoftShadowMap was removed in this Three.js version — radius is the knob now.) */
   softShadows: boolean;
-  /** A short, soft dark footprint under every unit's feet, independent of the shadow map —
-   * the real cast shadow never quite reaches the feet (see activeTurnShadowCatcher's comment). */
+  /** A short, darken-only grounding decal at every unit's and prop's opaque base, independent of
+   * the shadow map (see CONTACT_SHADOW_* in ThreeBattleRenderer.ts). */
   contactShadows: boolean;
+  /** Environmental ambient occlusion in the terrain's lighting, from props and raised/
+   * blocking terrain (see ThreeGroundAO.ts). */
+  ambientOcclusion: boolean;
+  /** Fog of war on maps that use it (Mission.fog). Off = the whole system is off for
+   * comparison: every hex visible, every enemy shown. */
+  fogOfWar: boolean;
+  /** Shows the raw fog states as flat per-hex colors instead of the feathered mask:
+   * green = visible, amber = explored, red = unexplored. */
+  fogDebug: boolean;
+  /** Environmental light from map light sources (braziers, burning houses, lanterns...) on
+   * terrain, decorations and characters — see lighting.ts. */
+  localLights: boolean;
+  /** Sun position: azimuth = screen direction its shadows fall (deg, 0 = right, 90 = down);
+   * elevation = height above the horizon (deg). Defaults are the game's standing sun. */
+  sunAzimuth: number;
+  sunElevation: number;
+  /** Moon position, same convention. */
+  moonAzimuth: number;
+  moonElevation: number;
+  /** Fire V2 test: one procedural 3D fireball with a real PointLight, floating back and forth
+   * along the first player unit's row (see ThreeFireballV2.ts). */
+  fireballV2Test: boolean;
 }
 
 const KEY = "emberash:devGfx";
-const DEFAULTS: DevGfxSettings = { realShadows: true, softShadows: true, contactShadows: true };
+const DEFAULTS: DevGfxSettings = { realShadows: true, softShadows: true, contactShadows: true, ambientOcclusion: true, fogOfWar: true, fogDebug: false, localLights: true,sunAzimuth: 53.13, sunElevation: 45, moonAzimuth: 140, moonElevation: 35, fireballV2Test: false };
 
 function load(): DevGfxSettings {
   try {

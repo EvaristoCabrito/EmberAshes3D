@@ -59,24 +59,29 @@ export function sightReaches(
 export function relight(
   vis: Uint8Array,
   eyes: Point[],
-  radius: number,
+  /** One radius for every eye, or one per eye (same order as `eyes`). */
+  radius: number | number[],
   tiles: TerrainId[],
   cols: number,
   rows: number,
   overlay: DecorOverlay = EMPTY_OVERLAY,
+  /** false = pure vision range: every hex within the radius is seen, nothing blocks it. */
+  lineOfSight = true,
 ): void {
   for (let i = 0; i < vis.length; i++) if (vis[i] === VISIBLE) vis[i] = EXPLORED;
-  for (const eye of eyes) {
-    const x0 = Math.max(0, eye.x - radius);
-    const x1 = Math.min(cols - 1, eye.x + radius);
-    const y0 = Math.max(0, eye.y - radius);
-    const y1 = Math.min(rows - 1, eye.y + radius);
+  for (let e = 0; e < eyes.length; e++) {
+    const eye = eyes[e]!;
+    const r = typeof radius === "number" ? radius : (radius[e] ?? 0);
+    const x0 = Math.max(0, eye.x - r);
+    const x1 = Math.min(cols - 1, eye.x + r);
+    const y0 = Math.max(0, eye.y - r);
+    const y1 = Math.min(rows - 1, eye.y + r);
     for (let y = y0; y <= y1; y++) {
       for (let x = x0; x <= x1; x++) {
         const i = y * cols + x;
         if (vis[i] === VISIBLE) continue;
-        if (hexDist(eye, { x, y }) > radius) continue;
-        if (sightReaches(eye, { x, y }, tiles, cols, overlay)) vis[i] = VISIBLE;
+        if (hexDist(eye, { x, y }) > r) continue;
+        if (!lineOfSight || sightReaches(eye, { x, y }, tiles, cols, overlay)) vis[i] = VISIBLE;
       }
     }
   }

@@ -1,6 +1,6 @@
 {
-  "serial": 19,
-  "savedAt": 1790048749306,
+  "serial": 21,
+  "savedAt": 1790277064304,
   "draft": {
     "id": "vau",
     "index": 0,
@@ -57,7 +57,7 @@
       "plains",
       "hill",
       "plains",
-      "plains",
+      "column",
       "plains",
       "plains",
       "plains",
@@ -220,7 +220,7 @@
       "woods",
       "woods",
       "woods",
-      "woods",
+      "plains",
       "woods",
       "plains",
       "plains",
@@ -711,24 +711,9 @@
         "y": 1
       },
       {
-        "id": "wooden-barricade",
-        "x": 4,
-        "y": 3
-      },
-      {
         "id": "wooden-barricade-1",
         "x": 3,
         "y": 3
-      },
-      {
-        "id": "wooden-barricade-1",
-        "x": 7,
-        "y": 8
-      },
-      {
-        "id": "wooden-barricade",
-        "x": 8,
-        "y": 8
       },
       {
         "id": "fallen-log",
@@ -777,38 +762,43 @@
         "y": 2
       },
       {
-        "id": "city-spike-barricade-low",
+        "id": "rocky-outcrop",
+        "x": 15,
+        "y": 1
+      },
+      {
+        "id": "barricade",
         "x": 8,
         "y": 8,
         "blocksPath": true
       },
       {
-        "id": "city-spike-barricade-low",
-        "x": 9,
-        "y": 8,
-        "blocksPath": true
-      },
-      {
-        "id": "city-spike-barricade-low",
+        "id": "barricade",
         "x": 7,
         "y": 8,
         "blocksPath": true
       },
       {
-        "id": "city-spike-barricade-low",
-        "x": 4,
+        "id": "barricade",
+        "x": 9,
+        "y": 8,
+        "blocksPath": true
+      },
+      {
+        "id": "barricade",
+        "x": 6,
         "y": 3,
         "blocksPath": true
       },
       {
-        "id": "city-spike-barricade-low",
+        "id": "barricade",
         "x": 5,
         "y": 3,
         "blocksPath": true
       },
       {
-        "id": "city-spike-barricade-low",
-        "x": 6,
+        "id": "barricade",
+        "x": 4,
         "y": 3,
         "blocksPath": true
       }

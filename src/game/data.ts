@@ -224,7 +224,23 @@ const CITY_DECORATIONS = decorationSet([
 // category regardless of what an individual item happens to depict. Several overlap in
 // theme with existing props (well, market stall, notice post, gallows, torture gear) but
 // are kept as separate ids rather than replacing anything, per direct instruction.
+
+/** How much bigger decoration art is drawn than the box that fits its footprint hexes. Props
+ * used to be squeezed into their own hex and read as tiny; they now overhang their
+ * neighbours. Purely visual — the footprint (what the prop blocks) is unchanged, and the art
+ * grows from its ground line so it still stands on the same spot. Houses use HOUSE_ART_SCALE
+ * instead (their art is already drawn at 3x). Shared by the 3D renderer and the 2D path so
+ * they stay in sync. */
+export const DECOR_ART_SCALE = 1.6;
+/** Houses (already drawn at 3x) get their own, smaller boost instead of DECOR_ART_SCALE. */
+export const HOUSE_ART_SCALE = 1.35;
+
 const NEW_DECOR_2026: Record<string, DecorationDef> = {
+  // Light props (CandleTorchBrazier2Fireplace.png) — each emits environmental light, see lighting.ts.
+  "light-candle": { id: "light-candle", name: "Vela", footprint: DECO_ONE, artScale: 0.5 },
+  "light-wall-torch": { id: "light-wall-torch", name: "Tocha de Parede", footprint: DECO_ONE },
+  "light-brazier-bowl": { id: "light-brazier-bowl", name: "Braseiro II", footprint: DECO_ONE },
+  "light-fireplace": { id: "light-fireplace", name: "Lareira", footprint: DECO_ONE },
   "city-root-shrine": { id: "city-root-shrine", name: "Santuário Coberto de Raízes", footprint: DECO_PAIR },
   "city-market-stall-2": { id: "city-market-stall-2", name: "Barraca de Mercado II", footprint: DECO_PAIR },
   "city-bear-trap": { id: "city-bear-trap", name: "Armadilha de Urso", footprint: DECO_ONE },
@@ -366,7 +382,7 @@ export const DECORATIONS: Record<string, DecorationDef> = {
   "bridge-parapet-gothic-statues-001": { id: "bridge-parapet-gothic-statues-001", name: "Parapeito Gótico — Estátuas", footprint: DECO_QUAD, foreground: true, unitLayer: "front", repeatGroup: "bridge-parapet-gothic-statues" },
   "bridge-parapet-gothic-wall-001": { id: "bridge-parapet-gothic-wall-001", name: "Parapeito Gótico — Muralha", footprint: DECO_QUAD, unitLayer: "behind", repeatGroup: "bridge-parapet-gothic-wall" },
   "bridge-parapet-tall-001": { id: "bridge-parapet-tall-001", name: "Tall-Parapeito", footprint: DECO_ROW_FIVE, unitLayer: "behind", repeatGroup: "bridge-parapet-tall", heightScale: 1.8 },
-  "bridge-parapet-tall-statues-001": { id: "bridge-parapet-tall-statues-001", name: "Tall-Parapeito — Estátuas", footprint: DECO_ROW_FIVE, foreground: true, unitLayer: "front", repeatGroup: "bridge-parapet-tall", heightScale: 1.8 },
+  "bridge-parapet-tall-statues-001": { id: "bridge-parapet-tall-statues-001", name: "Tall-Parapeito — Estátuas", footprint: DECO_ROW_FIVE, foreground: true, unitLayer: "front", decorRenderOrder: 10, repeatGroup: "bridge-parapet-tall", heightScale: 1.8 },
   "ember-channels-001": { id: "ember-channels-001", name: "Canais de Brasa", footprint: DECO_PAIR },
   "broken-wall-segment": { id: "broken-wall-segment", name: "Muralha em Ruínas", footprint: DECO_PAIR, tile: "column", repeatGroup: "broken-wall-segment" },
   gatehouse: { id: "gatehouse", name: "Portão Fortificado", footprint: DECO_PAIR },
@@ -384,12 +400,12 @@ export const DECORATIONS: Record<string, DecorationDef> = {
   "locked-chest": { id: "locked-chest", name: "Baú Pequeno", footprint: DECO_ONE },
   "chest-medium": { id: "chest-medium", name: "Baú Médio", footprint: DECO_ONE },
   "chest-large": { id: "chest-large", name: "Baú Grande", footprint: DECO_ONE },
-  // A prop, not a hex type: it lays "barricade" terrain under itself and every barricade
-  // rule rides on that tile — impassable except to a troll (at cost 2, which also smashes
-  // it), blocks shots, and lets whoever stands right behind it shoot over while staying
-  // unhittable through it.
-  barricade: { id: "barricade", name: "Barricada", footprint: DECO_ONE, tile: "barricade" },
-  "barricade-2": { id: "barricade-2", name: "Barricada 2", footprint: DECO_ONE, tile: "barricade" },
+  // Barricades are props. Their blocking rules come from BARRICADE_LIKE_DECOR, so the
+  // painted ground beneath them is always left exactly as the map author chose it.
+  barricade: { id: "barricade", name: "Barricada", footprint: DECO_ONE },
+  "barricade-2": { id: "barricade-2", name: "Barricada 2", footprint: DECO_ONE },
+  "wooden-barricade": { id: "wooden-barricade", name: "Barricada de Estacas", footprint: DECO_ONE },
+  "wooden-barricade-1": { id: "wooden-barricade-1", name: "Barricada de Estacas II", footprint: DECO_ONE },
   "dead-tree": { id: "dead-tree", name: "Árvore morta", footprint: DECO_ONE },
   "fallen-log": { id: "fallen-log", name: "Tronco caído", footprint: DECO_PAIR },
   "small-house": { id: "small-house", name: "Casa pequena", footprint: DECO_TRIO },
@@ -402,7 +418,8 @@ export const DECORATIONS: Record<string, DecorationDef> = {
   "burnt-house-ruins": { id: "burnt-house-ruins", name: "Ruínas Queimadas", footprint: DECO_TRIO },
   well: { id: "well", name: "Poço", footprint: DECO_ONE },
   "stone-fountain": { id: "stone-fountain", name: "Fonte de Pedra", footprint: DECO_ONE },
-  tombstones: { id: "tombstones", name: "Lápides", footprint: DECO_ONE },
+  // These were painted at their intended small prop size; opt out of the global 1.6x decor boost.
+  tombstones: { id: "tombstones", name: "Lápides", footprint: DECO_ONE, artScale: 0.625 },
   "spike-rocks-2": { id: "spike-rocks-2", name: "Agulhas de Pedra II", footprint: DECO_PAIR, tile: "column" },
   lamppost: { id: "lamppost", name: "Poste de Lampião", footprint: DECO_ONE },
   "mossy-rocks": { id: "mossy-rocks", name: "Pedras Musgosas", footprint: DECO_PAIR, tile: "column" },
@@ -441,6 +458,10 @@ export const BIG_HOUSE_DECOR_IDS = new Set(["abandoned-mansion"]);
  * mechanism as the "Bloquear caminho" checkbox, just defaulted on instead of manual.
  * city-gate-banner is excluded on purpose — it is a gate, meant to be walked through. */
 export const BARRICADE_LIKE_DECOR = new Set([
+  "barricade",
+  "barricade-2",
+  "wooden-barricade",
+  "wooden-barricade-1",
   "city-spike-barricade-low",
   "city-palisade-frame",
   "city-wattle-fence",

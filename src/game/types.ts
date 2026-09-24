@@ -1,4 +1,5 @@
-export type PotionId = "mid" | "weak" | "potent" | "disease" | "manaSmall" | "manaMid" | "manaLarge";
+export type MapTimeOfDay = "day" | "dawn" | "dusk" | "brightNight" | "darkNight";
+export type PotionId ="mid" | "weak" | "potent" | "disease" | "manaSmall" | "manaMid" | "manaLarge";
 
 export interface Bag {
   mid: number;
@@ -281,10 +282,15 @@ export interface DecorationDef {
   /** Explicit sprite-depth layer. “behind” stays above the ground and selection overlay,
    * but below characters; “front” occludes everything behind the prop. */
   unitLayer?: "behind" | "front";
+  /** Relative painter's order among decorations in the same visual layer. Higher values draw
+   * later, letting a near-side prop deliberately overlap other scenery. */
+  decorRenderOrder?: number;
   /** Compatible repeating modules may share exactly one joining hex in the editor. */
   repeatGroup?: string;
   /** Optional vertical presentation multiplier for tall isometric scenery. */
   heightScale?: number;
+  /** Visual multiplier applied to both dimensions without changing the footprint or rules. */
+  artScale?: number;
 }
 
 /** A decoration placed on a mission's map, anchored at (x,y). */
@@ -364,6 +370,10 @@ export interface Mission {
    * missions set inside buildings/dungeons where a raking outdoor sun makes no sense. Missions
    * without this set play "outdoor" (today's default look), so nothing shipped changes. */
   environment?: "outdoor" | "indoor";
+  /** Time of day, Three renderer only (see ThreeBattleRenderer's TIME_OF_DAY_LIGHT). Undefined
+   * plays "day", so every map saved before this existed looks exactly as it did. At night the
+   * Moon replaces the Sun and sunIntensity drives the Moon instead. */
+  timeOfDay?: MapTimeOfDay;
   /** DirectionalLight ("sun") intensity override, for the Three renderer only. Undefined uses
    * the renderer's own default. Author-tunable per mission because "how strong should the light
    * and its shadows read" turned out to need a per-map answer, not one global constant. */
@@ -473,6 +483,8 @@ export type StatPointAllocation = Partial<Record<StatPointAttribute, number>>;
 
 export interface Unit {
   id: string;
+  /** Fog of war: how many hexes this unit sees (party units only). Unset = SIGHT_RADIUS. */
+  visionRange?: number;
   name: string;
   classId: ClassId;
   className: string;

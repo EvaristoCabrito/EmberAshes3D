@@ -9,7 +9,7 @@ import type { Bag, BattleSnapshot, BattleUnitSnap, ClassId, DialogLine, DialogTr
 const START_HEX = OVERWORLD_START_HEX;
 
 export const SLOT_COUNT = 5;
-export const SAVE_VERSION = 14;
+export const SAVE_VERSION = 15;
 const BANK_KEY = "ember-save-bank";
 const SAVE_KEY = "ember-save";
 const SAVE_BAK_KEY = "ember-save.bak";
@@ -576,6 +576,14 @@ function migrateRecord(raw: Record<string, unknown>, muted: boolean): SaveData {
   const weapons = cleanWeapons(raw.weapons);
   const equipped = cleanEquipped(raw.equipped, weapons);
   const equipment = cleanEquipment(raw.equipment);
+  // v15 removes an accidentally seeded Besta Leve from untouched new-game saves. It is found
+  // or bought during play, never granted as starting equipment.
+  if (version < 15 && completed.length === 0 && weapons["besta-leve"] != null) {
+    delete weapons["besta-leve"];
+    for (const [hero, weaponId] of Object.entries(equipped)) {
+      if (weaponId === "besta-leve") delete equipped[hero];
+    }
+  }
   // v14 corrects Neera's intended starting kit for existing saves too: Composite Bow in
   // the main hand and a light dagger in the secondary hand for adjacent counters.
   if (version < 14) {

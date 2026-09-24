@@ -52,10 +52,12 @@ function makeAmbientFalloffTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(c);
 }
 
-/** The default warrior's own idle frame (see assets.ts's spriteFrameSrc: defaultWarrior lives in
- * the kael-v2 folder) — a real in-game sprite standing in for a generic unit, not a placeholder
- * primitive. */
-const PREVIEW_SPRITE_SRC = "/game/sprites/kael-v2/1.png";
+/** Kael's real 36-frame idle sheet (kaelFinal — see assets.ts's spriteFrameSrc/loadGameArt for
+ * the folder and cache-bust), animated the way the battle plays a long sheet: 36 frames over
+ * LONG_ANIM_SECONDS, ping-ponging (see BattleEngine.idleFrame). */
+const PREVIEW_FRAMES = 36;
+const PREVIEW_FRAME_SRC = (i: number) => `/game/sprites/Kael_Final/kael-final-002/${i + 1}.png?v=kael-final-002`;
+const PREVIEW_ANIM_SECONDS = 3;
 
 /** Builds the live preview scene on `canvas` and returns a disposer. Kept as a plain function
  * (no React) so it can also be driven directly from a Playwright QA script the same way
@@ -135,29 +137,61 @@ export function mountDevGfxPreview(canvas: HTMLCanvasElement): () => void {
   footprintRig.position.y = 0.012;
   scene.add(footprintRig);
   let footprintCore: THREE.Mesh | null = null;
+  // Every idle frame, in order; the body/caster/contact core swap to the current one each tick.
+  const frames: THREE.Texture[] = [];
+  const coreFrames: THREE.CanvasTexture[] = [];
+  let visibleMat: THREE.MeshBasicMaterial | null = null;
+  let casterMat: THREE.MeshBasicMaterial | null = null;
+  let coreMat: THREE.MeshBasicMaterial | null = null;
+  let shownFrame = -1;
+  const startTime = performance.now();
+  const sliceFrac = 0.12;
+  const coreFor = (i: number): THREE.CanvasTexture => {
+    if (!coreFrames[i]) {
+      const img = frames[i]!.image as HTMLImageElement;
+      const sliceH = img.height * sliceFrac;
+      const t = makeSilhouetteShadowTexture(img, 0, img.height - sliceH, img.width, sliceH, "rgb(8,6,5)");
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.generateMipmaps = false;
+      t.minFilter = THREE.LinearFilter;
+      t.magFilter = THREE.LinearFilter;
+      coreFrames[i] = t;
+    }
+    return coreFrames[i]!;
+  };
 
-  new THREE.TextureLoader().load(PREVIEW_SPRITE_SRC, (tex) => {
-    if (disposed) return;
-    tex.colorSpace = THREE.SRGBColorSpace;
-    // Same as ThreeBattleRenderer's unitTextureFor — mipmapped sampling on a cutout sprite
-    // bleeds the fully-transparent pixels' stored (often white) RGB into the alpha edge, which
-    // showed up here as a bright white fringe along the cape/robe hem. Plain LinearFilter with
-    // no mip chain samples the real edge pixels only, no bleed.
-    tex.generateMipmaps = false;
-    tex.minFilter = THREE.LinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    tex.wrapS = THREE.ClampToEdgeWrapping;
-    tex.wrapT = THREE.ClampToEdgeWrapping;
-    const aspect = tex.image.width / tex.image.height;
+  const loader = new THREE.TextureLoader();
+  let loaded = 0;
+  for (let i = 0; i < PREVIEW_FRAMES; i++) {
+    loader.load(PREVIEW_FRAME_SRC(i), (t) => {
+      if (disposed) return;
+      t.colorSpace = THREE.SRGBColorSpace;
+      // Same as ThreeBattleRenderer's unitTextureFor — mipmapped sampling on a cutout sprite
+      // bleeds the fully-transparent pixels' stored (often white) RGB into the alpha edge, which
+      // showed up here as a bright white fringe along the cape/robe hem. Plain LinearFilter with
+      // no mip chain samples the real edge pixels only, no bleed.
+      t.generateMipmaps = false;
+      t.minFilter = THREE.LinearFilter;
+      t.magFilter = THREE.LinearFilter;
+      t.wrapS = THREE.ClampToEdgeWrapping;
+      t.wrapT = THREE.ClampToEdgeWrapping;
+      frames[i] = t;
+      if (++loaded === PREVIEW_FRAMES) buildFigure(frames[0]!);
+    });
+  }
+
+  const buildFigure = (tex: THREE.Texture) => {
+    const img0 = tex.image as HTMLImageElement;
+    const aspect = img0.width / img0.height;
     const height = 1.7;
     const geo = new THREE.PlaneGeometry(height * aspect, height);
 
-    const visibleMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+    visibleMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
     const visible = new THREE.Mesh(geo, visibleMat);
     visible.position.y = height / 2;
     bodyGroup.add(visible);
 
-    const casterMat = new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5, colorWrite: false, depthWrite: false, side: THREE.DoubleSide });
+    casterMat = new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5, colorWrite: false, depthWrite: false, side: THREE.DoubleSide });
     const caster = new THREE.Mesh(geo, casterMat);
     caster.position.y = height / 2;
     caster.castShadow = true;
@@ -176,21 +210,13 @@ export function mountDevGfxPreview(canvas: HTMLCanvasElement): () => void {
     // The sharp core: only the bottom slice of the sprite (feet + hem, not the whole squashed
     // body) — that slice's own cutout IS the exact contact silhouette, alphaTest-cut with no
     // extra blur so it stays a crisp seam instead of another soft ellipse.
-    const sliceFrac = 0.12;
-    const sliceH = tex.image.height * sliceFrac;
-    const coreTex = makeSilhouetteShadowTexture(tex.image, 0, tex.image.height - sliceH, tex.image.width, sliceH, "rgb(8,6,5)");
-    coreTex.colorSpace = THREE.SRGBColorSpace;
-    coreTex.generateMipmaps = false;
-    coreTex.minFilter = THREE.LinearFilter;
-    coreTex.magFilter = THREE.LinearFilter;
-    footprintCore = new THREE.Mesh(
-      new THREE.PlaneGeometry(height * aspect, height * sliceFrac),
-      new THREE.MeshBasicMaterial({ map: coreTex, alphaTest: 0.5, blending: THREE.MultiplyBlending, premultipliedAlpha: true, depthWrite: false, transparent: true }),
-    );
+    coreMat = new THREE.MeshBasicMaterial({ map: coreFor(0), alphaTest: 0.5, blending: THREE.MultiplyBlending, premultipliedAlpha: true, depthWrite: false, transparent: true });
+    footprintCore = new THREE.Mesh(new THREE.PlaneGeometry(height * aspect, height * sliceFrac), coreMat);
     footprintCore.rotation.x = -Math.PI / 2;
     footprintCore.position.y = 0.003;
     footprintRig.add(footprintCore);
-  });
+    shownFrame = 0;
+  };
 
   const worldSunPos = new THREE.Vector3();
   const CORE_LIGHT_BIAS = 0.14;
@@ -209,6 +235,17 @@ export function mountDevGfxPreview(canvas: HTMLCanvasElement): () => void {
       footprintCore.position.x = -(dx / len) * CORE_LIGHT_BIAS;
       footprintCore.position.z = -(dz / len) * CORE_LIGHT_BIAS;
     }
+    if (shownFrame >= 0 && visibleMat && casterMat && coreMat) {
+      // Same ping-pong idle as BattleEngine.idleFrame for a long sheet.
+      const cycle = PREVIEW_FRAMES * 2 - 2;
+      const x = Math.floor(((performance.now() - startTime) / 1000) * (PREVIEW_FRAMES / PREVIEW_ANIM_SECONDS)) % cycle;
+      const f = x < PREVIEW_FRAMES ? x : cycle - x;
+      if (f !== shownFrame) {
+        visibleMat.map = casterMat.map = frames[f]!;
+        coreMat.map = coreFor(f);
+        shownFrame = f;
+      }
+    }
     sunPivot.rotation.y += 0.006;
     renderer.render(scene, camera);
     raf = requestAnimationFrame(animate);
@@ -225,16 +262,16 @@ export function mountDevGfxPreview(canvas: HTMLCanvasElement): () => void {
     for (const child of bodyGroup.children) {
       if (child instanceof THREE.Mesh) {
         child.geometry.dispose();
-        const mat = child.material as THREE.MeshBasicMaterial;
-        mat.map?.dispose();
-        mat.dispose();
+        (child.material as THREE.MeshBasicMaterial).dispose();
       }
     }
+    for (const t of frames) t?.dispose();
+    for (const t of coreFrames) t?.dispose();
     for (const child of footprintRig.children) {
       if (child instanceof THREE.Mesh) {
         child.geometry.dispose();
         const mat = child.material as THREE.MeshBasicMaterial;
-        mat.map?.dispose();
+        if (mat !== coreMat) mat.map?.dispose(); // the core's maps are coreFrames, freed above
         mat.dispose();
       }
     }

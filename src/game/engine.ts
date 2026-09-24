@@ -1,4 +1,4 @@
-import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expForHit, FIREBALL, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, weightedWeaponPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashFormula, shieldBashPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower } from "./data";
+import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, DECOR_ART_SCALE, HOUSE_ART_SCALE, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expForHit, FIREBALL, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, weightedWeaponPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashFormula, shieldBashPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower } from "./data";
 import type { SpellTier } from "./data";
 import { canCounter, makeForecast, mulberry32, powerOf, protOf, rollDamage, rollDamageCustom } from "./combat";
 import {
@@ -36,6 +36,7 @@ import {
   type Cube,
 } from "./pathfinding";
 import { packExplored, relight, sightReaches, unpackExplored } from "./fog";
+import { getDevGfx } from "./gfx/three/devGfx";
 import { buildDecorOverlay, hexDef, type DecorOverlay } from "./hexprops";
 import { ACTION_HUNGER_COST, drainHunger, fullness } from "./hunger";
 import { HUNGER_PENALTY_MAX } from "./overworld";
@@ -105,7 +106,8 @@ export const ZOOM_RADII = [22, 34, 50, 72];
  * see EffectsRenderer.spawnEffect's `duration` option. Only spells with a clear elemental
  * theme are listed; anything absent here (melee skills, arrows, heals, ...) queues no FX. */
 const SPELL_ELEMENT_FX: Partial<Record<SpellKind, { kind: ElementKind; duration: number }>> = {
-  fireball: { kind: "fire", duration: 0.9 },
+  // Fireball leaves its flames burning on the floor for a couple of seconds after the blast.
+  fireball: { kind: "fire", duration: 2.0 },
   causticVenom: { kind: "acid", duration: 1.3 },
   // Lightning/Lightning Tier 3/Choque deliberately have NO entry here — per direct report,
   // the newer WebGL shader burst this table drives read as an odd "3D" pop layered on top
@@ -176,6 +178,10 @@ const PHANTASMAL_FORCE_TRAVEL = 0.38;
 /** stepSpell's hit tick, per spellKind — every other spell keeps the original 0.18; only
  * Magic Missile's is tied to its own (now longer) travel time. */
 const MISSILE_HIT_AT = MISSILE_TRAVEL;
+/** Flight time of the actual spell bolts (Magic Missile, Fireball, Caustic Venom) — slower and
+ * more cinematic than arrows, so the effect can be seen travelling. Their hit/damage tick
+ * (stepSpell's hitAt) is this same value, so the impact still lands as the bolt arrives. */
+const SPELL_TRAVEL = 0.6;
 /** Standard projectile timing: Neera's arrows now land at the same speed as the rest of combat. */
 const ARROW_TRAVEL = MISSILE_TRAVEL;
 /** How much longer the bolt's glowing trail lingers on screen, fading, after the bolt
@@ -189,6 +195,12 @@ const MISSILE_AFTERGLOW = 0.2;
  * can just be as long as it needs to be to actually read as the dense, tangled WebGL beam it
  * is (see BattleEngine.webShotBeam / shaders.ts WEB_SHOT) instead of a blink-and-miss streak. */
 export const WEB_SHOT_TRAVEL = 0.85;
+/** Which Fireball in-flight visual plays. "v2" = the procedural 3D ball carrying a real
+ * PointLight, drawn by ThreeBattleRenderer (see ThreeFireballV2.ts, BattleEngine.fireballShot);
+ * "v1" = the original Canvas2D comet art, kept intact below — set this back to "v1" to restore
+ * it. Familiar Titã's Fireball always keeps V1 (MissileFx.classicFireball). Only the flying
+ * ball changes; the impact burst is the same for both. */
+export const FIREBALL_VISUAL: "v1" | "v2" = "v2";
 
 /** A traveling spell bolt (currently just Magic Missile) — hex-to-hex in pixel space, timed to
  * land right as stepSpell's own hit/damage tick fires (a.t >= MISSILE_HIT_AT), so the streak
@@ -205,6 +217,8 @@ interface MissileFx {
   hue: number;
   kind: "magicMissile" | "phantasmalForce" | "fireball" | "causticVenom" | "longShot" | "arcaneBolt" | "webOfDreams";
   seed: number;
+  /** Fireball only: keep the original V1 comet art for this shot (Familiar Titã's Fireball). */
+  classicFireball?: boolean;
 }
 
 
@@ -1106,6 +1120,9 @@ export class BattleEngine {
    */
   private vis: Uint8Array = new Uint8Array(0);
   private visStamp = "";
+  /** Bumped every time the fog-of-war visibility grid actually changes — the renderer's fog
+   * mask rebuilds only when this moves, never per frame. */
+  visVersion = 0;
   /** Foes that have already spotted the party, so waking sticks. Ids rather than a
    * flag on Unit, which keeps it out of the per-unit save validation. */
   private awake = new Set<string>();
@@ -1395,7 +1412,12 @@ export class BattleEngine {
     const hoverUnit = hoverCell
       ? this.units.find((u) => u.alive && occupies(u, hoverCell.x, hoverCell.y))
       : undefined;
-    const terr = hoverCell ? this.hexAt(hoverCell.x, hoverCell.y) : null;
+    // Void is erased ground — no terrain card for empty space. Nor for a hex under fog of war
+    // the party has never seen: its terrain is exactly what the player must not know yet.
+    const terr =
+      hoverCell && tileAt(this.tiles, this.cols, hoverCell.x, hoverCell.y) !== "void" && this.explored(hoverCell.x, hoverCell.y)
+        ? this.hexAt(hoverCell.x, hoverCell.y)
+        : null;
     const hoveredWeb = hoverCell
       ? this.webZones
           .filter((zone) => zone.cells.has(key(hoverCell.x, hoverCell.y)))
@@ -1489,7 +1511,9 @@ export class BattleEngine {
         const active = this.activeTurnUnit();
         return this.turnOrder
           .map((id) => this.units.find((u) => u.id === id))
-          .filter((u): u is Unit => !!u && u.alive)
+          // Fog of war: an enemy the party can't currently see stays off the list too, so the
+          // turn order never gives away who is out there (unitHidden is false without fog).
+          .filter((u): u is Unit => !!u && u.alive && !this.unitHidden(u))
           .map((u) => ({ id: u.id, name: u.name, side: u.side, acted: u.moved, active: u.id === active?.id, initiative: u.initiative }));
       })(),
       log: this.log,
@@ -2176,7 +2200,8 @@ export class BattleEngine {
       if (step.spellKind === "fireball" || step.spellKind === "causticVenom") {
         const caster = this.units.find((u) => u.id === step.att);
         const target = step.projectileTo ?? null;
-        if (caster && target) this.emitMissileFx(caster.x, caster.y, target.x, target.y, step.spellKind);
+        // Familiar Titã keeps the original V1 Fireball look; every other caster gets Fire V2.
+        if (caster && target) this.emitMissileFx(caster.x, caster.y, target.x, target.y, step.spellKind, caster.classId === "familiar3");
       }
       if (step.spellKind === "longShot") {
         const caster = this.units.find((u) => u.id === step.att);
@@ -2582,7 +2607,7 @@ export class BattleEngine {
     }
     a.t += dt;
     const arrowSpell = a.spellKind === "longShot" || a.spellKind === "multiShot" || a.spellKind === "piercing";
-    const hitAt = arrowSpell ? ARROW_TRAVEL : a.spellKind === "phantasmalForce" ? PHANTASMAL_FORCE_TRAVEL : a.spellKind === "magicMissile" || a.spellKind === "fireball" || a.spellKind === "causticVenom" ? MISSILE_HIT_AT : 0.18;
+    const hitAt = arrowSpell ? ARROW_TRAVEL : a.spellKind === "phantasmalForce" ? PHANTASMAL_FORCE_TRAVEL : a.spellKind === "magicMissile" || a.spellKind === "fireball" || a.spellKind === "causticVenom" ? SPELL_TRAVEL : 0.18;
     // Weapon-based skills routed through this same SpellAnim machinery for their multi-target
     // reach (bow shots, Cleave, Sweep, the two charge skills) are not magic — only the actual
     // spellcasters' kinds get the casting cue below.
@@ -2772,7 +2797,10 @@ export class BattleEngine {
     }
     // The Conjurer has a 36-frame casting sheet. Let it finish its visual motion without
     // changing the hit timing above; every other spell keeps the existing duration.
-    const spellEnd = att.sprite === "conjurer" ? 0.72 : 0.55;
+    // The slower spell bolts (SPELL_TRAVEL) need the step to outlast their flight, impact and
+    // trail afterglow.
+    const boltSpell = a.spellKind === "magicMissile" || a.spellKind === "fireball" || a.spellKind === "causticVenom";
+    const spellEnd = Math.max(att.sprite === "conjurer" ? 0.72 : 0.55, boltSpell ? SPELL_TRAVEL + MISSILE_AFTERGLOW + 0.15 : 0);
     if (a.t >= spellEnd && this.heldDone(a)) this.finishCombat(att);
   }
 
@@ -3483,7 +3511,7 @@ export class BattleEngine {
   }
 
   /** One glowing bolt per target, hex-to-hex — see MissileFx. */
-  private emitMissileFx(fromX: number, fromY: number, toX: number, toY: number, kind: "magicMissile" | "phantasmalForce" | "fireball" | "causticVenom" | "longShot" | "arcaneBolt" | "webOfDreams"): void {
+  private emitMissileFx(fromX: number, fromY: number, toX: number, toY: number, kind: "magicMissile" | "phantasmalForce" | "fireball" | "causticVenom" | "longShot" | "arcaneBolt" | "webOfDreams", classicFireball = false): void {
     if (this.reducedMotion) return;
     let slot = this.missileFx.find((m) => !m.live);
     if (!slot) {
@@ -3502,11 +3530,12 @@ export class BattleEngine {
     slot.toX = toX;
     slot.toY = toY;
     slot.t = 0;
-    slot.travel = kind === "longShot" ? ARROW_TRAVEL : kind === "webOfDreams" ? WEB_SHOT_TRAVEL : kind === "phantasmalForce" ? PHANTASMAL_FORCE_TRAVEL : MISSILE_TRAVEL;
+    slot.travel = kind === "longShot" ? ARROW_TRAVEL : kind === "webOfDreams" ? WEB_SHOT_TRAVEL : kind === "phantasmalForce" ? PHANTASMAL_FORCE_TRAVEL : kind === "magicMissile" || kind === "fireball" || kind === "causticVenom" ? SPELL_TRAVEL : MISSILE_TRAVEL;
     slot.max = slot.travel + MISSILE_AFTERGLOW;
     slot.hue = kind === "fireball" ? 22 : kind === "causticVenom" ? 104 : kind === "longShot" ? 205 : kind === "arcaneBolt" ? 2 : kind === "webOfDreams" ? 276 : kind === "phantasmalForce" ? 202 : 268;
     slot.kind = kind;
     slot.seed = this.rng() * Math.PI * 2;
+    slot.classicFireball = classicFireball;
   }
 
   /** A bolt struck down onto one hex — see LightningFx. The jagged shape (main bolt plus
@@ -4895,7 +4924,7 @@ export class BattleEngine {
 
   /** Whether this mission hides anything at all. */
   get fogged(): boolean {
-    return this.mission.fog === true;
+    return this.mission.fog === true && getDevGfx().fogOfWar;
   }
 
   /** In sight of the party right now. Always true on a mission without fog. */
@@ -4977,19 +5006,27 @@ export class BattleEngine {
     let stamp = `${this.terrainVersion}`;
     for (const u of this.units) {
       if (u.side !== "player" || !u.alive) continue;
-      stamp += `|${u.id}:${u.x},${u.y}`;
+      stamp += `|${u.id}:${u.x},${u.y}:${u.visionRange ?? SIGHT_RADIUS}`;
     }
     if (stamp === this.visStamp) return;
     this.visStamp = stamp;
+    this.visVersion++;
 
     // Every cell a living party member stands on is an eye, so a four-hex body sees
     // around its whole bulk rather than from one nominal corner of it.
     const eyes: Point[] = [];
+    const radii: number[] = [];
     for (const u of this.units) {
       if (u.side !== "player" || !u.alive) continue;
-      eyes.push(...footprint(u));
+      for (const p of footprint(u)) {
+        eyes.push(p);
+        radii.push(u.visionRange ?? SIGHT_RADIUS);
+      }
     }
-    relight(this.vis, eyes, SIGHT_RADIUS, this.tiles, this.cols, this.rows, this.decorOverlay);
+    // Pure vision range, no line of sight: trees and walls blocking the party's view left
+    // hexes right beside them dark or black and impossible to reveal. Every hex within a
+    // unit's range is fully revealed. (Attacks and enemy AI keep their own sight checks.)
+    relight(this.vis, eyes, radii, this.tiles, this.cols, this.rows, this.decorOverlay, false);
   }
 
   /**
@@ -7396,6 +7433,19 @@ export class BattleEngine {
    * BattleCanvas polls this every frame and feeds it straight into
    * EffectsRenderer.updateOverride — see EffectOverride for why a fixed-hex getAnchor(col,row)
    * effect can't represent a continuously moving, continuously growing beam on its own. */
+  /** Fire V2: world position (hexWorld units, y-down) of a Fireball currently in flight, or null
+   * when none is — the same straight from→to path and m.t/m.travel timing the V1 comet used, so
+   * the damage/impact still lands exactly when the ball arrives. */
+  fireballShot(): { worldX: number; worldY: number; tile: number } | null {
+    if (FIREBALL_VISUAL !== "v2") return null;
+    const m = this.missileFx.find((x) => x.live && x.kind === "fireball" && !x.classicFireball && x.t < x.travel);
+    if (!m) return null;
+    const from = this.effectAnchor(m.fromX, m.fromY);
+    const to = this.effectAnchor(m.toX, m.toY);
+    const k = Math.min(1, m.t / m.travel);
+    return { worldX: from.worldX + (to.worldX - from.worldX) * k, worldY: from.worldY + (to.worldY - from.worldY) * k, tile: from.tile };
+  }
+
   webShotBeam(): { x: number; y: number; worldX: number; worldY: number; tile: number; angle: number; length: number } | null {
     const m = this.missileFx.find((x) => x.live && x.kind === "webOfDreams" && x.t < x.travel);
     if (!m) return null;
@@ -7645,8 +7695,12 @@ export class BattleEngine {
     layer: "ground" | "behind" | "front" = "ground",
   ): void {
     const SQRT3 = Math.sqrt(3);
-    for (let decorationIndex = 0; decorationIndex < this.decorations.length; decorationIndex++) {
-      const p = this.decorations[decorationIndex]!;
+    // Higher-priority near-side scenery paints last, while equal priorities preserve placement
+    // order. This makes transparent decoration overlaps deterministic.
+    const orderedDecorations = this.decorations
+      .map((p, index) => ({ p, index, order: DECORATIONS[p.id]?.decorRenderOrder ?? 0 }))
+      .sort((a, b) => a.order - b.order || a.index - b.index);
+    for (const { p } of orderedDecorations) {
       const def = DECORATIONS[p.id];
       let img = this.art.decorations[p.id];
       if ((!img || !img.naturalWidth) && def) {
@@ -7693,7 +7747,7 @@ export class BattleEngine {
       const house = HOUSE_DECOR_IDS.has(p.id);
       const bigHouse = BIG_HOUSE_DECOR_IDS.has(p.id);
       const anyHouse = house || bigHouse;
-      const w = tree
+      const w0 = tree
         ? tile * 1.28
         : log
           ? tile * SQRT3 * 2.05
@@ -7719,10 +7773,16 @@ export class BattleEngine {
                 : one
                   ? tile * 1.65
                   : tile * (1.5 * (maxDy - minDy) + 2.3);
-      const h = baseH * (def.heightScale ?? 1);
+      const h0 = baseH * (def.heightScale ?? 1);
       // Taller near-side props rise upward from their ground anchor instead of stretching
       // equally in both directions. That preserves the shallow isometric perspective.
-      const dy = (tree ? -tile * 0.55 : wall ? -tile * 0.12 : anyHouse ? -tile * 0.28 * 3 : item ? tile * 0.08 : 0) - (h - baseH) * 0.42;
+      const dy0 = (tree ? -tile * 0.55 : wall ? -tile * 0.12 : anyHouse ? -tile * 0.28 * 3 : item ? tile * 0.08 : 0) - (h0 - baseH) * 0.42;
+      // Global art scale (see DECOR_ART_SCALE), grown from the bottom edge — same as
+      // ThreeBattleRenderer's decorSize, so both renderers draw props the same size.
+      const artScale = (anyHouse ? HOUSE_ART_SCALE : DECOR_ART_SCALE) * (def.artScale ?? 1);
+      const w = w0 * artScale;
+      const h = h0 * artScale;
+      const dy = dy0 - (h0 * (artScale - 1)) / 2;
       // Cull on the box actually drawn, which is why this sits after the sizing above and
       // not up by the centre. Every branch below centres the image on `(cx, cy + dy)`, so
       // one bounding circle bounds the turned cases as well as the straight one.
@@ -8483,6 +8543,8 @@ export class BattleEngine {
         // why fog makes a big fogged board lighter to draw rather than heavier.
         if (!this.explored(x, y)) continue;
         const drawId = tileAt(this.tiles, this.cols, x, y);
+        // Void erases the tile: draw nothing, so the backdrop shows through.
+        if (drawId === "void") continue;
         const isWaterFx = this.waterFxTileKeys.has(y * this.cols + x);
         ctx.save();
         this.hexPath(ctx, cx, cy, tile * 1.0);
@@ -8929,6 +8991,10 @@ export class BattleEngine {
     // Fog 2's requested stacking is decorations → fog → units. When Three owns decorations,
     // foreground props must skip this top canvas too or they would leap above both fog and units.
     skipFrontDecor?: boolean,
+    // The elemental-FX overlay sits below this canvas. In that composition, ordinary
+    // decorations need to occlude character sprites; explicit "behind" props still draw in
+    // the early pass so characters remain on top of those special cases.
+    groundDecorAboveUnits?: boolean,
   ): void {
     const tile = ZOOM_RADII[this.zoom]!;
     const sqrt3 = Math.sqrt(3);
@@ -8942,7 +9008,7 @@ export class BattleEngine {
       // Ground decorations (trees, houses, rocks...) draw here, above the WebGL elemental FX
       // canvas but below character sprites — the same relative order as when this used to
       // happen in renderGround, just moved onto this (topmost) canvas so FX never covers them.
-      this.drawDecorations(ctx, tile, cssW, cssH);
+      if (!groundDecorAboveUnits) this.drawDecorations(ctx, tile, cssW, cssH);
       // A rear parapet must remain visible over the ground and tactical highlights, while
       // character sprites still pass in front of it.
       this.drawDecorations(ctx, tile, cssW, cssH, "behind");
@@ -8963,7 +9029,10 @@ export class BattleEngine {
       const hid = tileAt(this.tiles, this.cols, cur.x, cur.y);
       const ht = TERRAIN[hid];
       const blocked = !ht.passable;
-      if (!skipCursorHex) {
+      // Void is erased ground (not drawn at all): no outline or "VAZIO" label over nothing.
+      // Same for a never-seen hex under fog of war — its terrain must not leak through a label.
+      const erased = hid === "void" || !this.explored(cur.x, cur.y);
+      if (!skipCursorHex && !erased) {
         if (blocked) {
           ctx.save();
           ctx.shadowColor = "rgba(219,58,44,0.95)";
@@ -8980,7 +9049,7 @@ export class BattleEngine {
           ctx.stroke();
         }
       }
-      if (blocked || ht.height) {
+      if (!erased && (blocked || ht.height)) {
         const label = blocked ? ht.name.toUpperCase() : "ALTO +2";
         const fontPx = Math.max(11, Math.round(tile * 0.32));
         ctx.font = `700 ${fontPx}px Figtree, sans-serif`;
@@ -9342,6 +9411,8 @@ export class BattleEngine {
     if (this.missileFxLive) {
       for (const m of this.missileFx) {
         if (!m.live) continue;
+        // Fire V2: the flying ball is a 3D object in ThreeBattleRenderer instead (fireballShot).
+        if (m.kind === "fireball" && FIREBALL_VISUAL === "v2" && !m.classicFireball) continue;
         const from = this.hexCenter(m.fromX, m.fromY);
         const to = this.hexCenter(m.toX, m.toY);
         const dxT = to.cx - from.cx;
@@ -9763,12 +9834,15 @@ export class BattleEngine {
 
     // Foreground parapets are the nearest scenery: no unit, HP bar, projectile, or spell
     // effect that is physically behind their artwork may show through.
+    // In the upper FX composition, ordinary props are deliberately painter-last so their art
+    // occludes the characters. The explicit "behind" layer above remains the opt-in exception.
+    if (groundDecorAboveUnits && !skipGroundDecor) this.drawDecorations(ctx, tile, cssW, cssH);
     if (!skipFrontDecor) this.drawDecorations(ctx, tile, cssW, cssH, "front");
 
     if (shake) ctx.restore();
   }
 
-  private healHaloRgb(kind: Unit["healGlowKind"]): { core: string; mid: string } {
+  healHaloRgb(kind: Unit["healGlowKind"]): { core: string; mid: string } {
     if (kind === "disease") return { core: "200,255,230", mid: "70,210,160" };
     if (kind === "potion") return { core: "255,230,170", mid: "255,150,60" };
     if (kind === "holyMedium") return { core: "255,250,220", mid: "255,210,90" };

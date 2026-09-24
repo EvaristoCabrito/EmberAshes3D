@@ -19,7 +19,7 @@ import SLOT_CONFIG from "./map-slots.json";
 import ORDER_CONFIG from "./map-order.json";
 import LOCATION_ORDER_CONFIG from "./location-order.json";
 import RANDOM_ENCOUNTER_CONFIG from "./random-encounters.json";
-import type { ClassId, DecorationPlacement, DialogTree, ElementalFxPlacement, Mission, Spawn, TerrainId, WinCondition, WorldLocation } from "./types";
+import type { ClassId, DecorationPlacement, DialogTree, ElementalFxPlacement, MapTimeOfDay, Mission, Spawn, TerrainId, WinCondition, WorldLocation } from "./types";
 
 /** A spawn as edited in the Map Editor — the real Spawn shape plus a per-spawn test
  * level, which only exists for "Testar" (balance testing). It never leaves the editor:
@@ -56,6 +56,8 @@ export interface MapDraft {
    * controls, author-tunable per map so the editor is the one place these live, not a
    * source-code table only a developer can touch. */
   environment?: "outdoor" | "indoor";
+  /** See Mission.timeOfDay. */
+  timeOfDay?: MapTimeOfDay;
   sunIntensity?: number;
   ambientIntensity?: number;
   /** See Mission.mistIntensity. */
@@ -201,6 +203,7 @@ export function draftToMission(d: MapDraft): Mission {
     autoTactics: d.autoTactics ? undefined : false,
     fog: d.fog ? true : undefined,
     environment: d.environment === "indoor" ? "indoor" : undefined,
+    timeOfDay: d.timeOfDay === "dawn" || d.timeOfDay === "dusk" || d.timeOfDay === "brightNight" || d.timeOfDay === "darkNight" ? d.timeOfDay : undefined,
     sunIntensity: typeof d.sunIntensity === "number" ? d.sunIntensity : undefined,
     ambientIntensity: typeof d.ambientIntensity === "number" ? d.ambientIntensity : undefined,
     mistIntensity: typeof d.mistIntensity === "number" ? d.mistIntensity : undefined,

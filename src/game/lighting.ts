@@ -1,0 +1,81 @@
+/**
+ * Environmental light sources — map decorations that illuminate their surroundings
+ * (braziers, burning buildings, lantern posts...). Each becomes a real THREE.PointLight in
+ * ThreeBattleRenderer (see syncLights), placed at the flame in 3D and lighting the terrain,
+ * decorations and characters through their lit (MeshLambertMaterial) materials.
+ *
+ * World units are the battle's world pixels (hexWorld / unitAnchor space, y-down); a light's
+ * range is given in hex radii (`tile`) so zoom never changes which area it lights.
+ */
+
+export interface LightDef {
+  /** Linear RGB of the light, before intensity. */
+  color: [number, number, number];
+  /** Strength: irradiance one hex radius from the flame, as a multiple of the ground's normal
+   * sun + sky irradiance (1 = as much light again as the scene already has there). */
+  intensity: number;
+  /** PointLight.distance, in hex radii: Three's attenuation reaches exactly zero here. */
+  radius: number;
+  /** Flicker amount (0 = steady light, 1 = full fire flicker). */
+  flicker: number;
+}
+
+const FIRE: [number, number, number] = [1.0, 0.58, 0.26];
+const LANTERN: [number, number, number] = [1.0, 0.7, 0.36];
+
+// Three lights in linear space and the screen shows gamma-encoded color: +70% linear
+// irradiance reads as only ~+25% on screen (measured). These are ~3x that, so a fire's light
+// is plainly visible in normal play.
+const NORMAL_FIRE: LightDef = { color: FIRE, intensity: 4, radius: 3.6, flicker: 1 };
+const NORMAL_LANTERN: LightDef = { color: LANTERN, intensity: 3.3, radius: 3.3, flicker: 0.4 };
+const WEAK_FIRE: LightDef = { color: FIRE, intensity: 1.6, radius: 2.4, flicker: 1 };
+
+/** Which decorations emit light, and how strongly (per the user's list). */
+export const LIGHT_DEFS: Record<string, LightDef> = {
+  "city-brazier": NORMAL_FIRE,
+  "wilds-brazier-tripod": NORMAL_FIRE,
+  "ember-channels-001": WEAK_FIRE,
+  "burning-house": NORMAL_FIRE,
+  "burnt-house-ruins": NORMAL_FIRE,
+  "burning-hamlet": NORMAL_FIRE,
+  "city-lantern-post": NORMAL_LANTERN,
+  "wilds-lantern-post": NORMAL_LANTERN,
+  lamppost: NORMAL_LANTERN,
+  // New light props: candle small and soft, torch and bowl normal, fireplace the largest.
+  "light-candle": { color: [1.0, 0.66, 0.34], intensity: 8, radius: 4, flicker: 0.6 },
+  "light-wall-torch": NORMAL_FIRE,
+  "light-brazier-bowl": NORMAL_FIRE,
+  "light-fireplace": { color: FIRE, intensity: 4.5, radius: 4.4, flicker: 0.8 },
+};
+
+/** Units that carry their own light and walk with it, keyed by classId — same LightDef as the
+ * props above. Swamp Blue Calf: a soft pale-blue glow, between WEAK_FIRE and NORMAL_FIRE in
+ * strength and reach, with a gentle slow pulse instead of a fire's flicker. */
+export const UNIT_LIGHT_DEFS: Record<string, LightDef> = {
+  swampBlueCalf: { color: [0.55, 0.75, 1.0], intensity: 1.8, radius: 3, flicker: 0.3 },
+};
+
+/** One live light this frame (world pixels, y-down), already scaled by zoom and flicker. */
+export interface EnvLight {
+  /** Ground position under the flame. */
+  x: number;
+  y: number;
+  /** Flame height above the ground, world pixels. */
+  h: number;
+  /** Reach, world pixels. */
+  r: number;
+  /** color x intensity x flicker. */
+  rgb: [number, number, number];
+}
+
+/** PointLight.decay. 2 is physical inverse-square; 1.5 keeps a lit pool around a fire instead
+ * of only a hot spot at its base. */
+export const LIGHT_DECAY = 1.5;
+
+/** Smooth, non-repeating-looking fire variation around 1 — a few incommensurate slow sines,
+ * never a per-frame random jump. `seed` decorrelates neighbouring fires. */
+export function flickerAt(time: number, seed: number, amount: number): number {
+  if (amount <= 0) return 1;
+  const v = 0.06 * Math.sin(time * 5.3 + seed) + 0.045 * Math.sin(time * 8.9 + seed * 1.7) + 0.03 * Math.sin(time * 13.7 + seed * 2.9) + 0.03 * Math.sin(time * 2.1 + seed * 0.6);
+  return 1 + v * amount;
+}

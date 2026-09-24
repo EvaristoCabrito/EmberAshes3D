@@ -49,9 +49,10 @@ export function BattleCanvas({
     try {
       if (threeGround) {
         rendererThree = new ThreeBattleRenderer(canvas, engine);
-        // Units stay on the transparent top canvas. Decorations stay in Three so Fog 2 can sit
-        // over every prop while remaining below every unit.
-        rendererThree.setSpritesAndDecorationsVisible(false, true);
+        // Characters render as Three's own lit billboards (MeshLambertMaterial) so real scene
+        // lights — map PointLights — illuminate them; the top canvas keeps their HP bars and
+        // overlays only (skipUnitSprites below). Their renderOrder keeps them above Fog 2.
+        rendererThree.setSpritesAndDecorationsVisible(true, true);
       }
       else renderer2D = new WebGL2DRenderer(canvas);
     } catch {
@@ -82,6 +83,11 @@ export function BattleCanvas({
     // what the map author placed. Degrades to plain 2D (this canvas stays visible, overlay
     // hidden) if WebGL2 isn't available.
     let fx: EffectsRenderer | null = null;
+    // Fog of war: an effect only draws while its hex is in the party's sight. Its anchor is
+    // parked far off-screen otherwise, so a placement or spell in the dark shows nothing —
+    // neither over the black of unexplored ground nor as a hint of what is happening there.
+    const OFFSCREEN_ANCHOR = { x: -1e6, y: -1e6, tile: 0, worldX: -1e6, worldY: -1e6 };
+    const fxAnchor = (col: number, row: number) => (engine.fogged && !engine.visible(col, row) ? OFFSCREEN_ANCHOR : engine.effectAnchor(col, row));
     const fxCanvas = fxCanvasRef.current;
     if (fxCanvas) {
       try {
@@ -201,7 +207,15 @@ export function BattleCanvas({
         engine.tick(dt);
       }
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // Elemental FX is a DOM canvas between the Three scene and the normal unit overlay.
+      // While it is active, decorations must move to that upper overlay too; otherwise the FX
+      // canvas inevitably paints over them regardless of their Three world depth.
+      const drawDecorationsOverFx = !!rendererThree && !!fx?.hasEffects();
       if (rendererThree) {
+        // Move both Three-owned sprites and decorations into the shared upper painter's pass
+        // while FX is visible. That pass has the required order: rear decor → characters →
+        // foreground decor, all above the elemental-FX canvas.
+        rendererThree.setSpritesAndDecorationsVisible(!drawDecorationsOverFx, !drawDecorationsOverFx);
         // Movement/attack/spell-range highlight and the active-turn ring are drawn as part of
         // this call now (see ThreeBattleRenderer.syncOverlay) — real world-space hex meshes
         // ordered between terrain and decorations, not a separate 2D overlay, so a blocking
@@ -250,7 +264,7 @@ export function BattleCanvas({
         // ordinary fight never pays for it.
         if (fx.hasEffects()) {
           if (fxCanvas) fxCanvas.style.display = "block";
-          fx.render(canvas, dt, (col, row) => engine.effectAnchor(col, row));
+          fx.render(canvas, dt, fxAnchor);
         } else if (fxCanvas) {
           fxCanvas.style.display = "none";
         }
@@ -265,15 +279,17 @@ export function BattleCanvas({
           unitsRenderer,
           wrap.clientWidth,
           wrap.clientHeight,
-          fx ? (px: number, py: number) => fx.lightBoostAt(px, py, (col, row) => engine.effectAnchor(col, row)) : undefined,
-          // With Three, terrain and decorations remain in the bottom renderer so Fog 2 can sit
-          // over every prop. Units, bars and status effects stay here on the transparent top
-          // canvas, preserving the requested decoration → fog → unit layering.
+          fx ? (px: number, py: number) => fx.lightBoostAt(px, py, fxAnchor) : undefined,
+          // Three normally owns its decorations. During active elemental FX, they are redrawn
+          // here after that FX canvas; the same pass redraws sprites and then ordinary/front
+          // decorations, keeping characters above FX but behind scenery (except explicit
+          // behind-layer props).
+          !!rendererThree && !drawDecorationsOverFx,
+          !!rendererThree && !drawDecorationsOverFx,
+          !!rendererThree && !drawDecorationsOverFx,
           !!rendererThree,
-          false,
-          !!rendererThree,
-          !!rendererThree,
-          !!rendererThree,
+          !!rendererThree && !drawDecorationsOverFx,
+          drawDecorationsOverFx,
         );
       }
       const hud = engine.getHud();
@@ -312,6 +328,8 @@ export function BattleCanvas({
         hud.spellReady,
         hud.turnQueue.find((q) => q.active)?.id,
         hud.turnQueue.map((q) => (q.acted ? "1" : "0")).join(""),
+        // Which enemies are listed changes as fog reveals/hides them.
+        hud.turnQueue.map((q) => q.id).join(","),
         hud.chestLoot ? `${hud.chestLoot.unitName}:${hud.chestLoot.ember}:${hud.chestLoot.items.map((i) => i.name).join(",")}` : null,
         hud.pendingDialog ? `${hud.pendingDialog.id}` : null,
       ].join("|");

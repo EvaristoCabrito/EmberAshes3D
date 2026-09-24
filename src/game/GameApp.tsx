@@ -5,9 +5,10 @@ import { loadGameArt, portraitFor, TILE_VARIANT_COUNT, tileVariantName, tileVari
 import { getAudioVolumes, installAudioUnlock, playFile, playMenuMusic, playTheme, resumeAudio, setCutsceneVolume, setMusicVolume, setMuted, setSfxVolume, sfxPlay, stopMusic, unlockAudio } from "./audio";
 import { BattleCanvas } from "./BattleCanvas";
 import { ELEMENT_LABELS, PLACEABLE_ELEMENT_KINDS, type PlaceableElementKind } from "./gfx/params";
-import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_BLOOM_INTENSITY, DEFAULT_SUN_INTENSITY } from "./gfx/three/ThreeBattleRenderer";
+import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_BLOOM_INTENSITY, DEFAULT_SUN_INTENSITY, TIME_OF_DAY_LIGHT } from "./gfx/three/ThreeBattleRenderer";
 import { getDevGfx, setDevGfx, subscribeDevGfx, type DevGfxSettings } from "./gfx/three/devGfx";
 import { DevGfxPreview } from "./gfx/three/DevGfxPreview";
+import { Hd2dTestScreen } from "./gfx/three/Hd2dTestScene";
 import { InnScreen } from "./InnScreen";
 import { PartyInventoryOverlay, ItemTip } from "./InventoryScreens";
 import { DialogOverlay } from "./DialogOverlay";
@@ -89,7 +90,7 @@ import {
   writeSlot,
   selectSlot,
 } from "./save";
-import type { Bag, BattleSnapshot, ClassId, DecorationPlacement, DialogTree, ElementalFxPlacement, EquipSlot, GameArt, GrowthLine, HudSnapshot, Mission, PotionId, SaveBank, SaveData, ScreenId, SpellKind, Spawn, SpriteId, StatPointAllocation, StatPointAttribute, TerrainId, UnitPublic, WinCondition, WorldLocation } from "./types";
+import type { Bag, BattleSnapshot, ClassId, DecorationPlacement, DialogTree, ElementalFxPlacement, EquipSlot, GameArt, GrowthLine, HudSnapshot, MapTimeOfDay, Mission, PotionId, SaveBank, SaveData, ScreenId, SpellKind, Spawn, SpriteId, StatPointAllocation, StatPointAttribute, TerrainId, UnitPublic, WinCondition, WorldLocation } from "./types";
 import { hexNeighbors, key as hexKey } from "./pathfinding";
 
 /** A map JSON write updates Vite's module list and can reload the app. This one-shot
@@ -2820,16 +2821,30 @@ function TestMenuScreen({
   );
 }
 
-const DEV_GFX_ROWS: { key: keyof DevGfxSettings; label: string; hint: string }[] = [
+const DEV_GFX_ROWS: { key: "realShadows" | "softShadows" | "contactShadows" | "localLights" | "fogOfWar" | "fogDebug" | "ambientOcclusion" | "fireballV2Test"; label: string; hint: string }[] = [
+  { key: "fireballV2Test", label: "Bola de fogo V2 (teste)", hint: "Uma bola de fogo 3D procedural com luz real (PointLight) indo e voltando devagar na fileira do primeiro herói." },
   { key: "realShadows", label: "Sombras reais", hint: "Sombra projetada pelo sol (unidades e props)." },
   { key: "softShadows", label: "Sombras suaves (PCF)", hint: "Borda da sombra suavizada em vez de serrilhada." },
   { key: "contactShadows", label: "Contact shadows", hint: "Mancha escura curta nos pés de cada unidade." },
+  { key: "localLights", label: "Luzes do mapa", hint: "Braseiros, fogueiras, lanternas e casas em chamas iluminam o chão, os personagens e os props perto deles." },
+  { key: "fogOfWar", label: "Fog of war", hint: "Névoa de guerra nos mapas que a usam. Desligado = tudo visível, pra comparar." },
+  { key: "fogDebug", label: "Fog of war — debug", hint: "Cores por hex: verde = visível, âmbar = explorado, vermelho = inexplorado." },
+  { key: "ambientOcclusion", label: "Oclusão ambiente", hint: "Escurece de leve a luz ambiente do chão junto a props, muros e desníveis." },
+];
+
+const DEV_SKY_SLIDERS: { key: "sunAzimuth" | "sunElevation" | "moonAzimuth" | "moonElevation"; label: string; min: number; max: number }[] = [
+  { key: "sunAzimuth", label: "Sol — direção", min: 0, max: 359 },
+  { key: "sunElevation", label: "Sol — altura", min: 5, max: 85 },
+  { key: "moonAzimuth", label: "Lua — direção", min: 0, max: 359 },
+  { key: "moonElevation", label: "Lua — altura", min: 5, max: 85 },
 ];
 
 /** Dev-only toggles for the battle renderer's shadow features (see gfx/three/devGfx.ts) —
  * saved per-browser and applied live, so flip here then open a fight via Debug to compare. */
 function DevControlsScreen({ onBack }: { onBack: () => void }) {
   const gfx = useSyncExternalStore(subscribeDevGfx, getDevGfx);
+  const [hd2dTest, setHd2dTest] = useState(false);
+  if (hd2dTest) return <Hd2dTestScreen onBack={() => setHd2dTest(false)} />;
   return (
     <section className="h-dvh min-h-0 flex flex-col bg-bg">
       <header className="flex items-center gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-4 border-b border-border">
@@ -2841,8 +2856,11 @@ function DevControlsScreen({ onBack }: { onBack: () => void }) {
           <h1 className="font-display text-3xl leading-none">Dev Controls</h1>
         </div>
       </header>
-      <div className="flex-1 min-h-0 flex flex-col justify-center gap-3 p-5 max-w-md mx-auto w-full">
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-5 max-w-md mx-auto w-full">
         <DevGfxPreview />
+        <button type="button" onClick={() => setHd2dTest(true)} className="rounded-xl border border-accent bg-bg/40 px-5 py-4 text-left font-display text-xl hover:bg-accent/10">
+          Cena 3D — teste HD-2D
+        </button>
         <p className="text-sm uppercase tracking-[0.14em] text-muted">Sombras</p>
         {DEV_GFX_ROWS.map((row) => (
           <button
@@ -2861,6 +2879,15 @@ function DevControlsScreen({ onBack }: { onBack: () => void }) {
               <span className={`absolute top-0.5 size-5 rounded-full bg-bg transition-all ${gfx[row.key] ? "left-[1.375rem]" : "left-0.5"}`} />
             </span>
           </button>
+        ))}
+        {DEV_SKY_SLIDERS.map((s) => (
+          <label key={s.key} className="flex flex-col gap-2 rounded-xl border border-border bg-bg/40 px-5 py-4">
+            <span className="flex justify-between font-display text-xl leading-tight">
+              <span>{s.label}</span>
+              <span className="text-muted">{Math.round(gfx[s.key])}°</span>
+            </span>
+            <input type="range" min={s.min} max={s.max} step={1} value={gfx[s.key]} onChange={(e) => setDevGfx({ [s.key]: Number(e.target.value) })} />
+          </label>
         ))}
         <p className="text-xs text-muted leading-relaxed pt-1">Salvo neste navegador. Vale em qualquer combate com o renderizador 3D (padrão).</p>
       </div>
@@ -2975,6 +3002,7 @@ function blankDraft(): MapDraft {
     autoTactics: true,
     fog: false,
     environment: "outdoor",
+    timeOfDay: "day",
     sunIntensity: DEFAULT_SUN_INTENSITY,
     ambientIntensity: DEFAULT_AMBIENT_INTENSITY,
     mistIntensity: 0.2,
@@ -3029,6 +3057,7 @@ function missionToDraft(m: Mission): MapDraft {
     autoTactics: m.autoTactics !== false,
     fog: m.fog === true,
     environment: m.environment === "indoor" ? "indoor" : "outdoor",
+    timeOfDay: m.timeOfDay ?? "day",
     sunIntensity: m.sunIntensity ?? DEFAULT_SUN_INTENSITY,
     ambientIntensity: m.ambientIntensity ?? DEFAULT_AMBIENT_INTENSITY,
     mistIntensity: m.mistIntensity ?? 0.2,
@@ -4421,6 +4450,8 @@ function MapEditorScreen({
     if (
       id === "barricade" ||
       id === "barricade-2" ||
+      id === "wooden-barricade" ||
+      id === "wooden-barricade-1" ||
       id === "city-spike-barricade-low" ||
       id === "city-palisade-frame" ||
       id === "city-wattle-fence" ||
@@ -4445,6 +4476,15 @@ function MapEditorScreen({
   // every actual category below it is kept in alphabetical order.
   const decorationSections = ["Todas", "Barricada", "City", "Houses", "Madeira Morta", "Natureza", "Objetos", "Pedras e relevo", "Pontes", "Ruínas e construções", "Torture", "Wilds"];
   const visibleDecorOptions = decoSection === "Todas" ? decorOptions : decorOptions.filter((dec) => decorationSectionFor(dec.id) === decoSection);
+
+  // Clicking a placed prop is also a lookup action: open its palette section and arm the
+  // exact matching brush, so the highlighted menu entry always tells the author its name.
+  useEffect(() => {
+    const id = selectedPlacedDecoration?.id;
+    if (!id || !DECORATIONS[id]) return;
+    setDecoBrush(id);
+    setDecoSection(decorationSectionFor(id));
+  }, [selectedPlacedDecoration]);
 
   /** Whatever unit stands on a cell, across all three spawn lists. */
   const spawnAt = (x: number, y: number) => {
@@ -4845,8 +4885,26 @@ function MapEditorScreen({
               <option value="indoor">Interno (luz suave, sem sol direto)</option>
             </select>
           </label>
-          <label className="flex items-center gap-2 text-sm" title="Força da luz do sol e de suas sombras — vai até um extremo de propósito">
-            <span className="text-muted w-28 shrink-0">Intensidade do sol</span>
+          <label className="flex items-center gap-2 text-sm" title="Escolher ajusta a luz do sol/lua e a luz ambiente para essa hora — dá pra refinar nos controles abaixo">
+            <span className="text-muted w-28 shrink-0">Hora do dia</span>
+            <select
+              className="bg-bg border border-border rounded-md px-2 py-1 flex-1"
+              value={draft.timeOfDay ?? "day"}
+              onChange={(e) => {
+                const timeOfDay = e.target.value as MapTimeOfDay;
+                const preset = TIME_OF_DAY_LIGHT[timeOfDay];
+                setDraft((d) => ({ ...d, timeOfDay, sunIntensity: preset.key, ambientIntensity: preset.ambient }));
+              }}
+            >
+              {(Object.keys(TIME_OF_DAY_LIGHT) as MapTimeOfDay[]).map((t) => (
+                <option key={t} value={t}>
+                  {TIME_OF_DAY_LIGHT[t].label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm" title="Força da luz do sol (ou da lua, à noite) e de suas sombras — vai até um extremo de propósito">
+            <span className="text-muted w-28 shrink-0">{TIME_OF_DAY_LIGHT[draft.timeOfDay ?? "day"].moon ? "Intensidade da lua" : "Intensidade do sol"}</span>
             <input
               type="range"
               min={0}

@@ -43,10 +43,14 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import type { BattleEngine } from "../../engine";
-import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECORATIONS, HOUSE_DECOR_IDS, TERRAIN, decorationFacing, decorationImage, placedFootprint } from "../../data";
+import { WEB_SHOT_TRAVEL, type BattleEngine } from "../../engine";
+import { FireballV2 } from "./ThreeFireballV2";
+import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECOR_ART_SCALE, DECORATIONS, HOUSE_ART_SCALE, HOUSE_DECOR_IDS, TERRAIN, decorationFacing, decorationImage, placedFootprint } from "../../data";
 import { tileAt } from "../../pathfinding";
-import type { DecorationDef, DecorationPlacement, TerrainId } from "../../types";
+import type { DecorationDef, DecorationPlacement, MapTimeOfDay, TerrainId } from "../../types";
+import { GroundAO, type AoOccluder } from "./ThreeGroundAO";
+import { FOG_EXPLORED, FOG_UNSEEN, FOG_VISIBLE, FogMask } from "./ThreeFogMask";
+import { LIGHT_DECAY, LIGHT_DEFS, UNIT_LIGHT_DEFS, flickerAt, type EnvLight, type LightDef } from "../../lighting";
 import { ThreeAtmosphere } from "./ThreeAtmosphere";
 import { getDevGfx } from "./devGfx";
 
@@ -88,6 +92,18 @@ const DECOR_SHADOW_GROUND_INSET = 3;
  * desired (0.6H, -0.8H) offset with dir.z=-1 gives dir.x=0.6, dir.y=-0.8 exactly. */
 const SUN_DIRECTION = new THREE.Vector3(0.6, -0.8, -1).normalize();
 const SUN_DISTANCE = 2000;
+/** Per-map time of day (Mission.timeOfDay, picked in the Map Editor's "Iluminação"): which sky
+ * light is the key light (Sun or Moon), the default key/ambient intensities the editor's sliders
+ * snap to when the time is picked, the key light and sky-fill colors, and for dawn/dusk a low sun
+ * elevation (long shadows) in place of Dev Controls' "Sol — altura". Dark night is the old Dev
+ * Controls "Noite" (Moon 0.9, sky fill 12% of the daytime 2). */
+export const TIME_OF_DAY_LIGHT: Record<MapTimeOfDay, { label: string; moon: boolean; key: number; ambient: number; keyColor: number; skyColor: number; elevation?: number }> = {
+  day: { label: "Dia", moon: false, key: 5, ambient: 2, keyColor: 0xfff0d6, skyColor: 0xfff2df },
+  dawn: { label: "Amanhecer", moon: false, key: 3.2, ambient: 1.3, keyColor: 0xffc8a8, skyColor: 0xf2d8d4, elevation: 20 },
+  dusk: { label: "Entardecer", moon: false, key: 2.8, ambient: 1.1, keyColor: 0xffca9f, skyColor: 0xf7ddc3, elevation: 15 },
+  brightNight: { label: "Noite clara", moon: true, key: 1.8, ambient: 0.6, keyColor: 0x9fb4ff, skyColor: 0xb4c0e4 },
+  darkNight: { label: "Noite escura", moon: true, key: 0.9, ambient: 0.24, keyColor: 0x9fb4ff, skyColor: 0xb4c0e4 },
+};
 
 /** Default sun/ambient intensities, used whenever a mission doesn't set its own
  * `sunIntensity`/`ambientIntensity` (see types.ts) — also what the Map Editor's "Iluminação"
@@ -227,7 +243,9 @@ function decorSize(id: string, def: DecorationDef, tile: number): { w: number; h
               : tile * (1.5 * (maxDy - minDy) + 2.3);
   const h = baseH * (def.heightScale ?? 1);
   const dy = (tree ? -tile * 0.55 : wall ? -tile * 0.12 : anyHouse ? -tile * 0.28 * 3 : item ? tile * 0.08 : 0) - (h - baseH) * 0.42;
-  return { w, h, dy };
+  // Global art scale (see DECOR_ART_SCALE), grown from the bottom edge so the base stays put.
+  const s = (anyHouse ? HOUSE_ART_SCALE : DECOR_ART_SCALE) * (def.artScale ?? 1);
+  return { w: w * s, h: h * s, dy: dy - (h * (s - 1)) / 2 };
 }
 
 /** PCF filter radius (shadow-map texels) — 1 is Three's default hard-ish edge; the Dev Controls
@@ -236,27 +254,193 @@ function decorSize(id: string, def: DecorationDef, tile: number): { w: number; h
 const SHADOW_RADIUS_HARD = 1;
 const SHADOW_RADIUS_SOFT = 4;
 
-/** Contact-shadow footprint, relative to the unit's drawn sprite width: wider than tall, a
- * stance shape rather than a circle. */
-const CONTACT_SHADOW_W = 0.6;
-const CONTACT_SHADOW_H = 0.24;
-const CONTACT_SHADOW_OPACITY = 0.7;
+/** Contact shadow = short-range grounding only, never a second cast shadow. The scene is flat
+ * orthographic billboards (no depth relationship between sprite and ground to sample), so this
+ * is a per-object ground decal sized from the art's own opaque base (see artBase) — transparent
+ * sprite pixels never count as contact, and one object's decal can never darken another object
+ * (decals sit at z=0.51, under every sprite/prop).
+ * W: decal width as a multiple of the measured opaque base width (a little spill past the edge).
+ * H: decal height as a fraction of its width (ground seen at the board's 3/4 angle).
+ * OPACITY: peak darkening at the contact point — a multiply, so 0.75 keeps 25% of the ground's
+ * own light; never black. MAX_W caps the decal against the sprite's drawn width. */
+const CONTACT_SHADOW_W = 1.4;
+const CONTACT_SHADOW_H = 0.5;
+const CONTACT_SHADOW_OPACITY = 0.75;
+const CONTACT_SHADOW_MAX_W = 0.6;
+/** Absolute cap on decal height, in hex radii — keeps a wide base (wall, log) from growing a
+ * deep oval that reaches far in front of/behind the contact line. */
+const CONTACT_SHADOW_MAX_H = 0.5;
+/** Shifts the decal toward the viewer by this fraction of its height, so more of it lies on the
+ * ground visible in front of the base instead of under the sprite. The first pass (0.2 tile cap,
+ * 0.4 peak, no shift) measured as a ~2px line at normal battle zoom — invisible in real play. */
+const CONTACT_SHADOW_FORWARD = 0.2;
 
-/** Soft dark radial gradient shared by every unit's contact shadow — the same CanvasTexture
- * technique activeTurnShadowCatcher already uses (proven to render in this renderer). A custom
- * ShaderMaterial computing the falloff from UV was tried first and silently drew nothing here,
- * even at 3x size / opacity 1, while a plain MeshBasicMaterial on the same mesh did. */
+/** Real THREE.PointLights for map light sources (see syncLights). A fixed pool (Three compiles
+ * the light count into every lit shader, so the pool never changes size); unused ones sit at
+ * intensity 0. No castShadow yet — shadows are a separate, later decision. */
+const POINT_LIGHT_POOL = 8;
+/** Rim-glow canvas size relative to the sprite (room for the blur to spread). */
+const GLOW_PAD = 1.7;
+/** How many of the pool (always the lights nearest the view) cast real cube-map shadows.
+ * 0 per the user's pick: the fire's clean round light pool, without its own cube shadow. */
+const POINT_SHADOW_LIGHTS = 0;
+/** Render layer of the hidden 3D proxy volumes (a box per prop, an upright cylinder per
+ * character): the physical shapes map lights hit and are blocked by. The main camera and the
+ * sun's shadow camera never see this layer — the art stays what the player sees and the sun
+ * keeps its silhouette shadows; only the point lights' shadow cameras render it. */
+const PROXY_LAYER = 3;
+/** The ground's normal sun + sky irradiance in this renderer (sun 5 x N.L 0.78 + hemi ~1):
+ * a point light adding this much irradiance doubles the ground's brightness — the same scale
+ * LightDef.intensity uses for sprites (1 = twice as bright). */
+const GROUND_BASE_IRRADIANCE = 4.9;
+/** Fraction of an image's height, measured up from its lowest opaque row, that counts as "the
+ * base touching the ground" (feet, paws, trunk, wall foot). */
+const CONTACT_BASE_BAND = 0.08;
+
+/** Falloff mask shared by every contact decal. Alpha only — the material (see
+ * makeContactShadowMaterial) multiplies the ground by (1 - alpha), so the color channels are
+ * irrelevant. (1 - r²)²: strongest at the contact, ~56% at half radius, ~26% at 70%, and exactly
+ * zero with zero slope at the edge, so no ring marks where it stops. */
 function makeContactShadowTexture(): THREE.CanvasTexture {
+  const size = 128;
   const c = document.createElement("canvas");
-  c.width = c.height = 128;
+  c.width = c.height = size;
   const ctx = c.getContext("2d")!;
-  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  g.addColorStop(0, "rgba(20,16,12,1)");
-  g.addColorStop(0.45, "rgba(20,16,12,0.6)");
-  g.addColorStop(1, "rgba(20,16,12,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 128, 128);
+  const img = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (x + 0.5) / (size / 2) - 1;
+      const dy = (y + 0.5) / (size / 2) - 1;
+      const k = Math.max(0, 1 - (dx * dx + dy * dy));
+      const i = (y * size + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+      img.data[i + 3] = Math.round(255 * k * k);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
   return new THREE.CanvasTexture(c);
+}
+
+/** dst * (1 - srcAlpha): can only darken what is already on the ground, never lighten or tint it.
+ * The previous alpha-blended dark-grey gradient measured as LIGHTENING dark grass by up to +45
+ * luminance (a grey film, not a shadow) — its "dark" color landed mid-grey after output encoding. */
+function makeContactShadowMaterial(map: THREE.Texture): THREE.MeshBasicMaterial {
+  return new THREE.MeshBasicMaterial({
+    map,
+    opacity: CONTACT_SHADOW_OPACITY,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.AddEquation,
+    blendSrc: THREE.ZeroFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+  });
+}
+
+/** Where an image's opaque art actually meets the ground, normalized to the image (u across,
+ * v down): the alpha-weighted 5th–95th percentile span of opaque pixels within CONTACT_BASE_BAND
+ * of the lowest opaque row. Percentiles (not min/max) so a stray sword tip or claw doesn't
+ * stretch the decal. null = no opaque pixels / unreadable image. Cached per image. */
+interface ArtBase {
+  u0: number;
+  u1: number;
+  v: number;
+}
+const artBaseCache = new WeakMap<HTMLImageElement, ArtBase | null>();
+function artBase(img: HTMLImageElement): ArtBase | null {
+  if (artBaseCache.has(img)) return artBaseCache.get(img)!;
+  let result: ArtBase | null = null;
+  try {
+    const scale = Math.min(1, 256 / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d", { willReadFrequently: true })!;
+    ctx.drawImage(img, 0, 0, w, h);
+    const a = ctx.getImageData(0, 0, w, h).data;
+    let bottom = -1;
+    for (let y = h - 1; y >= 0 && bottom < 0; y--) {
+      for (let x = 0; x < w; x++) {
+        if (a[(y * w + x) * 4 + 3]! > 128) {
+          bottom = y;
+          break;
+        }
+      }
+    }
+    if (bottom >= 0) {
+      const top = Math.max(0, bottom - Math.max(1, Math.round(h * CONTACT_BASE_BAND)));
+      const cols = new Float64Array(w);
+      let total = 0;
+      for (let y = top; y <= bottom; y++) {
+        for (let x = 0; x < w; x++) {
+          const al = a[(y * w + x) * 4 + 3]!;
+          if (al > 128) {
+            cols[x] += al;
+            total += al;
+          }
+        }
+      }
+      let acc = 0;
+      let x0 = 0;
+      let x1 = w - 1;
+      for (let x = 0; x < w; x++) {
+        const prev = acc;
+        acc += cols[x]!;
+        if (prev < total * 0.05 && acc >= total * 0.05) x0 = x;
+        if (prev < total * 0.95 && acc >= total * 0.95) x1 = x;
+      }
+      result = { u0: x0 / w, u1: (x1 + 1) / w, v: (bottom + 1) / h };
+    }
+  } catch {
+    result = null;
+  }
+  artBaseCache.set(img, result);
+  return result;
+}
+
+/** Where a light prop's flame (or lit lantern glass) sits in its own art, normalized (u across,
+ * v down): the centroid of its bright fire-coloured opaque pixels, weighted by brightness. The
+ * light is placed there, not at the prop's ground pivot. Falls back to the top third's center.
+ * Cached per image. */
+const flameCache = new WeakMap<HTMLImageElement, { u: number; v: number }>();
+function artFlame(img: HTMLImageElement): { u: number; v: number } {
+  const hit = flameCache.get(img);
+  if (hit) return hit;
+  let result = { u: 0.5, v: 0.3 };
+  try {
+    const scale = Math.min(1, 192 / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d", { willReadFrequently: true })!;
+    ctx.drawImage(img, 0, 0, w, h);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    let sw = 0;
+    let su = 0;
+    let sv = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const r = d[i]!;
+        const g = d[i + 1]!;
+        const b = d[i + 2]!;
+        if (d[i + 3]! < 128 || r < 190 || g < 90 || r < g || g < b + 20) continue;
+        const wt = (r + g - b) / 255;
+        sw += wt;
+        su += wt * (x + 0.5);
+        sv += wt * (y + 0.5);
+      }
+    }
+    if (sw > 4) result = { u: su / sw / w, v: sv / sw / h };
+  } catch {
+    // unreadable image: keep the fallback
+  }
+  flameCache.set(img, result);
+  return result;
 }
 
 interface DecorMeshEntry {
@@ -265,12 +449,23 @@ interface DecorMeshEntry {
   /** Same quadGeo + alpha-tested copy of the prop's own art (colorWrite off, see
    * decorShadowMaterialFor) that casts this prop's real shadow as its own silhouette, not a box. */
   shadowMesh: THREE.Mesh;
+  /** Contact decal at the prop's opaque base (see artBase); null when the art has no readable
+   * base or the prop is a spun placeholder (facing fallback) with no meaningful "bottom". */
+  contactMesh: THREE.Mesh | null;
+  /** Hidden 3D volume (PROXY_LAYER) blocking point lights; null for light-source props. */
+  proxy: THREE.Mesh | null;
+  /** Environmental light this prop emits (LIGHT_DEFS), at its flame; world pixels, y-down. */
+  light: { x: number; y: number; h: number; def: LightDef; seed: number } | null;
 }
 
 interface UnitMeshEntry {
   mesh: THREE.Mesh;
+  /** Level-up / heal rim glow: a blurred white silhouette of the current frame behind the
+   * sprite, tinted and faded like the Canvas2D shadowBlur pass (engine renderUnitsAndOverlays). */
+  glowMesh: THREE.Mesh;
+  glowMaterial: THREE.MeshBasicMaterial;
   /** Owned (not shared) per unit — see unitTexCache's comment on why opacity needs this. */
-  material: THREE.MeshBasicMaterial;
+  material: THREE.MeshLambertMaterial;
   img: HTMLImageElement | null;
   /** Same quadGeo + alpha-tested copy of the unit's own sprite (colorWrite off) that casts this
    * unit's real shadow as its own silhouette, not a box — see shadowMaterial's own comment. */
@@ -283,6 +478,11 @@ interface UnitMeshEntry {
    * own fade/lift); the gradient texture itself is shared (contactShadowTexture). */
   contactMesh: THREE.Mesh;
   contactMaterial: THREE.MeshBasicMaterial;
+  /** Smoothed decal center/width in world units — the base is re-measured from each animation
+   * frame, so this eases between frames instead of snapping (null until first placed). */
+  contactFit: { dx: number; dy: number; w: number } | null;
+  /** Hidden upright cylinder (PROXY_LAYER) standing at the character's feet. */
+  proxy: THREE.Mesh;
 }
 
 export class ThreeBattleRenderer {
@@ -306,6 +506,23 @@ export class ThreeBattleRenderer {
   // per-object shade).
   private materialCache = new Map<string, THREE.MeshLambertMaterial>();
   private fallbackMaterial = new THREE.MeshLambertMaterial({ color: 0x1e1b18 });
+  /** Environmental AO in the terrain's lighting (see ThreeGroundAO.ts) — every terrain
+   * material is patched to read it; aoTerrainVersion bumps whenever syncDirtyTiles swaps a
+   * tile's terrain, so the field rebuilds only when the board actually reshapes. */
+  private groundAO = new GroundAO();
+  private aoTerrainVersion = 0;
+  /** Fog-of-war overlay — one world-aligned quad (see ThreeFogMask.ts / syncFog). */
+  private fogMask = new FogMask();
+  /** Real point lights for map light sources (see POINT_LIGHT_POOL / syncLights). */
+  private pointLights: THREE.PointLight[] = [];
+  /** Dev Controls "Bola de fogo V2 (teste)": one procedural fireball carrying a real PointLight. */
+  private fireballV2 = new FireballV2(LIGHT_DECAY);
+  /** Shared proxy geometry: unit box and a Z-up unit cylinder, scaled per object. */
+  private proxyBox = new THREE.BoxGeometry(1, 1, 1);
+  private proxyCylinder = new THREE.CylinderGeometry(0.5, 0.5, 1, 16).rotateX(Math.PI / 2);
+  private proxyMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+  /** Every lit sprite material (decorations + unit billboards) — see syncSpriteExposure. */
+  private litSpriteMats = new Set<THREE.MeshLambertMaterial>();
   private hexGeo = buildHexGeometry();
   private builtCols = -1;
   private builtRows = -1;
@@ -326,6 +543,24 @@ export class ThreeBattleRenderer {
   // see that assignment's own comment.
   private hemiLight = new THREE.HemisphereLight(0xfff2df, 0x14110d, 0.45);
   private sunLight = new THREE.DirectionalLight(0xfff0d6, 1.8);
+  /** The Moon: a second real DirectionalLight with its own shadow map (Dev Controls "Noite"). */
+  private moonLight = new THREE.DirectionalLight(0x9fb4ff, 0);
+  /** Current travel directions of sunlight/moonlight (see skyDirection). */
+  private sunDir = SUN_DIRECTION.clone();
+  private moonDir = SUN_DIRECTION.clone();
+  /** The mission's own daytime sun/sky intensities — the reference the sprite exposure is
+   * calibrated against, so night/sun-angle changes reach the sprites physically. */
+  private baseSunIntensity = DEFAULT_SUN_INTENSITY;
+  private baseHemiIntensity = DEFAULT_AMBIENT_INTENSITY;
+  /** Mission.timeOfDay ("day" when unset). */
+  private timeOfDay: MapTimeOfDay = "day";
+  /** Daytime sun/sky the sprite exposure is calibrated against (see syncSpriteExposure) — the
+   * mission's own values by day, the standard daytime defaults at any other time, so dawn/dusk/
+   * night darken and tint the sprites like everything else instead of being compensated away. */
+  private calibSunIntensity = DEFAULT_SUN_INTENSITY;
+  private calibHemiIntensity = DEFAULT_AMBIENT_INTENSITY;
+  private calibSunColor = new THREE.Color(TIME_OF_DAY_LIGHT.day.keyColor);
+  private calibHemiColor = new THREE.Color(TIME_OF_DAY_LIGHT.day.skyColor);
   private shadowCasterGroup = new THREE.Group();
   private lastShadowFrustumW = -1;
   private lastShadowFrustumH = -1;
@@ -335,7 +570,7 @@ export class ThreeBattleRenderer {
   // canvas instead of moving here.
   private quadGeo = new THREE.PlaneGeometry(1, 1);
   private decorGroup = new THREE.Group();
-  private decorMatCache = new Map<string, THREE.MeshBasicMaterial>();
+  private decorMatCache = new Map<string, THREE.MeshLambertMaterial>();
   // Shadow-only twin of decorMatCache — same cached texture, but alphaTest instead of plain alpha
   // blending (shadow depth passes need a hard cutout, not a blend) and colorWrite/depthWrite off
   // (see decorShadowMaterialFor's own comment), so it can't just reuse the visible material.
@@ -355,6 +590,12 @@ export class ThreeBattleRenderer {
   // entirely and just uses each layer's flat fill alpha (see boardOverlayLayers' own comment on
   // why that's the part that matters, not the canvas-only shadowBlur halo).
   private overlayGroup = new THREE.Group();
+  /** Dreaming Web's floor patch (engine.webZones) — the webfloor photo on each covered hex,
+   * same as Canvas2D renderGround draws it (which this renderer replaces). Pooled meshes. */
+  private webGroup = new THREE.Group();
+  private webMeshes: THREE.Mesh[] = [];
+  private webMat: THREE.MeshLambertMaterial | null = null;
+  private webMatDim: THREE.MeshLambertMaterial | null = null;
   private overlayMatCache = new Map<string, THREE.MeshBasicMaterial>();
   private overlayMeshPool: THREE.Mesh[] = [];
   private overlayGlowGroup = new THREE.Group();
@@ -365,25 +606,6 @@ export class ThreeBattleRenderer {
   private activeTurnGlowTexture: THREE.CanvasTexture;
   private activeTurnGlowMaterial: THREE.SpriteMaterial;
   private activeTurnGlow: THREE.Sprite;
-
-  // ADDITIVE ONLY — does not read from or modify activeTurnGlow/place()'s flat hex above in any
-  // way, per direct instruction never to touch that system again. THREE.ShadowMaterial renders as
-  // fully transparent everywhere except where a real shadow actually falls (it's the stock
-  // Three.js "shadow catcher" material, built for exactly this: compositing a real shadow onto
-  // something else without otherwise altering it). Drawn at a higher z than both the flat hex
-  // (0.5) and the glow sprite (0.45), so on the one tile that's already fully opaque gold, the
-  // active unit's own real cast shadow can still show through on top of it — the hex's own color/
-  // size/opacity/pulse timing are never read or written here.
-  // ADDITIVE ONLY — does not read from or modify activeTurnGlow/place()'s flat hex above in any
-  // way, per direct instruction never to touch that system again. A direct dark radial sprite
-  // anchored at the active unit's own real foot position (anchor + footY, the exact same point
-  // its real shadow-caster box uses — NOT the tile's plain grid-cell center, which is offset from
-  // where a standing unit's feet actually are; see syncOverlay's own comment). Drawn at a higher z
-  // than both the flat hex (0.5) and the glow sprite (0.45) so it always shows on top — the hex's
-  // own color/size/opacity/pulse timing are never read or written here.
-  private activeTurnShadowCatcherTexture: THREE.CanvasTexture;
-  private activeTurnShadowCatcherMaterial: THREE.SpriteMaterial;
-  private activeTurnShadowCatcher: THREE.Sprite;
 
   // Animated units (see THREEJS_MILESTONE1_HANDOFF.md) — one persistent mesh per live unit id,
   // repositioned/retextured/rescaled every frame in syncUnits rather than rebuilt, since units
@@ -397,11 +619,18 @@ export class ThreeBattleRenderer {
    * (units draw on the Canvas2D top layer), but these are ground marks, so they stay here. */
   private contactShadowGroup = new THREE.Group();
   private contactShadowTexture = makeContactShadowTexture();
+  /** Decoration contact decals — separate from contactShadowGroup because, unlike unit decals,
+   * these must hide whenever decorGroup does (no decal left under a prop that isn't drawn). One
+   * shared material: props don't fade individually (fog-of-war toggles mesh.visible instead). */
+  private decorContactGroup = new THREE.Group();
+  private decorContactMaterial = makeContactShadowMaterial(this.contactShadowTexture);
   // Textures are shared by image (same pattern as tiles/decor — cheap, no per-unit GPU upload),
   // but each unit gets its OWN material (see UnitMeshEntry) so u.fade can drive real per-unit
   // opacity: a shared material (the tile/decor pattern) would make every unit sharing one sprite
   // frame fade in/out together, which is wrong the instant two of them are mid-death at once.
   private unitTexCache = new Map<HTMLImageElement, THREE.Texture>();
+  /** Blurred white silhouettes for the rim glow, built on first use per frame image. */
+  private glowTexCache = new Map<HTMLImageElement, THREE.Texture>();
   private unitEntries = new Map<string, UnitMeshEntry>();
 
   /** The elemental-FX canvas is intentionally between the ground renderer and the visual
@@ -458,40 +687,30 @@ export class ThreeBattleRenderer {
     this.activeTurnGlow = new THREE.Sprite(this.activeTurnGlowMaterial);
     this.activeTurnGlow.position.z = 0.45;
     this.activeTurnGlow.visible = false;
-    // ADDITIVE ONLY — see the field's own comment. THREE.ShadowMaterial (reveal-the-real-shadow)
-    // was tried first but the real WebGL shadow simply doesn't reach close enough to a unit's own
-    // anchor point to ever read as "touching their feet" — confirmed empirically, not assumed; see
-    // git history for that attempt. This is a direct dark radial-gradient sprite instead (same
-    // CanvasTexture technique as activeTurnGlowTexture just above, inverted to dark-center/
-    // transparent-edge), anchored at the same world position the unit's own real shadow-caster box
-    // uses — independent of the real shadow computation's reach, so it reliably darkens right at
-    // the feet regardless.
-    const feetCanvas = document.createElement("canvas");
-    feetCanvas.width = feetCanvas.height = 128;
-    const feetCtx = feetCanvas.getContext("2d")!;
-    const feetGradient = feetCtx.createRadialGradient(64, 64, 4, 64, 64, 64);
-    feetGradient.addColorStop(0, "rgba(20,16,12,0.6)");
-    feetGradient.addColorStop(0.55, "rgba(20,16,12,0.32)");
-    feetGradient.addColorStop(1, "rgba(20,16,12,0)");
-    feetCtx.fillStyle = feetGradient;
-    feetCtx.fillRect(0, 0, 128, 128);
-    this.activeTurnShadowCatcherTexture = new THREE.CanvasTexture(feetCanvas);
-    this.activeTurnShadowCatcherMaterial = new THREE.SpriteMaterial({
-      map: this.activeTurnShadowCatcherTexture,
-      transparent: true,
-      depthWrite: false,
-      opacity: 0,
-    });
-    this.activeTurnShadowCatcher = new THREE.Sprite(this.activeTurnShadowCatcherMaterial);
-    this.activeTurnShadowCatcher.position.z = 0.51;
-    this.activeTurnShadowCatcher.visible = false;
     // Author-controlled lighting (Mission.environment/sunIntensity/ambientIntensity, editable in
     // the Map Editor's "Iluminação" section — see GameApp.tsx) — an explicit sunIntensity/
     // ambientIntensity always wins; otherwise "indoor" gets its own flatter preset, and anything
     // else (including missing/"outdoor") gets the renderer's own default.
     const indoor = engine.mission.environment === "indoor";
-    this.sunLight.intensity = engine.mission.sunIntensity ?? (indoor ? INDOOR_SUN_INTENSITY : DEFAULT_SUN_INTENSITY);
-    this.hemiLight.intensity = engine.mission.ambientIntensity ?? (indoor ? INDOOR_AMBIENT_INTENSITY : DEFAULT_AMBIENT_INTENSITY);
+    this.timeOfDay = engine.mission.timeOfDay ?? "day";
+    const tod = TIME_OF_DAY_LIGHT[this.timeOfDay];
+    const isDay = this.timeOfDay === "day";
+    this.sunLight.intensity = engine.mission.sunIntensity ?? (indoor ? INDOOR_SUN_INTENSITY : isDay ? DEFAULT_SUN_INTENSITY : tod.key);
+    this.hemiLight.intensity = engine.mission.ambientIntensity ?? (indoor ? INDOOR_AMBIENT_INTENSITY : isDay ? DEFAULT_AMBIENT_INTENSITY : tod.ambient);
+    this.baseSunIntensity = this.sunLight.intensity;
+    this.baseHemiIntensity = this.hemiLight.intensity;
+    this.calibSunIntensity = isDay ? this.baseSunIntensity : DEFAULT_SUN_INTENSITY;
+    this.calibHemiIntensity = isDay ? this.baseHemiIntensity : DEFAULT_AMBIENT_INTENSITY;
+    this.calibSunColor.copy(this.sunLight.color);
+    this.calibHemiColor.copy(this.hemiLight.color);
+    if (!isDay) {
+      (tod.moon ? this.moonLight : this.sunLight).color.setHex(tod.keyColor);
+      this.hemiLight.color.setHex(tod.skyColor);
+    }
+    this.moonLight.shadow.mapSize.set(2048, 2048);
+    this.moonLight.shadow.bias = -0.0015;
+    this.scene.add(this.moonLight);
+    this.scene.add(this.moonLight.target);
     this.sunLight.castShadow = true;
     // 2048, not 1024 — casters are small boxes (a fraction of a unit's own width), so a coarser
     // map under-resolves them into faint/noisy blobs even at full light intensity.
@@ -503,13 +722,28 @@ export class ThreeBattleRenderer {
     this.scene.add(this.shadowCasterGroup);
     this.scene.add(this.backdropMesh);
     this.scene.add(this.tileGroup);
+    this.scene.add(this.webGroup);
     this.scene.add(this.overlayGlowGroup);
     this.scene.add(this.overlayGroup);
     this.scene.add(this.activeTurnGlow);
-    this.scene.add(this.activeTurnShadowCatcher);
     this.scene.add(this.contactShadowGroup);
+    this.scene.add(this.decorContactGroup);
     this.scene.add(this.decorGroup);
     this.scene.add(this.unitGroup);
+    this.scene.add(this.fogMask.mesh);
+    for (let i = 0; i < POINT_LIGHT_POOL; i++) {
+      const pl = new THREE.PointLight(0xffffff, 0, 1, LIGHT_DECAY);
+      if (i < POINT_SHADOW_LIGHTS) {
+        pl.castShadow = true;
+        pl.shadow.mapSize.set(1024, 1024);
+        pl.shadow.bias = -0.003;
+        pl.shadow.camera.near = 2;
+        pl.shadow.camera.layers.set(PROXY_LAYER);
+      }
+      this.pointLights.push(pl);
+      this.scene.add(pl);
+    }
+    this.scene.add(this.fireballV2.group);
     this.scene.add(this.atmosphere.group);
 
     // Only the wisp embers ever render into the bloom-only pass (everything else gets forced to
@@ -574,7 +808,9 @@ export class ThreeBattleRenderer {
     const centerX = camX + cssW / 2;
     const centerY = -camY - cssH / 2;
     this.sunLight.target.position.set(centerX, centerY, 0);
-    this.sunLight.position.set(centerX, centerY, 0).addScaledVector(SUN_DIRECTION, -SUN_DISTANCE);
+    this.sunLight.position.set(centerX, centerY, 0).addScaledVector(this.sunDir, -SUN_DISTANCE);
+    this.moonLight.target.position.set(centerX, centerY, 0);
+    this.moonLight.position.set(centerX, centerY, 0).addScaledVector(this.moonDir, -SUN_DISTANCE);
     if (cssW === this.lastShadowFrustumW && cssH === this.lastShadowFrustumH) return;
     this.lastShadowFrustumW = cssW;
     this.lastShadowFrustumH = cssH;
@@ -582,14 +818,51 @@ export class ThreeBattleRenderer {
     // height: the shadow camera looks along SUN_DIRECTION, not straight down -Z like the main
     // camera, so it needs to cover the visible box from an angle, not just match its footprint.
     const half = Math.hypot(cssW, cssH) * 0.65 + 250;
-    const shadowCam = this.sunLight.shadow.camera as THREE.OrthographicCamera;
-    shadowCam.left = -half;
-    shadowCam.right = half;
-    shadowCam.top = half;
-    shadowCam.bottom = -half;
-    shadowCam.near = 10;
-    shadowCam.far = SUN_DISTANCE * 2.2;
-    shadowCam.updateProjectionMatrix();
+    for (const light of [this.sunLight, this.moonLight]) {
+      const shadowCam = light.shadow.camera as THREE.OrthographicCamera;
+      shadowCam.left = -half;
+      shadowCam.right = half;
+      shadowCam.top = half;
+      shadowCam.bottom = -half;
+      shadowCam.near = 10;
+      shadowCam.far = SUN_DISTANCE * 2.2;
+      shadowCam.updateProjectionMatrix();
+    }
+  }
+
+  /** Travel direction of a sky light from its azimuth (screen direction its shadows fall, deg,
+   * 0 = right, 90 = down) and elevation (deg above the horizon). The default sun (53.13°, 45°)
+   * gives exactly SUN_DIRECTION. */
+  private static skyDirection(out: THREE.Vector3, azimuthDeg: number, elevationDeg: number): THREE.Vector3 {
+    const az = (azimuthDeg * Math.PI) / 180;
+    const el = (Math.max(3, Math.min(89, elevationDeg)) * Math.PI) / 180;
+    return out.set(Math.cos(el) * Math.cos(az), -Math.cos(el) * Math.sin(az), -Math.sin(el)).normalize();
+  }
+
+  /** Per-frame Sun/Moon state: directions from Dev Controls, which one is up from the map's
+   * time of day (see TIME_OF_DAY_LIGHT), and their shadows. Night: the Sun goes out and the Moon
+   * (its own DirectionalLight + shadow map) lights the scene at the map's key intensity. The
+   * silhouette shadow casters are vertical cards; they're turned about Z by the lit sky light's
+   * azimuth change from the default so they stay broadside to it (the default sun leaves them
+   * exactly as built). */
+  private syncSky(): void {
+    const gfx = getDevGfx();
+    const tod = TIME_OF_DAY_LIGHT[this.timeOfDay];
+    const night = tod.moon;
+    ThreeBattleRenderer.skyDirection(this.sunDir, gfx.sunAzimuth, tod.elevation ?? gfx.sunElevation);
+    ThreeBattleRenderer.skyDirection(this.moonDir, gfx.moonAzimuth, gfx.moonElevation);
+    this.sunLight.intensity = night ? 0 : this.baseSunIntensity;
+    this.moonLight.intensity = night ? this.baseSunIntensity : 0;
+    this.hemiLight.intensity = this.baseHemiIntensity;
+    this.sunLight.castShadow = !night && gfx.realShadows;
+    this.moonLight.castShadow = night && gfx.realShadows;
+    this.moonLight.shadow.radius = gfx.softShadows ? SHADOW_RADIUS_SOFT : SHADOW_RADIUS_HARD;
+    const delta = (((night ? gfx.moonAzimuth : gfx.sunAzimuth) - 53.13) * Math.PI) / 180;
+    const spin = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -delta);
+    for (const m of this.shadowCasterGroup.children) {
+      if (!m.userData.baseQuat) m.userData.baseQuat = m.quaternion.clone();
+      m.quaternion.copy(m.userData.baseQuat as THREE.Quaternion).premultiply(spin);
+    }
   }
 
   setSize(cssW: number, cssH: number, dpr: number): void {
@@ -633,6 +906,7 @@ export class ThreeBattleRenderer {
     tex.wrapS = THREE.ClampToEdgeWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
     const mat = new THREE.MeshLambertMaterial({ map: tex });
+    this.groundAO.patch(mat);
     this.materialCache.set(key, mat);
     return mat;
   }
@@ -679,6 +953,10 @@ export class ThreeBattleRenderer {
         // MILESTONE 2 — the ground is the one surface real shadows land on (see handoff doc);
         // it never casts (stays flat, castShadow defaults to false).
         mesh.receiveShadow = true;
+        // Void is an eraser, not a tile: nothing is drawn, so the mission backdrop shows through
+        // and a map's outline doesn't have to be a full rows x cols rectangle. Kept as a hidden
+        // mesh (not skipped) so syncDirtyTiles can reveal it if the cell ever stops being void.
+        mesh.visible = id !== "void";
         this.tileGroup.add(mesh);
         this.tileMeshes.set(key, { mesh, id, variant, rot });
       }
@@ -696,6 +974,8 @@ export class ThreeBattleRenderer {
       const variant = engine.tileVariants[key] ?? 0;
       const rot = engine.tileRots[key] ?? 0;
       if (id !== entry.id || variant !== entry.variant) {
+        if (id !== entry.id) this.aoTerrainVersion++;
+        entry.mesh.visible = id !== "void";
         entry.mesh.material = this.materialFor(id, variant);
         entry.id = id;
         entry.variant = variant;
@@ -723,7 +1003,7 @@ export class ThreeBattleRenderer {
     return img.naturalWidth > 0 ? img : null;
   }
 
-  private decorMaterialFor(fileId: string, img: HTMLImageElement): THREE.MeshBasicMaterial {
+  private decorMaterialFor(fileId: string, img: HTMLImageElement): THREE.MeshLambertMaterial {
     const hit = this.decorMatCache.get(fileId);
     if (hit) return hit;
     const tex = new THREE.Texture(img);
@@ -735,7 +1015,10 @@ export class ThreeBattleRenderer {
     tex.wrapT = THREE.ClampToEdgeWrapping;
     // Decoration art is cut-out PNGs (alpha, not opaque like terrain tiles) — transparent:true
     // is required or the alpha channel is ignored and every prop draws as an opaque rectangle.
-    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+    // Lit (MeshLambertMaterial), so real scene lights — map PointLights included — illuminate
+    // the prop; see syncSpriteExposure for how its look under the existing sun/sky is kept.
+    const mat = new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false });
+    this.litSpriteMats.add(mat);
     this.decorMatCache.set(fileId, mat);
     return mat;
   }
@@ -746,7 +1029,7 @@ export class ThreeBattleRenderer {
    * threshold), giving a shadow shaped like the prop's actual cutout art, not a box. colorWrite
    * false keeps it invisible in the normal color pass (same trick the old box caster used) since
    * this mesh exists purely to cast into the shadow map. */
-  private decorShadowMaterialFor(fileId: string, colorMat: THREE.MeshBasicMaterial): THREE.MeshBasicMaterial {
+  private decorShadowMaterialFor(fileId: string, colorMat: THREE.MeshLambertMaterial): THREE.MeshBasicMaterial {
     const hit = this.decorShadowMatCache.get(fileId);
     if (hit) return hit;
     // side: DoubleSide is required for a flat plane to cast any shadow at all — Three's shadow
@@ -772,6 +1055,8 @@ export class ThreeBattleRenderer {
     for (const entry of this.decorEntries) {
       this.decorGroup.remove(entry.mesh);
       this.shadowCasterGroup.remove(entry.shadowMesh);
+      if (entry.contactMesh) this.decorContactGroup.remove(entry.contactMesh);
+      if (entry.proxy) this.shadowCasterGroup.remove(entry.proxy);
     }
     this.decorEntries = [];
     this.builtDecorKey = key;
@@ -804,6 +1089,9 @@ export class ThreeBattleRenderer {
 
       const mat = this.decorMaterialFor(fileId, img);
       const mesh = new THREE.Mesh(this.quadGeo, mat);
+      // Front-layer props render after character billboards (order 2), matching the Canvas
+      // renderer; their per-decoration priority resolves overlaps with other foreground props.
+      mesh.renderOrder = decorLayer === "front" ? 3 + (def.decorRenderOrder ?? 0) * 0.01 : (def.decorRenderOrder ?? 0) * 0.01;
       // Y negated to match the tile/camera convention (see module comment); z=1 keeps decor
       // reliably in front of the flat ground plane at z=0 for any depth-sorting Three does
       // between transparent objects.
@@ -853,7 +1141,51 @@ export class ThreeBattleRenderer {
       }
       this.shadowCasterGroup.add(shadowMesh);
 
-      this.decorEntries.push({ mesh, placement: p, shadowMesh });
+      // Contact decal at the art's own opaque base (visible-mesh space: centered at wx,wy,
+      // spanning w x h). Skipped for the spun-bitmap facing fallback — its "bottom" isn't the
+      // ground side any more.
+      let contactMesh: THREE.Mesh | null = null;
+      const base = facing.step !== 0 && !facing.own ? null : artBase(img);
+      if (base) {
+        const sign = facing.own && facing.mirror ? -1 : 1;
+        const cw = (base.u1 - base.u0) * w * CONTACT_SHADOW_W;
+        contactMesh = new THREE.Mesh(this.quadGeo, this.decorContactMaterial);
+        const ch = Math.min(cw * CONTACT_SHADOW_H, tile * CONTACT_SHADOW_MAX_H);
+        contactMesh.position.set(wx + sign * ((base.u0 + base.u1) / 2 - 0.5) * w, -(wy - h / 2 + base.v * h + ch * CONTACT_SHADOW_FORWARD), 0.51);
+        contactMesh.scale.set(cw, ch, 1);
+        this.decorContactGroup.add(contactMesh);
+      }
+
+      // Light-emitting prop: the light sits at the flame in its art, projected to the ground
+      // under it (x, groundWy) with the flame's real height above that ground.
+      let light: DecorMeshEntry["light"] = null;
+      const lightDef = LIGHT_DEFS[p.id];
+      if (lightDef) {
+        const f = artFlame(img);
+        const sign = facing.own && facing.mirror ? -1 : 1;
+        const flameY = wy - h / 2 + f.v * h;
+        light = { x: wx + sign * (f.u - 0.5) * w, y: groundWy, h: Math.max(0, groundWy - flameY), def: lightDef, seed: (p.x * 7.31 + p.y * 3.17) % 6.28 };
+      }
+
+      // Hidden physical volume: a box standing on the prop's ground spot, as wide as its
+      // opaque base, as tall as the shadow elevation, reaching back ("north", +Y) from the
+      // contact line. Light-source props get none — their flame sits inside their own volume.
+      let proxy: THREE.Mesh | null = null;
+      if (!lightDef) {
+        const pb = artBase(img);
+        const sign = facing.own && facing.mirror ? -1 : 1;
+        const bw = pb ? Math.max(tile * 0.3, (pb.u1 - pb.u0) * w) : w * 0.6;
+        const depth = Math.min(bw, tile * 1.6) * 0.6;
+        const bx = pb ? wx + sign * ((pb.u0 + pb.u1) / 2 - 0.5) * w : wx;
+        proxy = new THREE.Mesh(this.proxyBox, this.proxyMaterial);
+        proxy.layers.set(PROXY_LAYER);
+        proxy.castShadow = true;
+        proxy.scale.set(bw, depth, elevation);
+        proxy.position.set(bx, -groundWy + depth / 2, elevation / 2);
+        this.shadowCasterGroup.add(proxy);
+      }
+
+      this.decorEntries.push({ mesh, placement: p, shadowMesh, contactMesh, light, proxy });
     }
   }
 
@@ -868,6 +1200,34 @@ export class ThreeBattleRenderer {
     tex.wrapS = THREE.ClampToEdgeWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
     this.unitTexCache.set(img, tex);
+    return tex;
+  }
+
+  /** The sprite's silhouette in white, blurred, on a canvas GLOW_PAD times the image's size
+   * (same center) — at half resolution, since it's a soft halo. */
+  private glowTextureFor(img: HTMLImageElement): THREE.Texture {
+    const hit = this.glowTexCache.get(img);
+    if (hit) return hit;
+    const w = Math.max(1, Math.round(img.naturalWidth * 0.5));
+    const h = Math.max(1, Math.round(img.naturalHeight * 0.5));
+    const sil = document.createElement("canvas");
+    sil.width = w;
+    sil.height = h;
+    const sc = sil.getContext("2d")!;
+    sc.drawImage(img, 0, 0, w, h);
+    sc.globalCompositeOperation = "source-in";
+    sc.fillStyle = "#fff";
+    sc.fillRect(0, 0, w, h);
+    const out = document.createElement("canvas");
+    out.width = Math.round(w * GLOW_PAD);
+    out.height = Math.round(h * GLOW_PAD);
+    const oc = out.getContext("2d")!;
+    oc.filter = `blur(${Math.max(2, w * 0.12)}px)`;
+    oc.drawImage(sil, (out.width - w) / 2, (out.height - h) / 2);
+    oc.drawImage(sil, (out.width - w) / 2, (out.height - h) / 2);
+    const tex = new THREE.CanvasTexture(out);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    this.glowTexCache.set(img, tex);
     return tex;
   }
 
@@ -893,7 +1253,10 @@ export class ThreeBattleRenderer {
       seen.add(u.id);
       let entry = this.unitEntries.get(u.id);
       if (!entry) {
-        const material = new THREE.MeshBasicMaterial({ map: this.unitTextureFor(img), transparent: true, depthWrite: false });
+        // Lit, like decorations — real scene lights illuminate the character (see
+        // syncSpriteExposure).
+        const material = new THREE.MeshLambertMaterial({ map: this.unitTextureFor(img), transparent: true, depthWrite: false });
+        this.litSpriteMats.add(material);
         const mesh = new THREE.Mesh(this.quadGeo, material);
         // Atmosphere's Fog 2 sheets use renderOrder 1: units must remain the final visible
         // sprite layer (2), while decorations remain the base layer (0).
@@ -910,10 +1273,19 @@ export class ThreeBattleRenderer {
         const shadowMesh = new THREE.Mesh(this.quadGeo, shadowMaterial);
         shadowMesh.castShadow = true;
         this.shadowCasterGroup.add(shadowMesh);
-        const contactMaterial = new THREE.MeshBasicMaterial({ map: this.contactShadowTexture, transparent: true, depthWrite: false });
+        const contactMaterial = makeContactShadowMaterial(this.contactShadowTexture);
         const contactMesh = new THREE.Mesh(this.quadGeo, contactMaterial);
         this.contactShadowGroup.add(contactMesh);
-        entry = { mesh, material, img: null, shadowMesh, shadowMaterial, contactMesh, contactMaterial };
+        const proxy = new THREE.Mesh(this.proxyCylinder, this.proxyMaterial);
+        proxy.layers.set(PROXY_LAYER);
+        proxy.castShadow = true;
+        this.shadowCasterGroup.add(proxy);
+        const glowMaterial = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+        const glowMesh = new THREE.Mesh(this.quadGeo, glowMaterial);
+        glowMesh.renderOrder = 2;
+        glowMesh.visible = false;
+        this.unitGroup.add(glowMesh);
+        entry = { mesh, glowMesh, glowMaterial, material, img: null, shadowMesh, shadowMaterial, contactMesh, contactMaterial, contactFit: null, proxy };
         this.unitEntries.set(u.id, entry);
       }
       entry.mesh.visible = true;
@@ -945,6 +1317,39 @@ export class ThreeBattleRenderer {
       entry.mesh.position.set(wx, -wy, 2 + u.drawY * 0.001);
       entry.mesh.scale.set(v.scaleX * v.w, v.scaleY * v.h, 1);
 
+      // Hit flash: Canvas2D's ctx.filter brightness(1.8 + flash) on the sprite, as a multiplier
+      // on this unit's lit material (on top of syncSpriteExposure's base color, set earlier this
+      // frame). brightness() works on gamma-encoded color; the material color is linear, hence
+      // the 2.2 power.
+      if (u.flash > 0) entry.material.color.multiplyScalar(Math.pow(1.8 + u.flash, 2.2));
+      // Level-up / heal rim glow (Canvas2D: a shadowBlur pass of the sprite in the glow color).
+      let glowRgb: string | null = null;
+      let glowK = 0;
+      if (u.levelGlow > 0) {
+        glowRgb = "255,208,110";
+        glowK = 0.95 * u.levelGlow * (0.75 + Math.sin(engine.time * 7) * 0.25);
+      }
+      if (u.healGlow > 0) {
+        const k = 0.88 * u.healGlow * (0.8 + Math.sin(engine.time * 5) * 0.2);
+        if (k > glowK) {
+          glowRgb = engine.healHaloRgb(u.healGlowKind).core;
+          glowK = k;
+        }
+      }
+      if (glowRgb && glowK > 0.01) {
+        const [r, g, b] = glowRgb.split(",").map((c) => Number(c) / 255);
+        const glowTex = this.glowTextureFor(img);
+        if (entry.glowMaterial.map !== glowTex) {
+          entry.glowMaterial.map = glowTex;
+          entry.glowMaterial.needsUpdate = true;
+        }
+        entry.glowMaterial.color.setRGB(r!, g!, b!, THREE.SRGBColorSpace);
+        entry.glowMaterial.opacity = Math.min(1, glowK * 1.3) * u.fade;
+        entry.glowMesh.position.set(wx, -wy, entry.mesh.position.z - 0.0005);
+        entry.glowMesh.scale.set(v.scaleX * v.w * GLOW_PAD, v.scaleY * v.h * GLOW_PAD, 1);
+        entry.glowMesh.visible = true;
+      } else entry.glowMesh.visible = false;
+
       // Shadow caster tracks the sprite's ground-contact point (anchor + footY, ignoring bob/lift
       // so a mid-step/high-ground unit's shadow stays anchored to the real ground instead of
       // floating with the visual lift trick — see decorSize's groundWy for the same idea applied
@@ -963,13 +1368,42 @@ export class ThreeBattleRenderer {
       entry.shadowMesh.scale.set(v.scaleX * v.w, elevation + UNIT_SHADOW_GROUND_INSET, 1);
       entry.shadowMesh.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY), elevation / 2 - UNIT_SHADOW_GROUND_INSET / 2);
       entry.shadowMesh.visible = true;
+      // Hidden upright cylinder at the feet: the character's physical body for point lights.
+      const bodyR = Math.max(tile * 0.18, Math.abs(v.scaleX) * v.w * 0.22);
+      entry.proxy.scale.set(bodyR * 2, bodyR * 2, elevation);
+      entry.proxy.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY) + bodyR * 0.5, elevation / 2);
+      entry.proxy.visible = true;
 
-      // Contact shadow: same ground-contact point as the caster above (ignores bob/lift so it
-      // stays on the ground), fading and shrinking as the unit lifts off it.
+      // Contact shadow: at this frame's opaque base (feet/paws — see artBase), in the same
+      // local frame the sprite is drawn in (image spans y in [-h+footOffset, footOffset] before
+      // scale), but from the ground origin (ignores bob/lift so it stays on the ground), fading
+      // and shrinking as the unit lifts off it.
       const liftFade = Math.max(0, 1 - v.lift / Math.max(1, tile * 0.6));
       const footW = Math.abs(v.scaleX) * v.w;
-      entry.contactMesh.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY), 0.51);
-      entry.contactMesh.scale.set(footW * CONTACT_SHADOW_W * (0.7 + 0.3 * liftFade), footW * CONTACT_SHADOW_H * (0.7 + 0.3 * liftFade), 1);
+      const base = artBase(img);
+      const target = base
+        ? {
+            dx: ((base.u0 + base.u1) / 2 - 0.5) * v.w * v.scaleX,
+            dy: (-v.h + v.footOffset + base.v * v.h) * v.scaleY,
+            w: Math.min(footW * CONTACT_SHADOW_MAX_W, (base.u1 - base.u0) * footW * CONTACT_SHADOW_W),
+          }
+        : { dx: 0, dy: 0, w: footW * 0.35 };
+      const fit = entry.contactFit;
+      if (!fit) entry.contactFit = target;
+      else {
+        // Width and sideways offset ease slowly: a walk cycle alternates feet-apart and
+        // feet-together frames (measured: 20–42px on Neera, jumping 7px/frame at a 0.3 rate),
+        // which read as the shadow pulsing. It follows the average stance instead; position
+        // itself still tracks the unit exactly (anchor + fit, above).
+        fit.dx += (target.dx - fit.dx) * 0.08;
+        fit.dy += (target.dy - fit.dy) * 0.3;
+        fit.w += (target.w - fit.w) * 0.08;
+      }
+      const cf = entry.contactFit!;
+      const cw = cf.w * (0.7 + 0.3 * liftFade);
+      const ch = Math.min(cw * CONTACT_SHADOW_H, tile * CONTACT_SHADOW_MAX_H);
+      entry.contactMesh.position.set(anchor.worldX + v.sway + cf.dx, -(anchor.worldY + v.footY + cf.dy + ch * CONTACT_SHADOW_FORWARD), 0.51);
+      entry.contactMesh.scale.set(cw, ch, 1);
       entry.contactMaterial.opacity = CONTACT_SHADOW_OPACITY * u.fade * liftFade;
       entry.contactMesh.visible = liftFade > 0;
     }
@@ -980,12 +1414,17 @@ export class ThreeBattleRenderer {
         // Still exists (just off-screen/out of sight/faded this frame) — hide, don't discard,
         // so it doesn't need rebuilding the instant it's visible again.
         entry.mesh.visible = false;
+        entry.glowMesh.visible = false;
         entry.shadowMesh.visible = false;
         entry.contactMesh.visible = false;
+        entry.proxy.visible = false;
       } else {
         this.unitGroup.remove(entry.mesh);
+        this.unitGroup.remove(entry.glowMesh);
+        entry.glowMaterial.dispose();
         this.shadowCasterGroup.remove(entry.shadowMesh);
         this.contactShadowGroup.remove(entry.contactMesh);
+        this.shadowCasterGroup.remove(entry.proxy);
         entry.material.dispose(); // owned per-unit — see unitTexCache's comment; the texture itself is shared, kept
         entry.shadowMaterial.dispose(); // same reasoning, shadowMaterial is this unit's own instance too
         entry.contactMaterial.dispose();
@@ -1000,13 +1439,19 @@ export class ThreeBattleRenderer {
   private syncDecorVisibility(): void {
     const engine = this.engine;
     if (!engine.fogged) {
-      for (const entry of this.decorEntries) entry.mesh.visible = entry.shadowMesh.visible = true;
+      for (const entry of this.decorEntries) {
+        entry.mesh.visible = entry.shadowMesh.visible = true;
+        if (entry.contactMesh) entry.contactMesh.visible = true;
+        if (entry.proxy) entry.proxy.visible = true;
+      }
       return;
     }
     for (const entry of this.decorEntries) {
       const p = entry.placement;
       const visible = placedFootprint(p).some((f) => engine.explored(p.x + f.dx, p.y + f.dy));
       entry.mesh.visible = entry.shadowMesh.visible = visible;
+      if (entry.contactMesh) entry.contactMesh.visible = visible;
+      if (entry.proxy) entry.proxy.visible = visible;
     }
   }
 
@@ -1136,33 +1581,16 @@ export class ThreeBattleRenderer {
       this.activeTurnGlow.scale.setScalar(tile * (2.45 + pulse * 0.32));
       this.activeTurnGlowMaterial.color.set(active.player ? 0xd6a12a : 0xd25436);
       this.activeTurnGlowMaterial.opacity = active.player ? Math.min(1, (0.32 + pulse * 0.18) * 1.5) : 0.72;
-      // ADDITIVE ONLY — see activeTurnShadowCatcher's own field comment. `wx,wy` above (from
-      // hexWorld) is the tile's plain grid-cell center, which is NOT where a standing unit's feet
-      // actually are — syncUnits positions the real per-unit shadow-caster box at
-      // `anchor.worldX + v.sway, -(anchor.worldY + v.footY)` instead (footY nudges it toward the
-      // tile's visual "front"), so this has to use that same computation, not wx/wy, or it lands
-      // in the wrong spot relative to the character. None of the hex/glow lines above this are
-      // read from or written to.
-      const activeUnit = engine.units.find((u) => u.x === active.x && u.y === active.y && u.alive);
-      if (activeUnit && !getDevGfx().contactShadows) {
-        const unitAnchor = engine.unitAnchor(activeUnit);
-        const v = engine.unitVisual(activeUnit, tile);
-        this.activeTurnShadowCatcher.visible = true;
-        this.activeTurnShadowCatcher.position.set(unitAnchor.worldX + v.sway, -(unitAnchor.worldY + v.footY), 0.51);
-        this.activeTurnShadowCatcher.scale.set(tile * 1.1, tile * 1.1, 1);
-      } else {
-        this.activeTurnShadowCatcher.visible = false;
-      }
     } else {
       this.activeTurnGlow.visible = false;
-      this.activeTurnShadowCatcher.visible = false;
     }
     // The mouse-selection hex, drawn here instead of on the Canvas2D units shim (see
     // BattleEngine.renderUnitsAndOverlays' skipCursorHex) so it lands at this same z=0.5 —
     // genuinely behind decorations/units instead of on a canvas stacked above them.
     const cur = engine.hover ?? engine.cursor;
-    const blocked = !TERRAIN[tileAt(engine.tiles, engine.cols, cur.x, cur.y)].passable;
-    place(cur.x, cur.y, blocked ? "rgba(255,90,72,0.28)" : "rgba(240,235,227,0.16)");
+    const curId = tileAt(engine.tiles, engine.cols, cur.x, cur.y);
+    // No cursor hex floating over erased (void) ground — there is no tile there to point at.
+    if (curId !== "void") place(cur.x, cur.y, !TERRAIN[curId].passable ? "rgba(255,90,72,0.28)" : "rgba(240,235,227,0.16)");
     for (; idx < this.overlayMeshPool.length; idx++) this.overlayMeshPool[idx]!.visible = false;
     for (; glowIdx < this.overlayGlowPool.length; glowIdx++) this.overlayGlowPool[glowIdx]!.visible = false;
   }
@@ -1176,9 +1604,16 @@ export class ThreeBattleRenderer {
     this.ensureBuilt(tile);
     this.syncDirtyTiles();
     this.ensureDecorBuilt(tile);
+    this.syncGroundAO(tile);
+    this.syncFog(tile);
+    this.syncLights(tile, cssW, cssH);
+    this.syncSpriteExposure();
     this.syncDecorVisibility();
+    this.syncWebZones(tile);
     this.syncOverlay(tile);
     this.syncUnits(tile);
+    this.syncSky();
+    this.syncFireballV2(tile);
     this.applyDevGfx();
     // MILESTONE 3 — dt derived locally (render() itself only ever receives cssW/cssH, see this
     // method's own comment) since the mist noise drift and particle GPU animation are the only
@@ -1200,22 +1635,272 @@ export class ThreeBattleRenderer {
     // MILESTONE 2 — the sun has to re-aim every frame too, for the same reason the camera does:
     // the shadow-caster boxes are fixed in world space, only the view of them pans.
     this.updateSun(cssW, cssH, this.engine.camX, this.engine.camY);
-    // Bloom applies to the WHOLE scene now, per direct instruction — no more per-object
-    // opt-in via a bloom layer. bloomComposer renders the real scene straight through
-    // UnrealBloomPass (which extracts/blurs whatever clears BLOOM_THRESHOLD on its own),
-    // finalComposer renders it again normally and additively mixes that bloom texture back
-    // in via mixPass. See BLOOM_THRESHOLD's own comment for why it's tuned much higher than
-    // the old selective-only value now that everything bright enough can bloom.
-    this.bloomComposer.render();
+    // Bloom samples the real 3D scene, except for authored light-source art. Their point
+    // lights still illuminate everything normally, but the torch/candle/brazier sprite itself
+    // must not turn into a blinding white halo when bloom is enabled.
+    this.renderBloomWithoutLightSourceArt();
     this.finalComposer.render();
+  }
+
+  /** Render the bloom buffer while temporarily omitting the visible art of map light sources.
+   * The lights themselves stay in the scene, so this changes post-processing only—not the
+   * actual 3D illumination, shadows, or the normal final render. */
+  private renderBloomWithoutLightSourceArt(): void {
+    const hidden: THREE.Mesh[] = [];
+    for (const entry of this.decorEntries) {
+      if (!entry.light || !entry.mesh.visible) continue;
+      entry.mesh.visible = false;
+      hidden.push(entry.mesh);
+    }
+    try {
+      this.bloomComposer.render();
+    } finally {
+      for (const mesh of hidden) mesh.visible = true;
+    }
+  }
+
+  /** Dreaming Web floor: mirrors Canvas2D renderGround's webZones block — each explored cell
+   * of a live zone, once WEB_SHOT_TRAVEL has passed since the cast (the shot has landed), at
+   * 0.38 opacity where the cell is explored but not currently in sight. */
+  private syncWebZones(tile: number): void {
+    const engine = this.engine;
+    const img = engine.art.webfloor;
+    let n = 0;
+    if (img && img.naturalWidth > 0) {
+      if (!this.webMat) {
+        const tex = new THREE.Texture(img);
+        tex.needsUpdate = true;
+        tex.colorSpace = THREE.SRGBColorSpace;
+        this.webMat = new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false });
+        this.webMatDim = new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.38 });
+      }
+      for (const zone of engine.webZones) {
+        if (zone.createdAt != null && engine.time < zone.createdAt + WEB_SHOT_TRAVEL) continue;
+        for (const k of zone.cells) {
+          const comma = k.indexOf(",");
+          const x = Number(k.slice(0, comma));
+          const y = Number(k.slice(comma + 1));
+          if (!Number.isFinite(x) || !Number.isFinite(y) || !engine.explored(x, y)) continue;
+          let mesh = this.webMeshes[n];
+          if (!mesh) {
+            mesh = new THREE.Mesh(this.hexGeo, this.webMat);
+            this.webMeshes.push(mesh);
+            this.webGroup.add(mesh);
+          }
+          mesh.material = engine.visible(x, y) ? this.webMat : this.webMatDim!;
+          const { wx, wy } = hexWorld(x, y, tile);
+          mesh.scale.set(tile * 2, tile * 2, 1);
+          // Above the ground (z 0), under the range highlights (0.42+).
+          mesh.position.set(wx, -wy, 0.3);
+          mesh.visible = true;
+          n++;
+        }
+      }
+    }
+    for (let i = n; i < this.webMeshes.length; i++) this.webMeshes[i]!.visible = false;
+  }
+
+  /** Fire V2 test: while the dev switch is on, the fireball floats slowly back and forth along
+   * the row of the first player unit, 6 hexes east and back, and its PointLight (a child of the
+   * same group) lights the board, props and characters beneath it as it goes. */
+  private syncFireballV2(tile: number): void {
+    const fb = this.fireballV2;
+    const t = performance.now() / 1000;
+    // A real cast Fireball in flight takes priority over the dev test loop.
+    const shot = this.engine.fireballShot();
+    if (shot) {
+      const height = tile * 1.1;
+      fb.group.position.set(shot.worldX, -shot.worldY, height);
+      fb.group.scale.setScalar(tile * 0.42);
+      fb.group.visible = true;
+      fb.update(t);
+      fb.light.intensity = 8 * GROUND_BASE_IRRADIANCE * Math.pow(tile, LIGHT_DECAY);
+      fb.light.distance = Math.hypot(tile * 5, height) * 1.05;
+      return;
+    }
+    const on = getDevGfx().fireballV2Test;
+    const hero = this.engine.units.find((u) => u.side === "player" && u.alive);
+    if (!on || !hero) {
+      fb.group.visible = false;
+      fb.light.intensity = 0;
+      return;
+    }
+    const SPAN = 6;
+    const HEX_PER_SEC = 0.8;
+    const phase = (t * HEX_PER_SEC) % (SPAN * 2);
+    const along = phase <= SPAN ? phase : SPAN * 2 - phase;
+    const a = hexWorld(hero.x, hero.y, tile);
+    const b = hexWorld(hero.x + 1, hero.y, tile);
+    const x = a.wx + (b.wx - a.wx) * along;
+    const height = tile * 1.1;
+    fb.group.position.set(x, -a.wy, height);
+    fb.group.scale.setScalar(tile * 0.42);
+    fb.group.visible = true;
+    fb.update(t);
+    // Deliberately exaggerated for this test: irradiance one hex out is 8x the normal sun + sky.
+    // The light is a child of the scaled group: its local position stays at the ball's center.
+    fb.light.intensity = 8 * GROUND_BASE_IRRADIANCE * Math.pow(tile, LIGHT_DECAY);
+    fb.light.distance = Math.hypot(tile * 5, height) * 1.05;
   }
 
   /** Dev Controls toggles (see devGfx.ts) — read every frame so a flip applies immediately. */
   private applyDevGfx(): void {
     const gfx = getDevGfx();
-    if (this.sunLight.castShadow !== gfx.realShadows) this.sunLight.castShadow = gfx.realShadows;
     this.sunLight.shadow.radius = gfx.softShadows ? SHADOW_RADIUS_SOFT : SHADOW_RADIUS_HARD;
     this.contactShadowGroup.visible = gfx.contactShadows;
+    this.decorContactGroup.visible = gfx.contactShadows && this.decorGroup.visible;
+    this.groundAO.setEnabled(gfx.ambientOcclusion);
+  }
+
+  /** Occluders for the ground AO field: every decoration footprint cell, plus raised/blocking
+   * terrain (hill, column, barricade, door — not water or the void edge trim, which are low or
+   * empty, not surrounding geometry). Rebuilt only when the map/terrain/decoration set changes. */
+  private syncGroundAO(tile: number): void {
+    const engine = this.engine;
+    const key = `${engine.mission.id}:${engine.cols}x${engine.rows}:${this.aoTerrainVersion}:${engine.decorations.length}`;
+    this.groundAO.update(key, engine.cols, engine.rows, BOARD_PAD_MUL, tile, () => {
+      const out: AoOccluder[] = [];
+      for (let row = 0; row < engine.rows; row++) {
+        for (let col = 0; col < engine.cols; col++) {
+          const id = tileAt(engine.tiles, engine.cols, col, row);
+          const t = TERRAIN[id];
+          const { wx, wy } = hexWorld(col, row, 1);
+          if (t.height) out.push({ x: wx, y: wy, weight: 0.7 });
+          else if (!t.passable && t.blocksShot && id !== "void") out.push({ x: wx, y: wy, weight: 1 });
+        }
+      }
+      for (const p of engine.decorations) {
+        if (!DECORATIONS[p.id]) continue;
+        for (const { dx, dy } of placedFootprint(p)) {
+          const { wx, wy } = hexWorld(p.x + dx, p.y + dy, 1);
+          out.push({ x: wx, y: wy, weight: 1 });
+        }
+      }
+      return out;
+    }, (x, y) => {
+      const cell = this.cellAtWorld(x, y);
+      if (cell < 0) return false;
+      // Same set as the terrain occluders above: a hilltop or a pillar/barricade/door top
+      // never occludes itself, only the ground around its foot.
+      const cellId = engine.tiles[cell]!;
+      const t = TERRAIN[cellId];
+      return !!t.height || (!t.passable && !!t.blocksShot && cellId !== "void");
+    });
+  }
+
+  /** Decorations and unit billboards are lit (MeshLambertMaterial) so real lights reach them.
+   * Under the scene's sun + sky alone a lit camera-facing plane comes out brighter than the
+   * unlit art it replaced, so each lit sprite's material color is set to the inverse of that
+   * sun + sky lighting: with no map light nearby it looks exactly as before; next to a
+   * PointLight it receives that light on top, computed by Three. Recomputed every frame since
+   * sun/sky intensities are mission- and atmosphere-driven. */
+  private syncSpriteExposure(): void {
+    // Calibrated against the mission's standing daytime sun (default direction and intensity) —
+    // not the live values — so night and sun-angle changes reach the sprites as real light.
+    const sunNdotL = Math.max(0, -SUN_DIRECTION.z); // camera-facing plane: normal +Z
+    const sky = this.calibHemiColor;
+    const ground = this.hemiLight.groundColor;
+    // Hemisphere light on a +Z normal (hemi axis is +Y): an even mix of sky and ground colors.
+    const hemi = [(sky.r + ground.r) / 2, (sky.g + ground.g) / 2, (sky.b + ground.b) / 2];
+    const sun = this.calibSunColor;
+    const k = (i: 0 | 1 | 2, sunC: number) => (this.calibSunIntensity * sunNdotL * sunC + this.calibHemiIntensity * hemi[i]!) / Math.PI;
+    const r = 1 / Math.max(0.05, k(0, sun.r));
+    const g = 1 / Math.max(0.05, k(1, sun.g));
+    const b = 1 / Math.max(0.05, k(2, sun.b));
+    for (const m of this.litSpriteMats) m.color.setRGB(r, g, b);
+  }
+
+  /** Per-frame: every light prop's flame, flickered, drives one real THREE.PointLight (the
+   * POINT_LIGHT_POOL nearest the view). Dev Controls "Luzes do mapa" turns them all off for an
+   * A/B comparison. */
+  private syncLights(tile: number, cssW: number, cssH: number): void {
+    const engine = this.engine;
+    const out: EnvLight[] = [];
+    if (getDevGfx().localLights) {
+      for (const e of this.decorEntries) {
+        const L = e.light;
+        if (!L) continue;
+        const k = L.def.intensity * flickerAt(engine.time, L.seed, L.def.flicker);
+        out.push({ x: L.x, y: L.y, h: L.h, r: L.def.radius * tile, rgb: [L.def.color[0] * k, L.def.color[1] * k, L.def.color[2] * k] });
+      }
+      // Units that carry their own light (UNIT_LIGHT_DEFS) — follows the unit's live anchor, so
+      // the light walks with it; hidden (fog) or dead units give none, fading ones fade it.
+      for (const u of engine.units) {
+        const def = UNIT_LIGHT_DEFS[u.classId];
+        if (!def || !u.alive || u.fade <= 0 || engine.unitHidden(u)) continue;
+        const a = engine.unitAnchor(u);
+        let seed = 0;
+        for (let i = 0; i < u.id.length; i++) seed = (seed * 31 + u.id.charCodeAt(i)) % 628;
+        const k = def.intensity * flickerAt(engine.time * 0.5, seed / 100, def.flicker) * Math.min(1, u.fade);
+        out.push({ x: a.worldX, y: a.worldY, h: tile, r: def.radius * tile, rgb: [def.color[0] * k, def.color[1] * k, def.color[2] * k] });
+      }
+      // Nearest the view first: they win the pool.
+      const cx = engine.camX + cssW / 2;
+      const cy = engine.camY + cssH / 2;
+      out.sort((a, b) => (a.x - cx) ** 2 + (a.y - cy) ** 2 - ((b.x - cx) ** 2 + (b.y - cy) ** 2));
+    }
+    // A real PointLight at each flame: X/Y = the flame's ground position (Y negated, the scene's
+    // Y-flip), Z = the flame's height above the board (+Z is up toward the camera, the board is
+    // the z=0 plane). Intensity is scaled so irradiance one hex radius away is
+    // LightDef.intensity x the ground's normal sun + sky irradiance.
+    this.pointLights.forEach((pl, i) => {
+      const L = out[i];
+      if (!L) {
+        pl.intensity = 0;
+        return;
+      }
+      const peak = Math.max(L.rgb[0], L.rgb[1], L.rgb[2], 1e-6);
+      pl.color.setRGB(L.rgb[0] / peak, L.rgb[1] / peak, L.rgb[2] / peak);
+      pl.intensity = peak * GROUND_BASE_IRRADIANCE * Math.pow(tile, LIGHT_DECAY);
+      pl.position.set(L.x, -L.y, Math.max(L.h, tile * 0.35));
+      // Range is measured in 3D from the flame, so it has to include the flame's height to still
+      // reach L.r out along the ground. (Three also sets the point-shadow camera's far plane to
+      // this distance — ground past it would read as shadowed.)
+      pl.distance = Math.hypot(L.r, pl.position.z) * 1.05;
+    });
+  }
+
+  /** The board cell (row-major index) a tile-normalized world point (hexWorld units, y-down)
+   * lies in — nearest hex center, which is exactly the hex tiling — or -1 off the board. */
+  private cellAtWorld(x: number, y: number): number {
+    const engine = this.engine;
+    const row0 = Math.round((y - BOARD_PAD_MUL - 1) / 1.5);
+    let best = Infinity;
+    let bc = -1;
+    let br = -1;
+    for (let row = row0 - 1; row <= row0 + 1; row++) {
+      const col0 = Math.round(x / SQRT3 - 0.5 * (row & 1) - 0.5);
+      for (let col = col0 - 1; col <= col0 + 1; col++) {
+        const c = hexWorld(col, row, 1);
+        const d = (c.wx - x) ** 2 + (c.wy - y) ** 2;
+        if (d < best) {
+          best = d;
+          bc = col;
+          br = row;
+        }
+      }
+    }
+    // Beyond one hex radius from the nearest center is off the board's outer edge.
+    if (bc < 0 || br < 0 || bc >= engine.cols || br >= engine.rows || best > 1) return -1;
+    return br * engine.cols + bc;
+  }
+
+  /** Fog of war overlay (see ThreeFogMask.ts) — rebuilt only when the engine's visibility
+   * grid changes (visVersion), the debug view is toggled, or the board changes. */
+  private syncFog(tile: number): void {
+    const engine = this.engine;
+    if (!engine.fogged) {
+      this.fogMask.hide();
+      return;
+    }
+    const debug = getDevGfx().fogDebug;
+    const key = `${engine.mission.id}:${engine.cols}x${engine.rows}:${engine.visVersion}:${debug ? 1 : 0}`;
+    const cols = engine.cols;
+    this.fogMask.update(key, cols, engine.rows, BOARD_PAD_MUL, tile, debug, (x, y) => this.cellAtWorld(x, y), (i) => {
+      const x = i % cols;
+      const y = (i - x) / cols;
+      return engine.visible(x, y) ? FOG_VISIBLE : engine.explored(x, y) ? FOG_EXPLORED : FOG_UNSEEN;
+    });
   }
 
   dispose(): void {
@@ -1232,6 +1917,11 @@ export class ThreeBattleRenderer {
     this.backdropMaterial.dispose();
     this.backdropTexture?.dispose();
     this.fallbackMaterial.dispose();
+    this.groundAO.dispose();
+    this.fogMask.dispose();
+    this.proxyBox.dispose();
+    this.proxyCylinder.dispose();
+    this.proxyMaterial.dispose();
     for (const mat of this.materialCache.values()) {
       mat.map?.dispose();
       mat.dispose();
@@ -1245,8 +1935,14 @@ export class ThreeBattleRenderer {
     // already disposed above/below, so only the material itself needs disposing here.
     for (const mat of this.decorShadowMatCache.values()) mat.dispose();
     for (const tex of this.unitTexCache.values()) tex.dispose();
+    for (const tex of this.glowTexCache.values()) tex.dispose();
+    this.fireballV2.dispose();
+    this.webMat?.map?.dispose();
+    this.webMat?.dispose();
+    this.webMatDim?.dispose();
     for (const entry of this.unitEntries.values()) {
       entry.material.dispose();
+      entry.glowMaterial.dispose();
       entry.shadowMaterial.dispose();
       entry.contactMaterial.dispose();
     }
@@ -1254,9 +1950,8 @@ export class ThreeBattleRenderer {
     for (const glow of this.overlayGlowPool) (glow.material as THREE.SpriteMaterial).dispose();
     this.activeTurnGlowMaterial.dispose();
     this.activeTurnGlowTexture.dispose();
-    this.activeTurnShadowCatcherMaterial.dispose();
-    this.activeTurnShadowCatcherTexture.dispose();
     this.contactShadowTexture.dispose();
+    this.decorContactMaterial.dispose();
     this.renderer.dispose();
   }
 }

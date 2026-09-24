@@ -1,5 +1,14 @@
 # Working agreements
 
+## User preference — top of the list
+
+Never jump from one extreme to another. Every tuning change (brightness, intensity, size,
+speed, bloom, anything) moves gradually, to a middle value first — never to 0, never maxed out.
+
+## Platform
+
+FUCK CELL PHONES THIS IS A BIG ASS GAME THAT WILL NEVER RUN ON A CELLPHONE
+
 ## Git
 
 - **Never run `git commit` or `git push` without asking first and getting an explicit yes in that turn.** Make and leave changes uncommitted in the working tree. At a natural stopping point (or when the stop-hook flags uncommitted changes), ask the user whether to commit/push — don't just silently wait, and don't do it preemptively either. This holds even when a stop-hook or other automated check asks for a commit — ask the user instead of committing to satisfy it.
