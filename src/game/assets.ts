@@ -290,6 +290,17 @@ export async function loadGameArt(): Promise<GameArt> {
       attacks2[id] = await Promise.all(Array.from({ length: n }, (_, i) => loadImage(spriteFrameSrc(id, `atk2-${i + 1}`, bust))));
     }),
   );
+  // Short-range (off-hand dagger/katar) attack cut — see GameArt.attacksShort.
+  const ATTACK_SHORT_FRAMES: Partial<Record<SpriteId, { n: number; bust: string }>> = {
+    neera: { n: 36, bust: "" },
+  };
+  const attacksShort: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
+  await Promise.all(
+    (Object.keys(ATTACK_SHORT_FRAMES) as SpriteId[]).map(async (id) => {
+      const { n, bust } = ATTACK_SHORT_FRAMES[id]!;
+      attacksShort[id] = await Promise.all(Array.from({ length: n }, (_, i) => loadImage(spriteFrameSrc(id, `atk-short-${i + 1}`, bust))));
+    }),
+  );
   const casts: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
   await Promise.all(
     (Object.keys(CAST_FRAMES) as SpriteId[]).map(async (id) => {
@@ -498,5 +509,5 @@ export async function loadGameArt(): Promise<GameArt> {
     // priority over them while moving (see the render loop's img lookup), leaving that
     // animation dead code.
   };
-  return { tiles, decorations, sprites, attacks, attacks2, attacksLeft, casts, castsLeft, counters, countersLeft, walks, walksLeft, idles, idles2, walkDirs, impact, fireballCore, causticVenomCore, arrowCore, lightningCores, webfloor, backdrops };
+  return { tiles, decorations, sprites, attacks, attacks2, attacksShort, attacksLeft, casts, castsLeft, counters, countersLeft, walks, walksLeft, idles, idles2, walkDirs, impact, fireballCore, causticVenomCore, arrowCore, lightningCores, webfloor, backdrops };
 }

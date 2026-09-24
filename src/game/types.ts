@@ -524,7 +524,7 @@ export interface Unit {
   healGlow: number;
   /** Palette the healGlow halo uses: holy gold (minor/medium), disease teal, potion amber,
    * or Potionzero (the original warm-white glow, kept for future skills). */
-  healGlowKind: "holyMinor" | "holyMedium" | "disease" | "potion" | "potionZero";
+  healGlowKind: "holyMinor" | "holyMedium" | "disease" | "potion" | "potionZero" | "food";
   fade: number;
   bob: number;
   level: number;
@@ -564,6 +564,9 @@ export interface Unit {
    * (see startOfTurnEffects) until cured — same cure trigger as diseased (Cure Disease
    * spell or the disease potion), but no stat penalty of its own. */
   poisoned: boolean;
+  /** Rasteira wound: suffers 1D8 whenever acting; movement only once each own turn. */
+  bleeding: boolean;
+  bleedMovedThisTurn: boolean;
   /** Shield Bash victim: loses their entire next turn, then clears automatically. */
   stunned: boolean;
   /** How many of this unit's own upcoming turns `stunned` still eats — Shield Bash sets this
@@ -650,6 +653,9 @@ export interface UnitPublic {
   size: number;
   diseased: boolean;
   poisoned: boolean;
+  bleeding: boolean;
+  /** Delayed lightning echo that resolves at the start of this unit's turn. */
+  shock: { dice: number; faces: number; bonus: number } | null;
   /** True once the party's hunger streak has passed its 3-day grace period. Optional so
    * older battle saves remain valid. */
   hungry?: boolean;
@@ -847,6 +853,10 @@ export interface GameArt {
    * 3) — Unit.idleAlt (the same flip Malrec's idles2 uses, see its doc comment) picks between
    * this and the sprite's regular `attacks` pool, alternating turn to turn. */
   attacks2: Partial<Record<SpriteId, HTMLImageElement[]>>;
+  /** Short-range (off-hand dagger/katar) attack cut, atk-short-*.png, for the sprites that
+   * have one (currently Neera). Used instead of `attacks` whenever the strike is with the
+   * off-hand weapon — the unit's own off-hand attack or its off-hand counter. */
+  attacksShort: Partial<Record<SpriteId, HTMLImageElement[]>>;
   /** A distinct pose for casting a spell, for the few sprites that have one cut — falls back
    * to `attacks` (the melee swing) for every sprite without one, same as it always did. */
   casts: Partial<Record<SpriteId, HTMLImageElement[]>>;
@@ -932,6 +942,7 @@ export interface BattleUnitSnap {
   diseased: boolean;
   diseaseBase: { atk: number; mag: number; def: number; res: number; mov: number } | null;
   poisoned: boolean;
+  bleeding?: boolean;
   stunned: boolean;
   stunTurns: number;
   crippled: boolean;

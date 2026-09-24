@@ -1,4 +1,4 @@
-import { isProjectile, rollDice, TERRAIN, WEAPONS, weaponPreview, weaponRoll } from "./data";
+import { EQUIPMENT, isProjectile, rollDice, TERRAIN, WEAPONS, weaponPreview, weaponRoll } from "./data";
 import { canHitFrom } from "./pathfinding";
 import type { Forecast, TerrainId, Unit } from "./types";
 
@@ -142,7 +142,12 @@ export function canCounter(
   cols: number,
 ): boolean {
   if (!defender.alive) return false;
-  return canHitFrom(defender, { x: defender.x, y: defender.y }, { ...attacker, x: from.x, y: from.y }, tiles, cols, undefined, true);
+  const target = { ...attacker, x: from.x, y: from.y };
+  if (canHitFrom(defender, { x: defender.x, y: defender.y }, target, tiles, cols, undefined, true)) return true;
+  const offHand = defender.offHandId ? EQUIPMENT[defender.offHandId] : null;
+  if (offHand?.kind !== "weapon") return false;
+  const meleeCounter = { ...defender, minRange: offHand.minRange ?? 1, maxRange: offHand.maxRange ?? 1 };
+  return canHitFrom(meleeCounter, { x: defender.x, y: defender.y }, target, tiles, cols, undefined, true);
 }
 
 export function makeForecast(

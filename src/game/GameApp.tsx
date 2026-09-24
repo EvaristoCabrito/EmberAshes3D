@@ -685,7 +685,7 @@ function mapStatusUnit(save: SaveData, hero: string): UnitPublic {
     initiative: cls.init ?? 0, initiativeRoll: cls.init ?? 0, mov: Math.max(1, Math.round((stats.mov + gearBonus.mov) * diseaseKeep)), movLeft: Math.max(1, Math.round((stats.mov + gearBonus.mov) * diseaseKeep)), minRange: cls.minRange, maxRange: cls.maxRange,
     moved: false, acted: false, x: save.overworldPos.col, y: save.overworldPos.row, level, xp: save.xp[hero] ?? 0,
     bag: save.bags[hero] ?? { mid: 0, weak: 0, potent: 0, disease: 0, manaSmall: 0, manaMid: 0, manaLarge: 0, lockpick: 0 },
-    spells: emptySpells, weaponId: save.equipped[hero] ?? null, weaponEnh: 0, size: cls.size, diseased: save.heroDiseases[hero] === true, poisoned: false,
+    spells: emptySpells, weaponId: save.equipped[hero] ?? null, weaponEnh: 0, size: cls.size, diseased: save.heroDiseases[hero] === true, poisoned: false, bleeding: false, shock: null,
     hungry: hungerPenaltyPct > 0, hungerPct: Math.round(hungerPenaltyPct * 100), fullness: save.heroHunger[hero], stunned: false, crippled: false, offHandId: null, summoned: false, asleep: false, restrained: false,
     gear,
   };
@@ -2421,7 +2421,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     tier: spellTier("longShot")!,
     formula: (level: number) => longShotFormula(level),
     param: "level" as const,
-    note: `Alcance ×${LONG_SHOT.rangeMul}+${LONG_SHOT.rangeBonus}. Dado sobe em níveis 2,3,5,7,9,12,14.`,
+    note: `Alcance 7. Dado sobe em níveis 2,3,5,7,9,12,14.`,
   },
   { name: CURES.cureMinor.name, cls: SKILL_CLASS.cureMinor!, tier: spellTier("cureMinor")!, formula: (mag: number) => `${healFormula(mag, "cureMinor")} (cura)`, note: "—" },
   {
@@ -2475,7 +2475,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     formula: "—",
     note: `Alcance ${WEB_OF_DREAMS.range}. Raio ${WEB_OF_DREAMS.size} (2 no nível 7, 3 no nível 12). ${Math.round(WEB_OF_DREAMS.sleepChance * 100)}% de dormir por ${diceFormula(WEB_OF_DREAMS.sleepDice, WEB_OF_DREAMS.sleepFaces, 0)} turnos (+${Math.round(WEB_OF_DREAMS.sleepBonusDamage * 100)}% dano ao acordar); prende o movimento a 1 hex na área por ${WEB_OF_DREAMS.durationRounds} turnos.`,
   },
-  { name: TRIP.name, cls: SKILL_CLASS.trip!, tier: spellTier("trip")!, formula: `arma +${diceFormula(1, TRIP.bonusFaces, TRIP.bonusBonus)}`, note: `Atordoa ${TRIP.stunRounds} turnos; −${Math.round(TRIP.statPenalty * 100)}% de status pro resto da batalha.` },
+  { name: TRIP.name, cls: SKILL_CLASS.trip!, tier: spellTier("trip")!, formula: `arma +${diceFormula(1, TRIP.bonusFaces, TRIP.bonusBonus)}`, note: `Causa Sangramento (1D8 a cada ação); −${Math.round(TRIP.statPenalty * 100)}% de status pro resto da batalha.` },
   {
     name: FIREBALL.name,
     cls: SKILL_CLASS.fireball!,
@@ -2498,7 +2498,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     tier: spellTier("multiShot")!,
     formula: (level: number) => multiShotFormula(level),
     param: "level" as const,
-    note: `2 alvos (3 no nível 11), alcance arma+${MULTI_SHOT.rangeBonus}. Dado sobe no nível 8 e 13.`,
+    note: `2 alvos (3 no nível 11), alcance 6. Dado sobe no nível 8 e 13.`,
   },
   {
     name: SECOND_WIND.name,
@@ -7332,13 +7332,45 @@ function SlotPicker({
 }
 
 type CharacterCondition = {
-  title: "Saudável" | "Envenenado" | "Doente" | "Com fome" | "Inconsciente";
+  title: "Saudável" | "Envenenado" | "Doente" | "Atordoado" | "Dormindo" | "Eletrificado" | "Sangrando" | "Com fome" | "Inconsciente";
   detail: string;
-  icon: "healthy" | "poisoned" | "diseased" | "hungry";
+  icon: "healthy" | "poisoned" | "diseased" | "stunned" | "asleep" | "shocked" | "bleeding" | "hungry";
   tone: "ok" | "danger" | "warn";
 };
 
 function characterCondition(unit: UnitPublic): CharacterCondition {
+  if (unit.stunned) {
+    return {
+      title: "Atordoado",
+      detail: "Atordoamento · perde o próximo turno.",
+      icon: "stunned",
+      tone: "danger",
+    };
+  }
+  if (unit.asleep) {
+    return {
+      title: "Dormindo",
+      detail: "Sono mágico · perde turnos até acordar ou sofrer dano.",
+      icon: "asleep",
+      tone: "danger",
+    };
+  }
+  if (unit.bleeding) {
+    return {
+      title: "Sangrando",
+      detail: "Sangramento · sofre 1D8 de dano a cada ação: atacar, lançar magia, usar item, e ao se mover (uma vez por turno).",
+      icon: "bleeding",
+      tone: "danger",
+    };
+  }
+  if (unit.shock) {
+    return {
+      title: "Eletrificado",
+      detail: "Choque elétrico · o eco do relâmpago atinge este personagem no início do próximo turno.",
+      icon: "shocked",
+      tone: "danger",
+    };
+  }
   if (unit.poisoned) {
     return {
       title: "Envenenado",

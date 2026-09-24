@@ -8,6 +8,7 @@ import {
   computeReachable,
   computeThreat,
   cleaveHexes,
+  CUBE_DIRS,
   cubeRound,
   footprint,
   footprintFrontRow,
@@ -286,15 +287,18 @@ interface PortalFx {
   /** Body shape of what steps out (FOOTPRINT_TYPE_*), so the portal centres on the whole
    * body rather than just its anchor hex. Null for a one-hex summon. */
   body: { dx: number; dy: number }[] | null;
+  /** Familiar Titã's portal: red, and no light column rising out of it. */
+  red: boolean;
 }
 const PORTAL_FX_CAP = 4;
 function blankPortalFx(): PortalFx {
-  return { live: false, x: 0, y: 0, t: 0, max: 0.85, seed: 0, body: null };
+  return { live: false, x: 0, y: 0, t: 0, max: 0.85, seed: 0, body: null, red: false };
 }
 
 /** Divine light / potion burst sitting on a character. Independent of healGlow so the old
  * Potionzero halo can still be fired on its own for a future skill. */
-type HolyKind = "minor" | "medium" | "disease" | "potion";
+/** food = Create Food and Water: Cura Média's exact light, in blue. */
+type HolyKind = "minor" | "medium" | "disease" | "potion" | "food";
 interface HolyFx {
   live: boolean;
   unitId: string;
@@ -311,7 +315,7 @@ function blankHolyFx(): HolyFx {
   return { live: false, unitId: "", x: 0, y: 0, t: 0, max: 0.8, kind: "minor", seed: 0, rays: [] };
 }
 function holyDuration(kind: HolyKind): number {
-  if (kind === "medium") return 1.18;
+  if (kind === "medium" || kind === "food") return 1.18;
   if (kind === "disease") return 1.02;
   if (kind === "potion") return 0.88;
   return 0.7;
@@ -321,7 +325,10 @@ function holyDuration(kind: HolyKind): number {
  * light (a blade arc, a low cut, a flattened ring, a fast dash, or a bare shock ring), never
  * fire or a magic glow, so a physical skill never reads as a spell going off. One pooled
  * system covers all of them; `kind` picks the shape drawn (see drawBladeFx). */
-type BladeKind = "arc" | "cross" | "lowCut" | "ring" | "dash" | "shockRing";
+/** execution = Golpe do Carrasco's axe chop; tripSweep = Rasteira's low sweep + blood. */
+/** rushTrail/rushImpact = Bull Rush: the golden charge streak left behind, and its forward
+ * burst on the target — its own look, never Sweep's ring. */
+type BladeKind = "arc" | "cross" | "lowCut" | "ring" | "dash" | "shockRing" | "execution" | "tripSweep" | "rushTrail" | "rushImpact";
 interface BladeFx {
   live: boolean;
   kind: BladeKind;
@@ -406,6 +413,8 @@ interface MoveAnim {
   path: Point[];
   i: number;
   t: number;
+  /** Bull Rush's charge: a fast dash with its speed-streak FX (see drawChargeFx). */
+  charge?: boolean;
 }
 
 /** Global playback rule for long sprite sheets, keyed only on frame count (never on a sprite
@@ -413,6 +422,8 @@ interface MoveAnim {
  * instead of being squeezed into the timing built for 4-12 frame sheets. Sheets shorter than
  * LONG_SHEET_FRAMES are untouched. */
 const LONG_SHEET_FRAMES = 24;
+/** Bull Rush's targeting radius, in hexes. */
+const BULL_RUSH_RANGE = 4;
 /** Seconds the movement/range grid takes to fade in once every action and effect is done. */
 const OVERLAY_FADE_IN = 0.4;
 /** Default: one full pass of any long sheet (idle, walk, attack, cast) lasts this many
@@ -420,10 +431,11 @@ const OVERLAY_FADE_IN = 0.4;
 const LONG_ANIM_SECONDS = 3;
 /** Walk cycles run faster than the rest: one full pass of a long walk sheet takes this long. */
 const LONG_WALK_SECONDS = 1.5;
-/** Bow shots on a long sheet: the arrow leaves at this point of the LONG_ANIM_SECONDS sheet,
- * and the archer plays the rest of it (the follow-through) while the arrow flies. Spells
- * still go off at the very end of their sheet. */
-const LONG_ARROW_RELEASE_SECONDS = 2;
+/** Bow shots on a long sheet, per direct instruction: a normal ATT shot leaves only once the
+ * whole attack sheet has played; a bow skill (Special sheet — Long Shot, Multi Shot,
+ * Piercing) releases mid-sheet and the archer plays the rest of it while the arrow flies. */
+const LONG_ARROW_RELEASE_SECONDS = LONG_ANIM_SECONDS;
+const LONG_ARROW_SKILL_RELEASE_SECONDS = 2;
 
 interface CombatAnim {
   type: "combat";
@@ -438,6 +450,10 @@ interface CombatAnim {
   noCounter: boolean;
   spellKind: SpellKind | null;
   customDice: { dice: number; faces: number; bonus: number } | null;
+  counterCustomDice: { dice: number; faces: number; bonus: number } | null;
+  /** Long-sheet bow counter: engine time the defender started drawing. The counter arrow
+   * waits for the whole ATT sheet (LONG_ARROW_RELEASE_SECONDS) — see stepCombat. */
+  counterWindAt?: number;
   dmgMul: number;
   stunChance: number;
   wallImpact: { dice: number; faces: number } | null;
@@ -558,6 +574,8 @@ function pub(u: Unit, restrained: boolean, movLeft: number): UnitPublic {
     size: u.size,
     diseased: u.diseased,
     poisoned: u.poisoned,
+    bleeding: u.bleeding,
+    shock: u.shock ? { ...u.shock } : null,
     stunned: u.stunned,
     crippled: u.crippled,
     hungry: u.hungerPenaltyPct > 0,
@@ -851,6 +869,8 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
         }
       : null,
     poisoned: false,
+    bleeding: false,
+    bleedMovedThisTurn: false,
     stunned: false,
     stunTurns: 0,
     crippled: false,
@@ -926,6 +946,8 @@ function unitFromSnap(snap: BattleUnitSnap): Unit {
     diseased: snap.diseased,
     diseaseBase: snap.diseaseBase ? { ...snap.diseaseBase } : null,
     poisoned: snap.poisoned,
+    bleeding: snap.bleeding ?? false,
+    bleedMovedThisTurn: false,
     stunned: snap.stunned,
     stunTurns: snap.stunTurns,
     crippled: snap.crippled,
@@ -1167,6 +1189,10 @@ export class BattleEngine {
   /** Work a queued step defers until it really starts (after any wind-up) — e.g. a summon's
    * familiar appearing. Run once, then dropped. */
   private onSeqStart = new WeakMap<Seq, () => void>();
+  /** Units already charged Bleeding for the action currently playing (see startSeq). */
+  private bleedChargedIds = new Set<string>();
+  /** Queued move steps that are Bull Rush charges (see castBullRush / startSeq). */
+  private chargeMoves = new WeakSet<Seq>();
   private particles: Particle[] = Array.from({ length: PARTICLE_CAP }, blankParticle);
   private particleLive = 0;
   private levelUpFx: LevelUpSpark[] = Array.from({ length: LEVEL_UP_FX_CAP }, blankLevelUpSpark);
@@ -1611,6 +1637,7 @@ export class BattleEngine {
         diseased: u.diseased,
         diseaseBase: u.diseaseBase ? { ...u.diseaseBase } : null,
         poisoned: u.poisoned,
+        bleeding: u.bleeding,
         stunned: u.stunned,
         stunTurns: u.stunTurns,
         crippled: u.crippled,
@@ -1926,6 +1953,8 @@ export class BattleEngine {
       this.bladeFxLive > 0 ||
       this.portalFxLive > 0;
     this.overlayFade = boardBusy ? 0 : Math.min(1, this.overlayFade + cap / OVERLAY_FADE_IN);
+    // An action is over once nothing is queued or playing — the next one may bleed again.
+    if (!this.active && this.queue.length === 0) this.bleedChargedIds.clear();
     if (!this.result && !this.active && this.queue.length === 0) {
       const active = this.activeTurnUnit();
       const activeId = active?.id ?? null;
@@ -1988,7 +2017,7 @@ export class BattleEngine {
       const meleeSkill =
         step.type === "spell" &&
         (step.spellKind === "doubleStrike" || step.spellKind === "cleave" || step.spellKind === "piercingThrust" || step.spellKind === "sweep" || step.spellKind === "trip" || step.spellKind === "shoulderSmash" || step.spellKind === "stampede");
-      const ranged = !meleeSkill && (step.type !== "combat" || (!!actor && (this.isArrowAttack(actor) || this.isArcaneCaster(actor))));
+      const ranged = !meleeSkill && (step.type !== "combat" || (!!actor && !step.customDice && (this.isArrowAttack(actor) || this.isArcaneCaster(actor))));
       const pose = step.type === "combat" ? "attack" : "cast";
       const frames = actor
         ? pose === "cast"
@@ -1999,10 +2028,9 @@ export class BattleEngine {
         : undefined;
       const targetAlive = step.type !== "combat" || !!target?.alive;
       if (actor && ranged && targetAlive && (frames?.length ?? 0) >= LONG_SHEET_FRAMES) {
-        const arrow =
-          (step.type === "combat" && this.isArrowAttack(actor)) ||
-          (step.type === "spell" && (step.spellKind === "longShot" || step.spellKind === "multiShot" || step.spellKind === "piercing"));
-        const release = arrow ? LONG_ARROW_RELEASE_SECONDS : LONG_ANIM_SECONDS;
+        const arrowAttack = step.type === "combat" && this.isArrowAttack(actor);
+        const arrowSkill = step.type === "spell" && (step.spellKind === "longShot" || step.spellKind === "multiShot" || step.spellKind === "piercing");
+        const release = arrowSkill ? LONG_ARROW_SKILL_RELEASE_SECONDS : arrowAttack ? LONG_ARROW_RELEASE_SECONDS : LONG_ANIM_SECONDS;
         this.woundUp.set(step, release);
         this.queue.unshift(step);
         const tx = target?.x ?? (step.type === "spell" ? step.tiles[0]?.x : undefined);
@@ -2020,8 +2048,23 @@ export class BattleEngine {
       this.onSeqStart.delete(step);
       deferred();
     }
+    const actionId = step.type === "move" ? step.id : step.type === "combat" || step.type === "spell" || step.type === "heal" || step.type === "cureDisease" ? step.att : null;
+    const isMove = step.type === "move" && step.path.length > 1;
+    // One bleed per action: a multi-step action (Double Strike's two swings, Bull Rush's
+    // charge + hits) is charged once, not per step. Moving has its own once-per-turn charge.
+    const charged = !isMove && !!actionId && this.bleedChargedIds.has(actionId);
+    if (actionId && step.type !== "move") this.bleedChargedIds.add(actionId);
+    if (actionId && (isMove || (step.type !== "move" && !charged)) && !this.applyBleedingActionDamage(this.units.find((u) => u.id === actionId), isMove)) {
+      // Bled out mid-action: drop whatever else that unit still had queued.
+      this.queue = this.queue.filter((q) => !("att" in q && q.att === actionId) && !(q.type === "move" && q.id === actionId));
+      this.onNextIdle = null;
+      if (this.selectedId === actionId) this.selectedId = null;
+      if (this.phase === "player") this.mode = "idle";
+      this.evaluateEnd();
+      return;
+    }
     if (step.type === "move") {
-      this.active = { type: "move", id: step.id, path: step.path, i: 0, t: 0 };
+      this.active = { type: "move", id: step.id, path: step.path, i: 0, t: 0, charge: this.chargeMoves.has(step) };
       // Cultist V2 has its own dedicated left/right walk cues (see assets.ts's move-left-*
       // cut) — play whichever matches this move's own first step instead of the generic
       // footstep beep every other sprite uses.
@@ -2065,6 +2108,7 @@ export class BattleEngine {
         noCounter: step.noCounter ?? false,
         spellKind: step.spellKind ?? null,
         customDice: step.customDice ?? null,
+        counterCustomDice: null,
         dmgMul: step.dmgMul ?? 1,
         stunChance: step.stunChance ?? 0,
         wallImpact: step.wallImpact ?? null,
@@ -2207,6 +2251,9 @@ export class BattleEngine {
         unit.y = from.y;
         unit.drawX = from.x;
         unit.drawY = from.y;
+        // A Bull Rush dash leaves its golden streak behind, fading out (see rushTrail).
+        const origin = a.path[0];
+        if (a.charge && origin) this.emitBladeFx("rushTrail", origin.x, origin.y, { toX: from.x, toY: from.y });
         this.active = null;
         return;
       }
@@ -2223,7 +2270,7 @@ export class BattleEngine {
       if (toScreen.cx !== fromScreen.cx) unit.facing = toScreen.cx > fromScreen.cx ? 1 : -1;
       unit.walkPose = to.y < from.y ? "back" : to.y > from.y ? "front" : "side";
       a.t += dt;
-      const dur = this.moveStepDur();
+      const dur = this.moveStepDur(a);
       const k = Math.min(1, a.t / dur);
       unit.drawX = from.x + (to.x - from.x) * k;
       unit.drawY = from.y + (to.y - from.y) * k;
@@ -2284,11 +2331,16 @@ export class BattleEngine {
     }
     a.t += dt;
     const lunge = 0.2;
+    if (a.stage === "counterLunge" && a.counterWindAt != null && this.time - a.counterWindAt < LONG_ARROW_RELEASE_SECONDS) {
+      a.t = 0;
+      return;
+    }
+    if (a.stage === "counterLunge" && a.counterWindAt != null && a.t < lunge) a.t = lunge;
     if (a.stage === "lunge" || a.stage === "counterLunge") {
       const actor = a.stage === "lunge" ? att : def;
       const target = a.stage === "lunge" ? def : att;
       const k = Math.min(1, a.t / lunge);
-      const arrowShot = this.isArrowAttack(actor);
+      const arrowShot = this.isArrowAttack(actor) && !this.offHandStrike(a);
       const arcaneBolt = !arrowShot && this.isArcaneCaster(actor);
       const ranged = arrowShot || arcaneBolt;
       actor.drawX = actor.x + (target.x - actor.x) * (ranged ? 0 : 0.28) * k;
@@ -2312,7 +2364,7 @@ export class BattleEngine {
     if (a.stage === "hit" || a.stage === "counterHit") {
       const actor = a.stage === "hit" ? att : def;
       const target = a.stage === "hit" ? def : att;
-      const arrowShot = this.isArrowAttack(actor);
+      const arrowShot = this.isArrowAttack(actor) && !this.offHandStrike(a);
       const arcaneBolt = !arrowShot && this.isArcaneCaster(actor);
       const impactAt = arrowShot ? ARROW_TRAVEL : arcaneBolt ? MISSILE_TRAVEL : 0.02;
       if (a.t >= impactAt && a.t - dt < impactAt) {
@@ -2321,14 +2373,19 @@ export class BattleEngine {
         // customDice/dmgMul/stunChance are the attacker's own strike (off-hand weapon or
         // Shield Bash) — never applied to the defender's counter, which always uses their
         // real equipped weapon at full strength.
-        const hit =
-          a.stage === "hit" && a.customDice
-            ? rollDamageCustom(actor, target, attTile, defTile, a.customDice.dice, a.customDice.faces, a.customDice.bonus, this.rng)
-            : rollDamage(actor, target, attTile, defTile, this.rng);
+        const dice = a.stage === "hit" ? a.customDice : a.counterCustomDice;
+        const hit = dice
+          ? rollDamageCustom(actor, target, attTile, defTile, dice.dice, dice.faces, dice.bonus, this.rng)
+          : rollDamage(actor, target, attTile, defTile, this.rng);
         if (!hit.landed) {
           this.spawnMiss(target);
           this.pushLog(`${actor.name} atacou ${target.name}: Missed`);
           sfxPlay.miss();
+          // A missed Bull Rush hit shoves nobody aside, so the charge ends here — the rest of
+          // it would run straight through the enemy that is still standing in the way.
+          if (a.stage === "hit" && a.spellKind === "bullRush") {
+            this.queue = this.queue.filter((q) => !(q.type === "move" && q.id === actor.id) && !("att" in q && q.att === actor.id && q.type === "combat" && q.spellKind === "bullRush"));
+          }
         } else {
           let bonusRoll = 0;
           if (a.stage === "hit" && a.bonusDice > 0) {
@@ -2385,7 +2442,11 @@ export class BattleEngine {
           // surviving it — fire it here, unconditionally, same as spawnHit/pushLog above,
           // rather than nested under the "target lived" branch below (where it used to be
           // silently skipped on any kill).
-          if (a.stage === "hit" && a.spellKind === "trip") this.emitBladeFx("lowCut", target.x, target.y);
+          if (a.stage === "hit" && a.spellKind === "trip") {
+            const oc = this.hexCenter(actor.x, actor.y);
+            const tc = this.hexCenter(target.x, target.y);
+            this.emitBladeFx("tripSweep", target.x, target.y, { a0: Math.atan2(tc.cy - oc.cy, tc.cx - oc.cx) });
+          }
           if (a.stage === "hit" && a.spellKind === "doubleStrike") {
             const oc = this.hexCenter(actor.x, actor.y);
             const tc = this.hexCenter(target.x, target.y);
@@ -2393,17 +2454,21 @@ export class BattleEngine {
             this.doubleStrikeAlt = !this.doubleStrikeAlt;
             this.emitBladeFx("cross", target.x, target.y, { a0: base + (this.doubleStrikeAlt ? 0.7 : -0.7) });
           }
-          if (a.stage === "hit" && a.spellKind === "bullRush") this.emitBladeFx("lowCut", target.x, target.y);
+          if (a.stage === "hit" && a.spellKind === "bullRush") {
+            const oc = this.hexCenter(actor.x, actor.y);
+            const tc = this.hexCenter(target.x, target.y);
+            this.emitBladeFx("rushImpact", target.x, target.y, { a0: Math.atan2(tc.cy - oc.cy, tc.cx - oc.cx) });
+          }
           if (a.stage === "hit" && a.spellKind === "shieldBash") this.emitBladeFx("shockRing", target.x, target.y);
-          if (a.stage === "hit" && a.spellKind === "executionerStrike" && executed) this.emitBladeFx("cross", target.x, target.y);
+          if (a.stage === "hit" && a.spellKind === "executionerStrike") this.emitBladeFx("execution", target.x, target.y, { warm: executed });
           if (target.hp <= 0) {
             this.markDead(target);
           } else {
             sfxPlay.hit();
             if (a.stage === "hit") this.maybeInflictDisease(actor, target);
             if (a.stage === "hit" && a.spellKind === "trip") {
-              target.stunned = true;
-              target.stunTurns = TRIP.stunRounds;
+              // Rasteira causes Bleeding, not stun (per direct instruction).
+              target.bleeding = true;
               if (!target.crippled) {
                 target.crippled = true;
                 const keep = 1 - TRIP.statPenalty;
@@ -2443,7 +2508,7 @@ export class BattleEngine {
         if (!this.reducedMotion) this.trauma = Math.min(1, this.trauma + (hit.landed ? 0.28 : 0.08));
         this.hitstop = hit.landed ? 0.06 : 0;
       }
-      if (a.t >= (this.isArrowAttack(actor) ? ARROW_TRAVEL + 0.18 : this.isArcaneCaster(actor) ? MISSILE_TRAVEL + 0.18 : 0.18)) {
+      if (a.t >= (arrowShot ? ARROW_TRAVEL + 0.18 : this.isArcaneCaster(actor) ? MISSILE_TRAVEL + 0.18 : 0.18)) {
         a.t = 0;
         a.stage = a.stage === "hit" ? "recover" : "counterRecover";
       }
@@ -2460,7 +2525,19 @@ export class BattleEngine {
         actor.drawY = actor.y;
         a.t = 0;
         if (a.stage === "recover") {
-          if (!a.noCounter && !def.stunned && def.alive && canCounter(att, def, { x: att.x, y: att.y }, this.tiles, this.cols)) a.stage = "counterLunge";
+          if (!a.noCounter && !def.stunned && def.alive && canCounter(att, def, { x: att.x, y: att.y }, this.tiles, this.cols)) {
+            const offHand = def.offHandId ? EQUIPMENT[def.offHandId] : null;
+            // The off-hand dagger/katar counters only an attacker within its own reach;
+            // anyone further away gets the main weapon (the bow).
+            const inDaggerReach = offHand?.kind === "weapon" && hexDist(def, att) <= (offHand.maxRange ?? 1);
+            a.counterCustomDice = inDaggerReach ? { dice: offHand.dice ?? 1, faces: offHand.faces ?? 4, bonus: offHand.bonus ?? 0 } : null;
+            // A long-sheet bow counter plays the whole ATT sheet before the arrow leaves,
+            // same as that unit's own ATT shot.
+            const counterSheet = this.art.counters[def.sprite] ?? this.art.attacks[def.sprite];
+            a.counterWindAt =
+              !a.counterCustomDice && this.isArrowAttack(def) && (counterSheet?.length ?? 0) >= LONG_SHEET_FRAMES && !this.reducedMotion ? this.time : undefined;
+            a.stage = "counterLunge";
+          }
           else if (!def.alive) a.stage = "fade";
           else this.finishCombat(att);
         } else if (!att.alive) a.stage = "fade";
@@ -3084,6 +3161,29 @@ export class BattleEngine {
     }
   }
 
+  /** Bleeding hurts on every action; walking only opens the wound once per own turn. */
+  private applyBleedingActionDamage(u: Unit | undefined, isMove: boolean): boolean {
+    if (!u || !u.alive || !u.bleeding || (isMove && u.bleedMovedThisTurn)) return !!u?.alive;
+    if (isMove) u.bleedMovedThisTurn = true;
+    const dmg = rollDice(1, 8, 0, this.rng);
+    u.hp = Math.max(0, u.hp - dmg);
+    u.flash = 1;
+    this.spawnHit(u, dmg, false);
+    this.tip = `Sangramento · 1D8 dano`;
+    this.pushLog(`Sangramento fere ${u.name}: ${dmg} dano`);
+    sfxPlay.hit();
+    if (u.hp <= 0) {
+      this.markDead(u);
+      return false;
+    }
+    return true;
+  }
+
+  /** Using an item (potion, lockpick) is an action: a bleeding user takes the 1D8 too. */
+  private bleedOnItemUse(u: Unit): void {
+    if (!this.applyBleedingActionDamage(u, false)) this.evaluateEnd();
+  }
+
   /** Lightning echo + standing-hazard damage, applied once when this unit's own turn begins. */
   private startOfTurnEffects(u: Unit): void {
     if (!u.alive) return;
@@ -3316,7 +3416,7 @@ export class BattleEngine {
     const u = unitId ? this.units.find((n) => n.id === unitId) : this.units.find((n) => n.alive && n.x === x && n.y === y);
     if (u) {
       u.healGlow = kind === "minor" ? 0.72 : kind === "potion" ? 0.88 : 1;
-      u.healGlowKind = kind === "minor" ? "holyMinor" : kind === "medium" ? "holyMedium" : kind === "disease" ? "disease" : "potion";
+      u.healGlowKind = kind === "minor" ? "holyMinor" : kind === "medium" ? "holyMedium" : kind === "food" ? "food" : kind === "disease" ? "disease" : "potion";
     }
     if (this.reducedMotion) return;
     let slot = this.holyFx.find((h) => !h.live);
@@ -3330,7 +3430,7 @@ export class BattleEngine {
         }
       }
     } else this.holyFxLive += 1;
-    const rayCount = kind === "medium" ? 10 : kind === "disease" ? 8 : kind === "potion" ? 5 : 6;
+    const rayCount = kind === "medium" || kind === "food" ? 10 : kind === "disease" ? 8 : kind === "potion" ? 5 : 6;
     slot.live = true;
     slot.unitId = u?.id ?? unitId;
     slot.x = x;
@@ -3456,7 +3556,7 @@ export class BattleEngine {
   }
 
   /** Summon Familiar's conjuring circle — see PortalFx/drawPortalFx. */
-  private emitPortalFx(x: number, y: number, body: { dx: number; dy: number }[] | null = null): void {
+  private emitPortalFx(x: number, y: number, body: { dx: number; dy: number }[] | null = null, red = false): void {
     if (this.reducedMotion) return;
     let slot = this.portalFx.find((p) => !p.live);
     if (!slot) {
@@ -3477,6 +3577,7 @@ export class BattleEngine {
     slot.max = body && body.length > 1 ? 1.3 : 0.85;
     slot.seed = this.rng() * Math.PI * 2;
     slot.body = body && body.length > 1 ? body : null;
+    slot.red = red;
   }
 
   /** One steel-swoosh effect — see BladeFx/BladeKind. Shared by every warrior/lancer/knight
@@ -3510,7 +3611,7 @@ export class BattleEngine {
     slot.a1 = opts.a1 ?? opts.a0 ?? 0;
     slot.warm = opts.warm ?? false;
     slot.t = 0;
-    slot.max = opts.dur ?? (kind === "ring" || kind === "shockRing" ? 0.46 : kind === "dash" ? 0.36 : 0.4);
+    slot.max = opts.dur ?? (kind === "rushTrail" ? 0.5 : kind === "rushImpact" ? 0.55 : kind === "execution" ? 0.7 : kind === "tripSweep" ? 0.65 : kind === "ring" || kind === "shockRing" ? 0.46 : kind === "dash" ? 0.36 : 0.4);
     slot.seed = this.rng() * Math.PI * 2;
   }
 
@@ -4021,7 +4122,7 @@ export class BattleEngine {
     this.spellAim = null;
     this.hover = null;
     const p = bullRushPower(u.level);
-    this.tip = `${BULL_RUSH.name}: avance sobre qualquer inimigo, ${bullRushFormula(u.level)}, sem contra-ataque, empurra ${p.knockback} hex${p.knockback > 1 ? "es" : ""}. Se o empurrão bater em algo, causa +${diceFormula(p.wallDice, p.wallFaces, 0)} de impacto.`;
+    this.tip = `${BULL_RUSH.name}: investida em linha reta até ${BULL_RUSH_RANGE} hexes, para no primeiro inimigo, ${bullRushFormula(u.level)}, sem contra-ataque. Empurra 2 hexes (criaturas grandes: 1). Se o empurrão bater em algo, causa +${diceFormula(p.wallDice, p.wallFaces, 0)} de impacto.`;
     sfxPlay.ui();
   }
 
@@ -4036,90 +4137,147 @@ export class BattleEngine {
     return !!occ.get(key(x, y));
   }
 
-  /** Terrain stops a charge; creatures do not. They are resolved as Bull Rush collateral
-   * hits in castBullRush instead of being treated as an invalid-target gate. */
+  /** Terrain stops a charge. */
   private chargeTerrainBlocked(x: number, y: number): boolean {
     return !inBounds(x, y, this.cols, this.rows) || !hexDef(this.tiles, this.cols, x, y, this.decorOverlay).passable;
   }
 
-  /** Bull Rush reaches any living enemy at any range, but terrain and decorations remain
-   * solid. Intervening creatures are valid collateral targets, not blockers. */
-  private bullRushCharge(caster: Unit, cell: Point, _chargeRange: number): { dir: Cube; path: Point[] } | null {
-    const occ = this.occ();
-    const foe = occ.get(key(cell.x, cell.y));
-    if (!foe || foe.alive === false || foe.side === caster.side) return null;
+  /** A Bull Rush push, precomputed before anything moves: who, where it ends up, and
+   * whether it slammed into something short of its full distance (impact damage). */
+  private bullRushPush(foe: Unit, dir: Cube, occ: Map<string, Unit>): { path: Point[]; blocked: boolean } {
+    const dist = this.bullRushPushDistance(foe);
+    const knock = axisWalk({ x: foe.x, y: foe.y }, dir, this.cols, this.rows, dist, (pt) => !this.bullRushPushFits(foe, pt, occ));
+    return { path: knock.path, blocked: knock.path.length < dist };
+  }
+
+  /** Bull Rush: aim at an enemy up to BULL_RUSH_RANGE away and charge the straight line to
+   * it. Any enemy standing in the way is hit and shoved aside (to whichever flank has room,
+   * off the rest of the line) and the charge carries on; the aimed enemy is hit and pushed
+   * forward. If an in-the-way enemy has no room on either side, the charge stops there and
+   * it becomes the one pushed forward. An ally or blocking terrain in the way = no charge.
+   * Everything is simulated on a copy of the board, so no push or landing hex ever overlaps
+   * a unit or a body-type target zone. */
+  private bullRushCharge(
+    caster: Unit,
+    cell: Point,
+  ): {
+    dir: Cube;
+    foe: Unit;
+    /** Charge segments: run `path`, then hit `foe` and push it along `push`. */
+    legs: { path: Point[]; foe: Unit; push: { path: Point[]; blocked: boolean } }[];
+  } | null {
+    if (hexDist(caster, cell) > BULL_RUSH_RANGE) return null;
+    const occ = new Map(this.occ());
+    const target = occ.get(key(cell.x, cell.y));
+    if (!target || !target.alive || target.side === caster.side) return null;
     const line = hexLine(caster, cell).slice(1);
-    const path = line.slice(0, -1);
-    const beforeTarget = path[path.length - 1] ?? caster;
-    const dir = axisDir(beforeTarget, cell);
-    if (!dir || path.some((p) => this.chargeTerrainBlocked(p.x, p.y))) return null;
-    return { dir, path };
+    const legs: { path: Point[]; foe: Unit; push: { path: Point[]; blocked: boolean } }[] = [];
+    let run: Point[] = [];
+    let at: Point = { x: caster.x, y: caster.y };
+    const place = (u: Unit, to: Point) => {
+      for (const c of footprint(u)) if (occ.get(key(c.x, c.y)) === u) occ.delete(key(c.x, c.y));
+      for (const c of footprint({ ...u, x: to.x, y: to.y })) occ.set(key(c.x, c.y), u);
+    };
+    for (let i = 0; i < line.length; i++) {
+      const pt = line[i]!;
+      if (this.chargeTerrainBlocked(pt.x, pt.y)) return null;
+      const who = occ.get(key(pt.x, pt.y));
+      if (!who || who.id === caster.id) {
+        run.push(pt);
+        at = pt;
+        continue;
+      }
+      if (!who.alive || who.side === caster.side) return null;
+      const dir = axisDir(at, pt);
+      if (!dir) return null;
+      // The charger's landing hex for this leg (and only that one), so pushes never land on it.
+      for (const [k, u] of occ) if (u === caster) occ.delete(k);
+      occ.set(key(at.x, at.y), caster);
+      if (who.id !== target.id) {
+        // In the way: shove it aside, off the rest of the line, then keep charging.
+        const di = CUBE_DIRS.findIndex((d) => d.q === dir.q && d.r === dir.r && d.s === dir.s);
+        const ahead = new Set(line.slice(i).map((c) => key(c.x, c.y)));
+        let side: { path: Point[]; blocked: boolean } | null = null;
+        for (const s of [CUBE_DIRS[(di + 1) % 6]!, CUBE_DIRS[(di + 5) % 6]!]) {
+          const push = this.bullRushPush(who, s, occ);
+          const land = push.path[push.path.length - 1];
+          if (!land) continue;
+          const clear = footprint({ ...who, x: land.x, y: land.y }).every((c) => !ahead.has(key(c.x, c.y)));
+          if (clear) {
+            side = push;
+            break;
+          }
+        }
+        if (side) {
+          legs.push({ path: run, foe: who, push: side });
+          place(who, side.path[side.path.length - 1]!);
+          run = [];
+          i--; // re-check this hex, now empty
+          continue;
+        }
+      }
+      // The aimed enemy, or one that can't be moved aside: hit it and push it forward.
+      legs.push({ path: run, foe: who, push: this.bullRushPush(who, dir, occ) });
+      return { dir, foe: who, legs };
+    }
+    return null;
+  }
+
+  /** Bull Rush push distance: a body-type creature (any multi-hex footprint) moves 1 hex, a
+   * normal one-hex creature 2. */
+  private bullRushPushDistance(foe: Unit): number {
+    return foe.footprintOffsets && foe.footprintOffsets.length > 1 ? 1 : 2;
+  }
+
+  /** Whether `foe` can be pushed so its anchor lands on `to`: its front row must be in
+   * bounds on passable ground, and no cell of its whole body may overlap any other unit or
+   * that unit's target zone (`occ` already has the charger at its landing hex). */
+  private bullRushPushFits(foe: Unit, to: Point, occ: Map<string, Unit>): boolean {
+    const placed = { ...foe, x: to.x, y: to.y };
+    for (const c of footprintFrontRow(placed)) if (this.chargeTerrainBlocked(c.x, c.y)) return false;
+    for (const c of footprint(placed)) {
+      if (!inBounds(c.x, c.y, this.cols, this.rows)) continue;
+      const who = occ.get(key(c.x, c.y));
+      if (who && who.id !== foe.id) return false;
+    }
+    return true;
   }
 
   private castBullRush(unit: Unit, cell: Point): void {
     const p = bullRushPower(unit.level);
-    const charge = this.bullRushCharge(unit, cell, p.chargeRange);
+    const charge = this.bullRushCharge(unit, cell);
     if (!charge) {
-      this.tip = "Toque num inimigo.";
+      this.tip = `Toque num inimigo a até ${BULL_RUSH_RANGE} hexes, sem aliado ou obstáculo no caminho.`;
       sfxPlay.ui();
       return;
     }
-    const occ = this.occ();
-    const foe = occ.get(key(cell.x, cell.y));
-    if (!foe) return;
-    // A charge does not ghost through a creature: every distinct unit standing on its route
-    // receives the same no-counter Bull Rush hit before the primary target is resolved.
-    const collateral = Array.from(
-      new Map(charge.path.map((pt) => {
-        const hit = occ.get(key(pt.x, pt.y));
-        return [hit?.id, hit] as const;
-      })).values(),
-    ).filter((hit): hit is Unit => !!hit && hit.id !== foe.id);
-    const stop = charge.path[charge.path.length - 1] ?? { x: unit.x, y: unit.y };
-    // Precompute the knockback here, before anything moves — the board is static for the
-    // rest of this single synchronous action, so this is exactly what the queued hit will
-    // see once it resolves (see wallImpact/knockTo on the "combat" Seq/CombatAnim).
-    const occAfterMove = new Map(occ);
-    occAfterMove.delete(key(unit.x, unit.y));
-    occAfterMove.set(key(stop.x, stop.y), unit);
-    const knock = axisWalk(cell, charge.dir, this.cols, this.rows, p.knockback, (pt) => this.axisBlocked(pt.x, pt.y, occAfterMove));
-    const knockTo = knock.path.length > 0 ? knock.path[knock.path.length - 1]! : null;
-    const wallImpact = knock.path.length < p.knockback;
     this.spendTier(unit, "bullRush");
     this.spellKind = null;
     this.missileTargets = [];
     this.tip = null;
     this.mode = "locked";
-    if (stop.x !== unit.x || stop.y !== unit.y) {
-      // The real "move" step below already carries the charge's motion (the sprite slides
-      // hex-by-hex to `stop`) — no synthetic dash-streak FX layered on top, which would
-      // flash instantly right now, well before that animation actually plays.
-      this.queue.push({ type: "move", id: unit.id, path: [{ x: unit.x, y: unit.y }, ...charge.path] });
-    }
-    for (const hit of collateral) {
+    let from = { x: unit.x, y: unit.y };
+    for (const leg of charge.legs) {
+      if (leg.path.length > 0) {
+        // The real "move" step carries the charge's motion (a fast dash, see MoveAnim.charge).
+        const dash: Seq = { type: "move", id: unit.id, path: [from, ...leg.path] };
+        this.chargeMoves.add(dash);
+        this.queue.push(dash);
+        from = leg.path[leg.path.length - 1]!;
+      }
       this.queue.push({
         type: "combat",
         att: unit.id,
-        def: hit.id,
+        def: leg.foe.id,
         noCounter: true,
         bonusDice: p.faces,
         bonusDiceCount: p.dice,
         bonusFlat: 0,
+        wallImpact: leg.push.blocked ? { dice: p.wallDice, faces: p.wallFaces } : null,
+        knockTo: leg.push.path.length > 0 ? leg.push.path[leg.push.path.length - 1]! : null,
         spellKind: "bullRush",
       });
     }
-    this.queue.push({
-      type: "combat",
-      att: unit.id,
-      def: foe.id,
-      noCounter: true,
-      bonusDice: p.faces,
-      bonusDiceCount: p.dice,
-      bonusFlat: 0,
-      wallImpact: wallImpact ? { dice: p.wallDice, faces: p.wallFaces } : null,
-      knockTo,
-      spellKind: "bullRush",
-    });
   }
 
   /** Warrior tier 3: adjacent, replaces (never stacks with) a normal crit — see
@@ -4249,7 +4407,7 @@ export class BattleEngine {
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${TRIP.name}: dano da arma + ${diceFormula(1, TRIP.bonusFaces, TRIP.bonusBonus)}, atordoa por ${TRIP.stunRounds} turnos e reduz stats em ${Math.round(TRIP.statPenalty * 100)}% até o fim do combate. Toque no inimigo.`;
+    this.tip = `${TRIP.name}: dano da arma + ${diceFormula(1, TRIP.bonusFaces, TRIP.bonusBonus)}, causa Sangramento (1D8 a cada ação) e reduz stats em ${Math.round(TRIP.statPenalty * 100)}% até o fim do combate. Toque no inimigo.`;
     sfxPlay.ui();
   }
 
@@ -4360,7 +4518,7 @@ export class BattleEngine {
     this.spellAim = null;
     this.hover = null;
     const want = multiShotTargets(u.level);
-    this.tip = `${MULTI_SHOT.name}: ${multiShotFormula(u.level)}, alcance arma+${MULTI_SHOT.rangeBonus}. Escolha ${want} alvos (pode repetir).`;
+    this.tip = `${MULTI_SHOT.name}: ${multiShotFormula(u.level)}, alcance ${MULTI_SHOT.range}. Escolha ${want} alvos (pode repetir).`;
     sfxPlay.ui();
   }
 
@@ -4418,8 +4576,7 @@ export class BattleEngine {
     this.reapplyGear(u);
     const gained = power.dice > 0 ? rollDice(power.dice, power.faces, power.bonus, this.rng) : 0;
     this.lootRations += gained;
-    u.healGlow = 1;
-    u.healGlowKind = "holyMinor";
+    this.emitHolyFx(u.x, u.y, "food", u.id);
     this.spendTier(u, "createFoodAndWater");
     this.spellKind = null;
     this.spellArmed = false;
@@ -4657,9 +4814,7 @@ export class BattleEngine {
   }
 
   private longMax(u: Unit): number {
-    const ranged = u.weaponId ? !!WEAPONS[u.weaponId]?.ranged : false;
-    const extra = ranged && this.hexAt(u.x, u.y).height ? 1 : 0;
-    return u.maxRange * LONG_SHOT.rangeMul + LONG_SHOT.rangeBonus + extra;
+    return LONG_SHOT.range;
   }
 
   /** True while (x,y) sits inside any still-active Web of Dreams patch. */
@@ -5029,7 +5184,7 @@ export class BattleEngine {
       return hexNeighbors(caster.x, caster.y).some((p) => p.x === cell.x && p.y === cell.y);
     }
     if (this.spellKind === "bullRush") {
-      return this.bullRushCharge(caster, cell, bullRushPower(caster.level).chargeRange) !== null;
+      return this.bullRushCharge(caster, cell) !== null;
     }
     if (this.spellKind === "burningHands") {
       return this.wrathRay(caster, cell, burningHandsPower(caster.level).range) !== null;
@@ -5037,7 +5192,7 @@ export class BattleEngine {
     if (this.spellKind === "multiShot") {
       const d = manhattan(caster, cell);
       const here = this.occ().get(key(cell.x, cell.y));
-      if (!this.targetable(here) || d < caster.minRange || d > caster.maxRange + MULTI_SHOT.rangeBonus) return false;
+      if (!this.targetable(here) || d < caster.minRange || d > MULTI_SHOT.range) return false;
       return clearShot(caster, cell, this.tiles, this.cols, "arrow", this.decorOverlay);
     }
     if (this.spellKind === "divineWrath") return this.wrathRay(caster, cell, DIVINE_WRATH.range) !== null;
@@ -5628,6 +5783,8 @@ export class BattleEngine {
       diseased: false,
       diseaseBase: null,
       poisoned: false,
+      bleeding: false,
+      bleedMovedThisTurn: false,
       stunned: false,
       stunTurns: 0,
       crippled: false,
@@ -5661,7 +5818,7 @@ export class BattleEngine {
     // long-sheet caster's full wind-up (see startSeq), not the instant the spell is clicked.
     this.onSeqStart.set(step, () => {
       this.units.push(familiar);
-      this.emitPortalFx(cell.x, cell.y, cls.footprintOffsets ?? null);
+      this.emitPortalFx(cell.x, cell.y, cls.footprintOffsets ?? null, tier === 3);
       sfxPlay.summonFamiliar();
     });
     this.queue.push(step);
@@ -5958,6 +6115,7 @@ export class BattleEngine {
       this.tip = `${def.name} · ${target.name} curado(a) da doença.`;
       this.emitHolyFx(target.x, target.y, "potion", target.id);
       sfxPlay.ui();
+      this.bleedOnItemUse(actor);
       this.finishAction(actor);
       return;
     }
@@ -5996,6 +6154,7 @@ export class BattleEngine {
       this.tip = `${def.name} · +${restored} usos de magia (${target.name})`;
       this.emitHolyFx(target.x, target.y, "potion", target.id);
       sfxPlay.ui();
+      this.bleedOnItemUse(actor);
       this.finishAction(actor);
       return;
     }
@@ -6027,6 +6186,7 @@ export class BattleEngine {
     this.tip = `${potionLabel(kind)} · +${gained} HP (${target.name})`;
     this.emitHolyFx(target.x, target.y, "potion", target.id);
     sfxPlay.ui();
+    this.bleedOnItemUse(actor);
     this.finishAction(actor);
   }
 
@@ -6314,6 +6474,7 @@ export class BattleEngine {
       this.tip = `${u.name} arrombou a porta.`;
       this.pushLog(this.tip);
     }
+    this.bleedOnItemUse(u);
     this.finishAction(u);
     if (wasChest) {
       sfxPlay.chest();
@@ -6392,6 +6553,7 @@ export class BattleEngine {
       // turn (flee attempt failed, etc.) isn't a new turn, so it doesn't flip again.
       u.idleAlt = !u.idleAlt;
       u.moveBudgetUsed = 0;
+      u.bleedMovedThisTurn = false;
       this.startOfTurnEffects(u);
       if (!u.alive) {
         this.activeUnitId = null; // force re-detection next tick, skipping the unit that just died
@@ -6760,7 +6922,7 @@ export class BattleEngine {
     // included) — no side filter, matching the player-facing spell.
     if (next.classId === "brigand" && (next.spells.tier1 > 0 || next.spells.tier2 > 0)) {
       const spellKind: "piercing" | "longShot" = next.spells.tier2 > 0 ? "piercing" : "longShot";
-      const longMax = next.maxRange * LONG_SHOT.rangeMul + LONG_SHOT.rangeBonus;
+      const longMax = LONG_SHOT.range;
       let bestSpell: { foe: Unit; from: Point; score: number } | null = null;
       for (const cell of reach.values()) {
         for (const foe of players) {
@@ -7103,7 +7265,9 @@ export class BattleEngine {
    * "already in range from here" check as a normal Atacar; no move-then-act chaining. */
   private commitOffHandAction(unit: Unit, foe: Unit, from: Point): void {
     const item = unit.offHandId ? EQUIPMENT[unit.offHandId] : null;
-    if (!item || !canHitFrom(unit, from, foe, this.tiles, this.cols, this.decorOverlay)) {
+    // A dagger/katar reaches only as far as the off-hand weapon itself, not the main bow.
+    const reach = item?.kind === "weapon" ? { ...unit, minRange: item.minRange ?? 1, maxRange: item.maxRange ?? 1 } : unit;
+    if (!item || !canHitFrom(reach, from, foe, this.tiles, this.cols, this.decorOverlay)) {
       this.mode = "awaitAction";
       this.tip = "Fora de alcance.";
       return;
@@ -7657,7 +7821,7 @@ export class BattleEngine {
       const from = a.path[a.i];
       const to = a.path[a.i + 1];
       if (from && to) {
-        const k = Math.min(1, a.t / this.moveStepDur());
+        const k = Math.min(1, a.t / this.moveStepDur(a));
         const A = liftAt(from.x, from.y);
         const B = liftAt(to.x, to.y);
         return A + (B - A) * k;
@@ -7669,8 +7833,10 @@ export class BattleEngine {
   /** One hex step's duration — the single clock both the move stepper and every drawn
    * position (unitPixel/unitAnchor/unitLift) use, so the sprite glides at a constant speed
    * instead of dashing ahead and waiting for the step to finish. */
-  private moveStepDur(): number {
-    return this.speedMode === "fast" ? 0.12 : this.speedMode === "slow" ? 0.36 : 0.22;
+  private moveStepDur(a?: MoveAnim): number {
+    const walk = this.speedMode === "fast" ? 0.12 : this.speedMode === "slow" ? 0.36 : 0.22;
+    // A Bull Rush charge is a burst, about 3x walking pace.
+    return a?.charge ? walk * 0.5 : walk;
   }
 
   private unitPixel(u: Unit): { cx: number; cy: number } {
@@ -7679,7 +7845,7 @@ export class BattleEngine {
       const from = a.path[a.i];
       const to = a.path[a.i + 1];
       if (from && to) {
-        const k = Math.min(1, a.t / this.moveStepDur());
+        const k = Math.min(1, a.t / this.moveStepDur(a));
         const A = this.footprintCentroid(from.x, from.y, u.size, u.footprintW, u.footprintOffsets);
         const B = this.footprintCentroid(to.x, to.y, u.size, u.footprintW, u.footprintOffsets);
         return { cx: A.cx + (B.cx - A.cx) * k, cy: A.cy + (B.cy - A.cy) * k };
@@ -7700,13 +7866,18 @@ export class BattleEngine {
       const from = a.path[a.i];
       const to = a.path[a.i + 1];
       if (from && to) {
-        const k = Math.min(1, a.t / this.moveStepDur());
+        const k = Math.min(1, a.t / this.moveStepDur(a));
         const A = this.footprintCentroidWorld(from.x, from.y, u.size, u.footprintW, u.footprintOffsets);
         const B = this.footprintCentroidWorld(to.x, to.y, u.size, u.footprintW, u.footprintOffsets);
         return { worldX: A.worldX + (B.worldX - A.worldX) * k, worldY: A.worldY + (B.worldY - A.worldY) * k };
       }
     }
     return this.footprintCentroidWorld(u.x, u.y, u.size, u.footprintW, u.footprintOffsets);
+  }
+
+  /** True while an action's visual sequence is still playing. */
+  isAnimating(): boolean {
+    return this.active !== null || this.queue.length > 0;
   }
 
   /** Walk-cycle frame for a unit mid-move, driven by how far along its path it actually is.
@@ -7774,9 +7945,10 @@ export class BattleEngine {
       const counter = a.stage.startsWith("counter");
       // Already played in full during its wind-up (see startSeq) — no stretching on top.
       if (a.held && !counter) return 1;
+      if (counter && a.counterWindAt != null) return 1;
       const sprite = this.units.find((u) => u.id === (counter ? a.def : a.att))?.sprite;
       if (!sprite) return 1;
-      frames = (counter ? this.art.counters[sprite] : undefined) ?? this.art.attacks[sprite];
+      frames = (this.offHandStrike(a) ? this.art.attacksShort[sprite] : undefined) ?? (counter ? this.art.counters[sprite] : undefined) ?? this.art.attacks[sprite];
       // stepCombat's lunge + hit + recover clocks, which attackPose spreads the sheet across.
       span = 0.2 + 0.18 + 0.16;
     } else if (a.type === "spell" || a.type === "heal") {
@@ -7800,6 +7972,12 @@ export class BattleEngine {
   }
 
   /** Whether a wound-up step's remaining sheet (see heldFrame) has finished playing. */
+  /** Whether the current stage of this attack is struck with the off-hand dagger/katar: the
+   * attacker's own off-hand attack (customDice) or a defender's off-hand counter. */
+  private offHandStrike(a: CombatAnim): boolean {
+    return a.stage.startsWith("counter") ? !!a.counterCustomDice : !!a.customDice;
+  }
+
   private heldDone(a: { held?: boolean; heldFrom?: number; heldAt?: number }): boolean {
     if (!a.held) return true;
     return (a.heldFrom ?? LONG_ANIM_SECONDS) + (this.time - (a.heldAt ?? this.time)) >= LONG_ANIM_SECONDS;
@@ -7861,10 +8039,12 @@ export class BattleEngine {
       // A dedicated counter pose (currently just theButcher's counter-*.png) for the
       // defender's stages only — falls back to the same attacks cut every sprite without
       // one already used for countering, same as before this existed.
-      const frames = (counter ? this.art.counters[u.sprite] : undefined) ?? attackPool;
+      const short = this.offHandStrike(a) ? this.art.attacksShort[u.sprite] : undefined;
+      const frames = short ?? (counter ? this.art.counters[u.sprite] : undefined) ?? attackPool;
       if (!frames || frames.length < 4) return null;
       const n = frames.length;
       if (a.held && !counter) return this.heldFrame(a, n);
+      if (counter && a.counterWindAt != null) return Math.min(n - 1, Math.floor(((this.time - a.counterWindAt) / LONG_ANIM_SECONDS) * n));
       const long = n >= 12;
       // stepCombat's real per-stage clocks (see lunge/impactAt/recover there): 0.2s lunge,
       // 0.18s hit, 0.16s recover, same for every sprite. animationT runs at `pace` of real
@@ -7960,7 +8140,12 @@ export class BattleEngine {
     // Same idleAlt alternation attackPose applies to pick its index (see that function's
     // attackPool) — mirrored here so the frame actually drawn comes from the same array.
     const atkBase = u.idleAlt ? (this.art.attacks2[u.sprite] ?? this.art.attacks[u.sprite]) : this.art.attacks[u.sprite];
-    const atkPool = faceRight ? atkBase : (this.art.attacksLeft[u.sprite] ?? atkBase);
+    const offHandSwing =
+      this.active?.type === "combat" &&
+      (this.active.stage.startsWith("counter") ? this.active.def : this.active.att) === u.id &&
+      this.offHandStrike(this.active);
+    const atkShort = offHandSwing ? this.art.attacksShort[u.sprite] : undefined;
+    const atkPool = atkShort ?? (faceRight ? atkBase : (this.art.attacksLeft[u.sprite] ?? atkBase));
     const walk = atk == null && moving ? walkPool : undefined;
     // attackPose computes its index against whichever pool it picked (casts for a spell/heal
     // cast, counters for the defender's own counter stages, attacks otherwise), so this has
@@ -8577,7 +8762,7 @@ export class BattleEngine {
         const cell = this.hover ?? this.spellAim;
         if (cell && this.validCureDiseaseTarget(selected, cell)) push([cell], "rgba(170,230,180,0.55)");
       } else if (selected && this.spellKind === "multiShot") {
-        push(this.healRangeTiles(selected, selected.maxRange + MULTI_SHOT.rangeBonus), "rgba(210,190,90,0.45)");
+        push(this.healRangeTiles(selected, MULTI_SHOT.range), "rgba(210,190,90,0.45)");
         const cell = this.hover ?? this.spellAim;
         if (cell && this.spellAimValid(selected, cell)) push([cell], "rgba(230,200,100,0.55)");
       } else if (selected && this.spellKind === "divineWrath") {
@@ -8596,25 +8781,29 @@ export class BattleEngine {
         const line = cell ? this.wrathRay(selected, cell, STAMPEDE.range) : null;
         if (line) push(line, "rgba(200,90,60,0.6)");
       } else if (selected && this.spellKind === "bullRush") {
-        const range = bullRushPower(selected.level).chargeRange;
-        // Bull Rush is an unrestricted enemy charge, so highlight every legal enemy instead
-        // of misleadingly painting only the old short straight-line range.
-        push(this.units.filter((u) => u.alive && u.side !== selected.side).map((u) => ({ x: u.x, y: u.y })), "rgba(220,120,80,0.4)");
+        // The 4-hex targeting area, then only enemy hexes a charge really reaches (the first
+        // unit on a clear line), over each enemy's whole body — nothing lit is a dud click.
+        push(this.healRangeTiles(selected, BULL_RUSH_RANGE), "rgba(220,120,80,0.22)");
+        const legal: Point[] = [];
+        for (const u of this.units) {
+          if (!u.alive || u.side === selected.side) continue;
+          for (const c of footprint(u)) {
+            if (!inBounds(c.x, c.y, this.cols, this.rows)) continue;
+            if (this.bullRushCharge(selected, c)?.foe.id === u.id) legal.push(c);
+          }
+        }
+        push(legal, "rgba(220,120,80,0.45)");
         const cell = this.hover ?? this.spellAim;
-        const charge = cell ? this.bullRushCharge(selected, cell, range) : null;
+        const charge = cell ? this.bullRushCharge(selected, cell) : null;
         if (cell && charge) {
-          push(charge.path, "rgba(235,120,80,0.6)");
-          push([cell], "rgba(255,90,60,0.7)");
-          const p = bullRushPower(selected.level);
-          const stop = charge.path[charge.path.length - 1] ?? { x: selected.x, y: selected.y };
-          const occAfterMove = new Map(this.occ());
-          occAfterMove.delete(key(selected.x, selected.y));
-          occAfterMove.set(key(stop.x, stop.y), selected);
-          const knock = axisWalk(cell, charge.dir, this.cols, this.rows, p.knockback, (pt) => this.axisBlocked(pt.x, pt.y, occAfterMove));
-          if (knock.path.length > 0) {
-            // Blocked short of the full knockback distance = the wall-impact bonus fires —
-            // colored distinctly (redder) from a clean knockback so it reads at a glance.
-            push([knock.path[knock.path.length - 1]!], knock.path.length < p.knockback ? "rgba(255,60,40,0.8)" : "rgba(255,180,120,0.6)");
+          for (const leg of charge.legs) {
+            push(leg.path, "rgba(235,120,80,0.6)");
+            push(footprint(leg.foe), "rgba(255,90,60,0.7)");
+            // Where each hit enemy ends up; redder when its push is cut short (impact damage).
+            const land = leg.push.path[leg.push.path.length - 1] ?? { x: leg.foe.x, y: leg.foe.y };
+            if (leg.push.path.length > 0 || leg.push.blocked) {
+              push(footprint({ ...leg.foe, x: land.x, y: land.y }), leg.push.blocked ? "rgba(255,60,40,0.8)" : "rgba(255,180,120,0.6)");
+            }
           }
         }
       } else if (selected && (this.spellKind === "executionerStrike" || this.spellKind === "shieldBash")) {
@@ -8822,7 +9011,10 @@ export class BattleEngine {
       // ThreeBattleRenderer's own unit meshes via the public unitVisual() wrapper.
       const { bob, sway, breath, lift, img, w, h, footY, scaleX, scaleY, footOffset } = this.computeUnitVisual(u, cell, tile);
       ctx.save();
-      ctx.globalAlpha = u.fade * (u.moved && u.side === "player" && this.phase === "player" ? 0.8 : 1);
+      // A unit only dims after every queued animation has completed. Marking it as moved
+      // happens when the action starts, so dimming immediately would make a Multi-Shot
+      // archer translucent before its last arrow has landed.
+      ctx.globalAlpha = u.fade * (u.moved && u.side === "player" && this.phase === "player" && !this.active ? 0.8 : 1);
       if (!skipUnitShadow) {
         // A soft cast shadow instead of a flat dark puddle: a radial gradient (center dark,
         // fading fully transparent at the edge) offset toward shadowDir so it reads as light
@@ -8863,7 +9055,7 @@ export class BattleEngine {
       if (u.healGlow > 0) {
         const pulse = 0.8 + Math.sin(this.time * 5) * 0.2;
         const halo = this.healHaloRgb(u.healGlowKind);
-        const reach = u.healGlowKind === "holyMedium" ? 1.35 : u.healGlowKind === "holyMinor" ? 0.92 : 1.08;
+        const reach = u.healGlowKind === "holyMedium" || u.healGlowKind === "food" ? 1.35 : u.healGlowKind === "holyMinor" ? 0.92 : 1.08;
         const bg = ctx.createRadialGradient(0, -h * 0.5, 0, 0, -h * 0.5, w * reach);
         bg.addColorStop(0, `rgba(${halo.core},${0.5 * u.healGlow * pulse})`);
         bg.addColorStop(0.45, `rgba(${halo.mid},${0.22 * u.healGlow * pulse})`);
@@ -8873,7 +9065,7 @@ export class BattleEngine {
         ctx.arc(0, -h * 0.5, w * reach, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowColor = `rgba(${halo.core},${0.9 * u.healGlow})`;
-        ctx.shadowBlur = w * (u.healGlowKind === "holyMedium" ? 0.48 : 0.32) * u.healGlow * pulse;
+        ctx.shadowBlur = w * (u.healGlowKind === "holyMedium" || u.healGlowKind === "food" ? 0.48 : 0.32) * u.healGlow * pulse;
       }
       // Real point-light influence from whatever's actually casting light nearby right now
       // (a fire/holy/acid glow, a travelling web shot, darkness's own dimming) — see
@@ -8903,7 +9095,7 @@ export class BattleEngine {
         const pulse = 0.8 + Math.sin(this.time * 5) * 0.2;
         const halo = this.healHaloRgb(u.healGlowKind);
         ctx.shadowColor = `rgba(${halo.core},${0.88 * u.healGlow})`;
-        ctx.shadowBlur = w * (u.healGlowKind === "holyMedium" ? 0.58 : 0.42) * u.healGlow * pulse;
+        ctx.shadowBlur = w * (u.healGlowKind === "holyMedium" || u.healGlowKind === "food" ? 0.58 : 0.42) * u.healGlow * pulse;
         ctx.drawImage(img, -w / 2, -h + footOffset, w, h);
       }
       // Status FX is one fixed size (a normal one-hex unit's box), never the sprite's own size.
@@ -9556,6 +9748,7 @@ export class BattleEngine {
       ctx.globalAlpha = 1;
     }
 
+    this.drawChargeFx(ctx, tile);
     this.drawHolyFx(ctx, tile);
     this.drawBladeFx(ctx, tile);
 
@@ -9570,8 +9763,88 @@ export class BattleEngine {
     if (kind === "disease") return { core: "200,255,230", mid: "70,210,160" };
     if (kind === "potion") return { core: "255,230,170", mid: "255,150,60" };
     if (kind === "holyMedium") return { core: "255,250,220", mid: "255,210,90" };
+    if (kind === "food") return { core: "225,242,255", mid: "110,175,255" };
     if (kind === "holyMinor") return { core: "255,248,230", mid: "255,220,150" };
     return { core: "255,250,235", mid: "255,248,224" }; // potionZero
+  }
+
+  /** Bull Rush's charge: a Flash-style golden speed streak from where the charge started to
+   * the charger, with speed lines and flickering crackles along it — drawn only while the
+   * charge move itself is playing. */
+  private drawChargeFx(ctx: any, tile: number): void {
+    const a = this.active;
+    if (!a || a.type !== "move" || !a.charge || this.reducedMotion) return;
+    const u = this.units.find((n) => n.id === a.id);
+    const origin = a.path[0];
+    if (!u || !origin) return;
+    const head = this.unitPixel(u);
+    this.drawRushStreak(ctx, tile, this.hexCenter(origin.x, origin.y), head, 1);
+  }
+
+  /** The golden speed streak from `o` to `head` (screen space, hex centres), at `alpha`. */
+  private drawRushStreak(ctx: any, tile: number, o: { cx: number; cy: number }, head: { cx: number; cy: number }, alpha: number): void {
+    const hy = head.cy - tile * 0.45;
+    const oy = o.cy - tile * 0.45;
+    const dx = head.cx - o.cx;
+    const dy = hy - oy;
+    const len = Math.hypot(dx, dy);
+    if (len < 1 || alpha <= 0.01) return;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const flick = Math.floor(this.time * 30);
+    const rnd = (n: number) => {
+      const v = Math.sin(n * 12.9898 + flick * 78.233) * 43758.5453;
+      return v - Math.floor(v);
+    };
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = alpha;
+    ctx.lineCap = "round";
+    // The streak: a tapered band, brightest at the charger, fading toward the start.
+    const band = ctx.createLinearGradient(o.cx, oy, head.cx, hy);
+    band.addColorStop(0, "rgba(255,200,80,0)");
+    band.addColorStop(0.6, "rgba(255,190,70,0.28)");
+    band.addColorStop(1, "rgba(255,240,190,0.75)");
+    const wHead = tile * 0.42;
+    ctx.fillStyle = band;
+    ctx.beginPath();
+    ctx.moveTo(o.cx, oy);
+    ctx.lineTo(head.cx + nx * wHead, hy + ny * wHead);
+    ctx.lineTo(head.cx - nx * wHead, hy - ny * wHead);
+    ctx.closePath();
+    ctx.fill();
+    // Speed lines behind the charger.
+    for (let i = 0; i < 9; i++) {
+      const off = (rnd(i + 1) - 0.5) * tile * 0.9;
+      const back = tile * (0.6 + rnd(i + 20) * 1.6);
+      const sx = head.cx + nx * off - (dx / len) * tile * 0.2;
+      const sy = hy + ny * off - (dy / len) * tile * 0.2;
+      ctx.strokeStyle = `rgba(255,236,180,${0.35 + rnd(i + 40) * 0.45})`;
+      ctx.lineWidth = Math.max(1, tile * 0.025);
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx - (dx / len) * back, sy - (dy / len) * back);
+      ctx.stroke();
+    }
+    // Crackles: short jagged sparks flickering along the streak.
+    ctx.shadowColor = "rgba(255,210,90,0.95)";
+    ctx.shadowBlur = tile * 0.25;
+    for (let c = 0; c < 4; c++) {
+      const f = 0.35 + rnd(c + 60) * 0.6;
+      let x = o.cx + dx * f;
+      let y = oy + dy * f;
+      ctx.strokeStyle = `rgba(255,250,220,${0.6 + rnd(c + 70) * 0.4})`;
+      ctx.lineWidth = Math.max(1, tile * 0.02);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      for (let k = 0; k < 4; k++) {
+        x += (rnd(c * 9 + k + 80) - 0.5) * tile * 0.5;
+        y += (rnd(c * 9 + k + 90) - 0.5) * tile * 0.5;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   private drawHolyFx(ctx: any, tile: number): void {
@@ -9584,7 +9857,7 @@ export class BattleEngine {
       const cy = pos.cy;
       const k = fx.t / fx.max;
       const appear = Math.min(1, fx.t / 0.07);
-      const hold = fx.kind === "medium" ? 0.36 : fx.kind === "disease" ? 0.32 : 0.26;
+      const hold = fx.kind === "medium" || fx.kind === "food" ? 0.36 : fx.kind === "disease" ? 0.32 : 0.26;
       const fade = (k < hold ? 1 : Math.max(0, 1 - (k - hold) / (1 - hold))) * appear;
       if (fade <= 0) continue;
       ctx.save();
@@ -9629,15 +9902,17 @@ export class BattleEngine {
       const r = maxR * radiusK;
       const flat = 0.55;
       const spin = p.t * 3.2 + p.seed;
+      // Blue by default; Familiar Titã's portal is red (see PortalFx.red).
+      const pal = (blue: string, red: string) => (p.red ? red : blue);
 
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
 
       // Ground glow under the circle.
       const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 1.3);
-      glow.addColorStop(0, `rgba(150,195,255,${0.55 * radiusK})`);
-      glow.addColorStop(0.6, `rgba(95,145,255,${0.32 * radiusK})`);
-      glow.addColorStop(1, "rgba(60,110,255,0)");
+      glow.addColorStop(0, `rgba(${pal("150,195,255", "255,150,130")},${0.55 * radiusK})`);
+      glow.addColorStop(0.6, `rgba(${pal("95,145,255", "235,70,55")},${0.32 * radiusK})`);
+      glow.addColorStop(1, pal("rgba(60,110,255,0)", "rgba(180,20,20,0)"));
       ctx.fillStyle = glow;
       ctx.beginPath();
       ctx.ellipse(cx, cy, r * 1.3, r * 1.3 * flat, 0, 0, Math.PI * 2);
@@ -9645,12 +9920,12 @@ export class BattleEngine {
 
       // Swirling vortex: curved arms spiralling into the centre, spinning fast.
       ctx.lineCap = "round";
-      ctx.shadowColor = "rgba(140,190,255,0.9)";
+      ctx.shadowColor = pal("rgba(140,190,255,0.9)", "rgba(255,90,70,0.9)");
       ctx.shadowBlur = tile * 0.2;
       const arms = big > 1.5 ? 5 : 4;
       for (let i = 0; i < arms; i++) {
         const base = spin * 2.1 + (i / arms) * Math.PI * 2;
-        ctx.strokeStyle = `rgba(185,220,255,${0.5 * radiusK})`;
+        ctx.strokeStyle = `rgba(${pal("185,220,255", "255,170,150")},${0.5 * radiusK})`;
         ctx.lineWidth = Math.max(1, tile * 0.03);
         ctx.beginPath();
         for (let s = 0; s <= 14; s++) {
@@ -9666,7 +9941,7 @@ export class BattleEngine {
       }
 
       // Outer rim: one solid thin ring plus rune ticks marching around it.
-      ctx.strokeStyle = `rgba(200,230,255,${0.75 * radiusK})`;
+      ctx.strokeStyle = `rgba(${pal("200,230,255", "255,190,175")},${0.75 * radiusK})`;
       ctx.lineWidth = Math.max(1, tile * 0.02);
       ctx.shadowBlur = tile * 0.2;
       ctx.beginPath();
@@ -9688,7 +9963,7 @@ export class BattleEngine {
 
       // Outer ring: a broken circle of arcs rotating one way — the "magic circle" border.
       const segs = 10;
-      ctx.strokeStyle = `rgba(175,218,255,${0.85 * radiusK})`;
+      ctx.strokeStyle = `rgba(${pal("175,218,255", "255,150,130")},${0.85 * radiusK})`;
       ctx.lineWidth = Math.max(1.5, tile * 0.035);
       ctx.shadowBlur = tile * 0.25;
       for (let i = 0; i < segs; i++) {
@@ -9700,7 +9975,7 @@ export class BattleEngine {
       }
 
       // Inner ring: tighter, thinner, spinning the opposite way.
-      ctx.strokeStyle = `rgba(222,240,255,${0.7 * radiusK})`;
+      ctx.strokeStyle = `rgba(${pal("222,240,255", "255,215,205")},${0.7 * radiusK})`;
       ctx.lineWidth = Math.max(1, tile * 0.018);
       ctx.shadowBlur = tile * 0.15;
       const innerSegs = 6;
@@ -9712,24 +9987,26 @@ export class BattleEngine {
         ctx.stroke();
       }
 
-      // Column of light rising out of the circle while it's open.
+      // Column of light rising out of the circle while it's open (not on the red portal).
       ctx.shadowBlur = 0;
-      const colH = tile * (1.6 + big * 0.9) * radiusK;
-      const colW = r * 0.75;
-      const col = ctx.createLinearGradient(cx, cy, cx, cy - colH);
-      col.addColorStop(0, `rgba(170,210,255,${0.32 * radiusK})`);
-      col.addColorStop(0.5, `rgba(120,170,255,${0.14 * radiusK})`);
-      col.addColorStop(1, "rgba(90,140,255,0)");
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.moveTo(cx - colW, cy);
-      ctx.quadraticCurveTo(cx - colW * 0.55, cy - colH * 0.5, cx - colW * 0.3, cy - colH);
-      ctx.lineTo(cx + colW * 0.3, cy - colH);
-      ctx.quadraticCurveTo(cx + colW * 0.55, cy - colH * 0.5, cx + colW, cy);
-      // Base follows the circle's own near edge, never a hard straight cut across it.
-      ctx.ellipse(cx, cy, colW, colW * flat, 0, 0, Math.PI);
-      ctx.closePath();
-      ctx.fill();
+      if (!p.red) {
+        const colH = tile * (1.6 + big * 0.9) * radiusK;
+        const colW = r * 0.75;
+        const col = ctx.createLinearGradient(cx, cy, cx, cy - colH);
+        col.addColorStop(0, `rgba(170,210,255,${0.32 * radiusK})`);
+        col.addColorStop(0.5, `rgba(120,170,255,${0.14 * radiusK})`);
+        col.addColorStop(1, "rgba(90,140,255,0)");
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.moveTo(cx - colW, cy);
+        ctx.quadraticCurveTo(cx - colW * 0.55, cy - colH * 0.5, cx - colW * 0.3, cy - colH);
+        ctx.lineTo(cx + colW * 0.3, cy - colH);
+        ctx.quadraticCurveTo(cx + colW * 0.55, cy - colH * 0.5, cx + colW, cy);
+        // Base follows the circle's own near edge, never a hard straight cut across it.
+        ctx.ellipse(cx, cy, colW, colW * flat, 0, 0, Math.PI);
+        ctx.closePath();
+        ctx.fill();
+      }
 
       // Motes drifting up out of the circle.
       const motes = Math.round(8 * Math.max(1, big));
@@ -9738,7 +10015,7 @@ export class BattleEngine {
         const rise = (p.t * 0.6 + i * 0.17) % 1;
         const mx = cx + Math.cos(ang) * r * 0.6;
         const my = cy + Math.sin(ang) * r * 0.6 * flat - rise * tile * (0.9 + big * 0.4);
-        ctx.fillStyle = `rgba(195,222,255,${(1 - rise) * 0.7 * radiusK})`;
+        ctx.fillStyle = `rgba(${pal("195,222,255", "255,180,160")},${(1 - rise) * 0.7 * radiusK})`;
         ctx.beginPath();
         ctx.arc(mx, my, tile * 0.028, 0, Math.PI * 2);
         ctx.fill();
@@ -9822,6 +10099,168 @@ export class BattleEngine {
             ctx.beginPath();
             ctx.arc(tipX, tipY, tile * 0.42, 0, Math.PI * 2);
             ctx.fill();
+          }
+        }
+      } else if (b.kind === "rushTrail") {
+        // Bull Rush: the dash's streak, left behind and fading once the charger has stopped.
+        this.drawRushStreak(ctx, tile, this.hexCenter(b.x, b.y), this.hexCenter(b.toX, b.toY), Math.max(0, 1 - k));
+      } else if (b.kind === "rushImpact") {
+        // Bull Rush's hit: a golden forward burst — flash, shock arcs opening in the charge
+        // direction, sparks sprayed ahead. Deliberately nothing like Sweep's ring.
+        const fade = Math.max(0, 1 - k);
+        const chestY = cy - tile * 0.45;
+        ctx.globalCompositeOperation = "lighter";
+        const flash = ctx.createRadialGradient(cx, chestY, 0, cx, chestY, tile * (0.7 + k * 0.8));
+        flash.addColorStop(0, `rgba(255,248,215,${0.85 * fade})`);
+        flash.addColorStop(0.4, `rgba(255,200,80,${0.45 * fade})`);
+        flash.addColorStop(1, "rgba(255,160,40,0)");
+        ctx.fillStyle = flash;
+        ctx.beginPath();
+        ctx.arc(cx, chestY, tile * (0.7 + k * 0.8), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.lineCap = "round";
+        ctx.shadowColor = "rgba(255,210,90,0.95)";
+        ctx.shadowBlur = tile * 0.3;
+        for (let j = 0; j < 3; j++) {
+          const r = tile * (0.35 + k * 1.5) - j * tile * 0.22;
+          if (r <= 0) continue;
+          ctx.strokeStyle = `rgba(255,${230 - j * 30},${170 - j * 50},${(0.9 - j * 0.22) * fade})`;
+          ctx.lineWidth = Math.max(1.5, tile * (0.08 - j * 0.02));
+          ctx.beginPath();
+          ctx.arc(cx - Math.cos(b.a0) * tile * 0.3, chestY - Math.sin(b.a0) * tile * 0.3, r, b.a0 - 0.85, b.a0 + 0.85);
+          ctx.stroke();
+        }
+        ctx.shadowBlur = 0;
+        for (let i = 0; i < 10; i++) {
+          const ang = b.a0 + (Math.sin(b.seed * 9.7 + i * 5.3) * 0.5) * 1.3;
+          const r0 = tile * (0.25 + k * 0.6);
+          const r1 = r0 + tile * (0.3 + (i % 3) * 0.15) * (1 - k * 0.5);
+          ctx.strokeStyle = `rgba(255,236,180,${0.85 * fade})`;
+          ctx.lineWidth = Math.max(1, tile * 0.025);
+          ctx.beginPath();
+          ctx.moveTo(cx + Math.cos(ang) * r0, chestY + Math.sin(ang) * r0 * 0.7);
+          ctx.lineTo(cx + Math.cos(ang) * r1, chestY + Math.sin(ang) * r1 * 0.7);
+          ctx.stroke();
+        }
+      } else if (b.kind === "execution") {
+        // Golpe do Carrasco: a heavy axe chop — a wide curved blade crashing down through the
+        // target, then an impact ring and cracks on the ground. `warm` = the execution
+        // triggered: bigger, with a blood-red edge and flash.
+        const exec = b.warm;
+        const sz = exec ? 1.35 : 1;
+        const fall = Math.min(1, k / 0.28);
+        const fade = k < 0.4 ? 1 : Math.max(0, 1 - (k - 0.4) / 0.6);
+        if (fade > 0.01) {
+          const topY = cy - tile * 2.2 * sz;
+          const botY = cy + tile * 0.15;
+          const headY = topY + (botY - topY) * fall * fall;
+          const w = tile * 0.8 * sz;
+          const blade = new Path2D();
+          blade.moveTo(cx - w * 0.25, topY);
+          blade.quadraticCurveTo(cx + w * 1.7, (topY + headY) / 2, cx, headY);
+          blade.quadraticCurveTo(cx + w * 0.15, (topY + headY) / 2, cx - w * 0.25, topY);
+          blade.closePath();
+          ctx.globalCompositeOperation = "source-over";
+          ctx.globalAlpha = fade;
+          ctx.strokeStyle = "rgba(10,12,18,0.85)";
+          ctx.lineWidth = tile * 0.07;
+          ctx.stroke(blade);
+          ctx.fillStyle = exec ? "rgba(255,226,218,0.97)" : "rgba(244,248,255,0.97)";
+          ctx.fill(blade);
+          ctx.globalCompositeOperation = "lighter";
+          ctx.shadowColor = exec ? "rgba(255,40,28,0.95)" : "rgba(210,228,255,0.9)";
+          ctx.shadowBlur = tile * 0.45 * sz;
+          ctx.fillStyle = exec ? `rgba(255,70,50,${0.55 * fade})` : `rgba(200,225,255,${0.45 * fade})`;
+          ctx.fill(blade);
+          ctx.shadowBlur = 0;
+          if (fall >= 1) {
+            const ik = Math.min(1, (k - 0.28) / 0.5);
+            const r = tile * (0.4 + ik * 1.2) * sz;
+            ctx.strokeStyle = exec ? `rgba(255,60,40,${0.8 * (1 - ik)})` : `rgba(230,238,255,${0.7 * (1 - ik)})`;
+            ctx.lineWidth = Math.max(1.5, tile * 0.06 * (1 - ik));
+            ctx.beginPath();
+            ctx.ellipse(cx, botY, r, r * 0.35, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.strokeStyle = exec ? `rgba(255,120,90,${0.7 * (1 - ik)})` : `rgba(220,230,245,${0.6 * (1 - ik)})`;
+            ctx.lineWidth = Math.max(1, tile * 0.025);
+            for (let i = 0; i < 6; i++) {
+              const a = b.seed + i * 1.05;
+              const len = tile * (0.5 + (i % 3) * 0.18) * sz * Math.min(1, ik * 2.5);
+              ctx.beginPath();
+              ctx.moveTo(cx, botY);
+              ctx.lineTo(cx + Math.cos(a) * len * 0.5, botY + Math.sin(a) * len * 0.18);
+              ctx.lineTo(cx + Math.cos(a + 0.25) * len, botY + Math.sin(a + 0.25) * len * 0.35);
+              ctx.stroke();
+            }
+            if (exec) {
+              const chestY = cy - tile * 0.6;
+              const flash = ctx.createRadialGradient(cx, chestY, 0, cx, chestY, tile * 1.4);
+              flash.addColorStop(0, `rgba(255,120,90,${0.6 * (1 - ik)})`);
+              flash.addColorStop(1, "rgba(160,0,0,0)");
+              ctx.fillStyle = flash;
+              ctx.beginPath();
+              ctx.arc(cx, chestY, tile * 1.4, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+        }
+      } else if (b.kind === "tripSweep") {
+        // Rasteira: a low curved blade sweep across the target's feet, in the direction of the
+        // attack, then a spray of blood droplets — the wound that leaves it Bleeding.
+        const sweep = Math.min(1, k / 0.35);
+        const fade = k < 0.45 ? 1 : Math.max(0, 1 - (k - 0.45) / 0.55);
+        if (fade > 0.01) {
+          const dirSign = Math.cos(b.a0) >= 0 ? 1 : -1;
+          const fy = cy + tile * 0.32;
+          const rx = tile * 0.95;
+          const ry = tile * 0.3;
+          const aStart = dirSign > 0 ? Math.PI : 0;
+          const aEnd = aStart - dirSign * Math.PI * Math.max(0.02, sweep);
+          const ccw = dirSign > 0;
+          const cut = new Path2D();
+          cut.ellipse(cx, fy, rx, ry, 0, aStart, aEnd, ccw);
+          cut.ellipse(cx, fy, rx * 0.7, ry * 0.5, 0, aEnd, aStart, !ccw);
+          cut.closePath();
+          ctx.globalCompositeOperation = "source-over";
+          ctx.globalAlpha = fade;
+          ctx.strokeStyle = "rgba(10,12,18,0.85)";
+          ctx.lineWidth = tile * 0.06;
+          ctx.stroke(cut);
+          ctx.fillStyle = "rgba(244,248,255,0.96)";
+          ctx.fill(cut);
+          ctx.globalCompositeOperation = "lighter";
+          ctx.shadowColor = "rgba(210,228,255,0.9)";
+          ctx.shadowBlur = tile * 0.3;
+          ctx.fillStyle = `rgba(200,225,255,${0.45 * fade})`;
+          ctx.fill(cut);
+          ctx.shadowBlur = 0;
+          // Blood: droplets thrown up from the shins, arcing and falling.
+          const bk = (k - 0.25) / 0.75;
+          if (bk > 0) {
+            ctx.globalCompositeOperation = "source-over";
+            const shinY = cy + tile * 0.05;
+            for (let i = 0; i < 14; i++) {
+              const hash = (n: number) => {
+                const v = Math.sin(n * 12.9898 + b.seed * 78.233) * 43758.5453;
+                return v - Math.floor(v);
+              };
+              const r1 = hash(i + 1);
+              const r2 = hash(i + 31);
+              const vx = (dirSign * (0.2 + r1 * 1.1) + (r2 - 0.5) * 1.2) * tile;
+              const vy = (0.5 + r2 * 1.2) * tile;
+              const x = cx + vx * bk;
+              const y = shinY - vy * bk + tile * 1.9 * bk * bk;
+              const size = tile * (0.05 + r1 * 0.045) * (1 - bk * 0.35);
+              ctx.globalAlpha = fade * Math.min(1, (1 - bk) * 2);
+              ctx.fillStyle = "rgba(168,12,18,0.97)";
+              ctx.beginPath();
+              ctx.ellipse(x, y, size, size * 1.35, Math.atan2(vy, vx), 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = "rgba(255,95,90,0.85)";
+              ctx.beginPath();
+              ctx.arc(x - size * 0.3, y - size * 0.3, size * 0.35, 0, Math.PI * 2);
+              ctx.fill();
+            }
           }
         }
       } else if (b.kind === "cross" || b.kind === "lowCut") {
@@ -9977,10 +10416,10 @@ export class BattleEngine {
     fade: number,
     k: number,
   ): void {
-    const medium = fx.kind === "medium";
+    const medium = fx.kind === "medium" || fx.kind === "food";
     const disease = fx.kind === "disease";
-    const h = disease ? 158 : 46;
-    const s = disease ? 80 : 95;
+    const h = disease ? 158 : fx.kind === "food" ? 208 : 46;
+    const s = disease ? 80 : fx.kind === "food" ? 90 : 95;
     const height = tile * (medium ? 2.85 : disease ? 2.25 : 1.55);
     const width = tile * (medium ? 0.58 : disease ? 0.48 : 0.32);
     const topY = cy - height;

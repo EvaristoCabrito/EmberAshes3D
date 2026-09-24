@@ -2346,6 +2346,7 @@ export const EQUIPMENT: Record<string, EquipmentDef> = {
   "escudo-de-bandas-cruzadas": { id: "escudo-de-bandas-cruzadas", name: "Escudo de Bandas Cruzadas", slot: "offHand", kind: "shield", usableBy: SHIELD_WEARERS, def: 3, res: 1, dmgMul: 0.8, price: 1300 },
   "escudo-andrajoso": { id: "escudo-andrajoso", name: "Escudo Andrajoso", slot: "offHand", kind: "shield", usableBy: SHIELD_WEARERS, mag: 1, def: 1, dmgMul: 0.7, price: 380 },
   "adaga-secundaria": { id: "adaga-secundaria", name: "Adaga Secundária", slot: "offHand", kind: "weapon", usableBy: ARCHER_TRIO, dice: 1, faces: 4, bonus: 0, minRange: 1, maxRange: 1, price: 70 },
+  "katar-secundario": { id: "katar-secundario", name: "Katar Secundário", slot: "offHand", kind: "weapon", usableBy: ARCHER_TRIO, dice: 1, faces: 6, bonus: 0, minRange: 1, maxRange: 1, price: 90 },
 
   // ============ ACESSÓRIOS ============
   // ==== neck ====
@@ -2758,8 +2759,7 @@ export const CAUSTIC_VENOM = {
 
 export const LONG_SHOT = {
   name: "Tiro Longo",
-  rangeMul: 2,
-  rangeBonus: 1,
+  range: 7,
 };
 
 /** Long Shot's bonus die, always added on top of plain weapon damage (never in place of
@@ -2955,7 +2955,7 @@ export function shieldBashFormula(level: number): string {
  * same convention as every other bonus die in this file). */
 export const MULTI_SHOT = {
   name: "Tiro Múltiplo",
-  rangeBonus: 3,
+  range: 6,
 };
 
 export function multiShotTargets(level: number): number {
@@ -3127,7 +3127,7 @@ export function birolhoSpellUses(level: number): { magicMissile: number; caustic
  * no duration to track, no re-cast limit beyond the tier's own uses per scenario. */
 export const SUMMON_FAMILIAR = {
   name: "Invocar Familiar",
-  range: 7,
+  range: 4,
   statScale: 0.5,
 };
 
@@ -3166,7 +3166,7 @@ export function phantasmalForceFormula(level: number, mag: number): string {
  * parameter and SPELL_TIER.summonFamiliar2). */
 export const SUMMON_FAMILIAR2 = {
   name: "Invocar Familiar Maior",
-  range: 7,
+  range: 4,
   statScale: 0.75,
 };
 
@@ -3182,7 +3182,7 @@ export const SUMMON_FAMILIAR2_UNLOCK_LEVEL = 5;
  * summoned — see familiarSpellCharges. */
 export const SUMMON_FAMILIAR3 = {
   name: "Invocar Familiar Titã",
-  range: 7,
+  range: 5,
   statScale: 1,
 };
 

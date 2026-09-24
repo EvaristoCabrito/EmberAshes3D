@@ -9,7 +9,7 @@ import type { Bag, BattleSnapshot, BattleUnitSnap, ClassId, DialogLine, DialogTr
 const START_HEX = OVERWORLD_START_HEX;
 
 export const SLOT_COUNT = 5;
-export const SAVE_VERSION = 13;
+export const SAVE_VERSION = 14;
 const BANK_KEY = "ember-save-bank";
 const SAVE_KEY = "ember-save";
 const SAVE_BAK_KEY = "ember-save.bak";
@@ -483,22 +483,24 @@ function cleanHeroDiseases(raw: unknown): Record<string, boolean> {
 }
 
 /** Every hero starts equipped with their class's cheapest weapon — free, already owned. */
-function starterEquipment(): { weapons: Record<string, number>; equipped: Record<string, string> } {
+function starterEquipment(): { weapons: Record<string, number>; equipped: Record<string, string>; equipment: Record<string, Partial<Record<EquipSlot, string>>> } {
   const weapons: Record<string, number> = {};
   const equipped: Record<string, string> = {};
+  const equipment: Record<string, Partial<Record<EquipSlot, string>>> = {};
   for (const hero of HEROES) {
-    const id = hero === "Salazar" ? "cajado-da-galhada" : starterWeaponFor(HERO_BASE_CLASS[hero]);
+    const id = hero === "Neera" ? "arco-composto" : hero === "Salazar" ? "cajado-da-galhada" : starterWeaponFor(HERO_BASE_CLASS[hero]);
     if (!id) continue;
     weapons[id] = 0;
     equipped[hero] = id;
   }
+  equipment.Neera = { offHand: "adaga-secundaria" };
   for (const [hero, classId] of Object.entries(LATE_HERO_BASE_CLASS)) {
     const id = starterWeaponFor(classId);
     if (!id) continue;
     weapons[id] = 0;
     equipped[hero] = id;
   }
-  return { weapons, equipped };
+  return { weapons, equipped, equipment };
 }
 
 export function emptySave(muted = false): SaveData {
@@ -512,7 +514,6 @@ export function emptySave(muted = false): SaveData {
     bags: startingBags(),
     promotions: {},
     ...starterEquipment(),
-    equipment: {},
     looseEquipment: {},
     spellUses: {},
     ember: 0,
@@ -574,6 +575,14 @@ function migrateRecord(raw: Record<string, unknown>, muted: boolean): SaveData {
   const completed = cleanStringList(raw.completed, MISSION_IDS);
   const weapons = cleanWeapons(raw.weapons);
   const equipped = cleanEquipped(raw.equipped, weapons);
+  const equipment = cleanEquipment(raw.equipment);
+  // v14 corrects Neera's intended starting kit for existing saves too: Composite Bow in
+  // the main hand and a light dagger in the secondary hand for adjacent counters.
+  if (version < 14) {
+    weapons["arco-composto"] = weapons["arco-composto"] ?? 0;
+    equipped.Neera = "arco-composto";
+    equipment.Neera = { ...equipment.Neera, offHand: equipment.Neera?.offHand ?? "adaga-secundaria" };
+  }
   // Backfill: any hero with nothing equipped yet (old save, predates weapons) gets their
   // class's free starter weapon, same as a brand new save already does.
   for (const hero of HEROES) {
@@ -612,7 +621,7 @@ function migrateRecord(raw: Record<string, unknown>, muted: boolean): SaveData {
     promotions: cleanPromotions(raw.promotions),
     weapons,
     equipped,
-    equipment: cleanEquipment(raw.equipment),
+    equipment,
     looseEquipment: cleanLooseEquipment(raw.looseEquipment),
     spellUses: cleanSpellUses(raw.spellUses),
     ember,

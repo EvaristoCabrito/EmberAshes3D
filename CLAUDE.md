@@ -51,6 +51,28 @@ seems to require touching one of these, stop and confirm with the user first ins
 the old behavior was a mistake. Per direct, explicit instruction: whoever (whatever model/session)
 touches these without being asked to is reborn an LLM on every cycle.
 
+- **Target zones (body types) are never entered — by anyone, by any kind of movement.** A
+  "target zone" is a creature's body-type footprint (`FOOTPRINT_TYPE_2/3/5/6/7/8` in data.ts,
+  e.g. Type 7 Horror/Golem, Type 3 war dog), placed by `footprint()` in pathfinding.ts. It has
+  two jobs: (1) nobody — player OR enemy, ally OR foe — may walk into or through it, so no
+  unit ever ends up hidden behind a larger sprite; (2) it is the area that attacks and spells
+  target, so larger bodies are easier to hit. It is NOT attack range (a GPT session once read
+  "no one enters an attack zone" as attack range and made it impossible to approach enemies —
+  wrong, removed), and it does NOT constrain the big creature's own pathfinding, which only
+  checks its front row so big monsters never get stuck (the user split those two systems on
+  purpose). Current state:
+  - `footprintCost` (pathfinding.ts) rejects any hex belonging to another unit's body-type
+    zone, every side, passing through or stopping. Ordinary one-hex allies may still be
+    passed through mid-walk but never stopped on.
+  - `footprint()` shifts odd-`dy` rows by the anchor row's parity so the zone has the same
+    shape on every row — don't remove that shift or "fix" the offsets in data.ts instead.
+  - **Every other way of moving a unit must respect the zone too** — charges, knockbacks,
+    pushes, teleports, summons. Bull Rush's charge (`bullRushCharge`, engine.ts) may rush
+    past units but must never come to rest on a unit or in a zone; Sweep's `knockBack` and
+    Bull Rush's knockback (`axisBlocked`) already refuse occupied/zone hexes. Any new
+    movement code must do the same. This got silently bypassed once already by a new
+    charge path that only checked terrain.
+
 - **Chests never stamp/change the tile under them.** `locked-chest`/`chest-medium`/`chest-large`
   in `DECORATIONS` (src/game/data.ts) must never get a `tile:` field again — a chest is
   translucent scenery on top of whatever floor is already there, never a terrain type of its

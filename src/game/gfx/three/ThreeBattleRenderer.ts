@@ -924,10 +924,10 @@ export class ThreeBattleRenderer {
         entry.shadowMaterial.needsUpdate = true;
         entry.img = img;
       }
-      // Same fade-in/out and "already acted this player unit" dimming as
+      // Same fade-in/out and post-action player-unit dimming as
       // renderUnitsAndOverlays' ctx.globalAlpha — real per-unit opacity, not shared, since
       // entry.material is this unit's own instance (see unitTexCache's comment).
-      entry.material.opacity = u.fade * (u.moved && u.side === "player" && engine.phase === "player" ? 0.8 : 1);
+      entry.material.opacity = u.fade * (u.moved && u.side === "player" && engine.phase === "player" && !engine.isAnimating() ? 0.8 : 1);
 
       const anchor = engine.unitAnchor(u);
       // Canvas2D draws the image at local Y in [-h+footOffset, footOffset] (Y-down, relative
