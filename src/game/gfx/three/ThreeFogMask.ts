@@ -54,7 +54,9 @@ export class FogMask {
     this.material = new THREE.MeshBasicMaterial({
       transparent: true,
       depthWrite: false,
-      depthTest: false,
+      // Nothing else writes depth above z=50, except each house's fogCut (ThreeBattleRenderer),
+      // so this only skips the fog over a house's own art.
+      depthTest: true,
     });
     this.mesh = new THREE.Mesh(this.geometry, this.material);
     // Above everything in the scene — terrain, decorations (z=1), unit meshes (z=2) and the

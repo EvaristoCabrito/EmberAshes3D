@@ -4039,8 +4039,9 @@ function MapEditorScreen({
       }
       // Barricade-family City props block like a real barricade without repainting the
       // hex to barricade's dirt/rubble ground art — defaulted on here instead of the
-      // author having to remember to check "Bloquear caminho" every time.
-      const placed = BARRICADE_LIKE_DECOR.has(decoBrush) ? { id: decoBrush, x, y, blocksPath: true } : { id: decoBrush, x, y };
+      // author having to remember to check "Bloquear caminho" every time. Houses too.
+      const blocksByDefault = BARRICADE_LIKE_DECOR.has(decoBrush) || HOUSE_DECOR_IDS.has(decoBrush) || BIG_HOUSE_DECOR_IDS.has(decoBrush);
+      const placed = blocksByDefault ? { id: decoBrush, x, y, blocksPath: true } : { id: decoBrush, x, y };
       setSelectedPlacedDecoration(placed);
       return { ...d, tiles, decorations: [...d.decorations, placed] };
     });

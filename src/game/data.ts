@@ -527,6 +527,11 @@ export function decorationFacing(id: string, rot: number, has: (file: string) =>
  * alpha-clean siblings, so the baked white checkerboard never reaches the game canvas. */
 const DECORATION_ALPHA_CLEAN = new Set([
   "ember-channels-001",
+  // Houses: keyed-out specks inside the walls filled solid, so nothing shows through them.
+  "small-house",
+  "stone-hut",
+  "burning-house",
+  "burnt-house-ruins",
 ]);
 
 export function decorationImage(id: string): string {

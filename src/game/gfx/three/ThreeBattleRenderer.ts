@@ -456,6 +456,9 @@ interface DecorMeshEntry {
   proxy: THREE.Mesh | null;
   /** Environmental light this prop emits (LIGHT_DEFS), at its flame; world pixels, y-down. */
   light: { x: number; y: number; h: number; def: LightDef; seed: number } | null;
+  /** Houses only: invisible depth-only copy of the art, drawn just before the fog-of-war sheet
+   * so the fog skips the house's pixels — a house always shows at full strength. */
+  fogCut: THREE.Mesh | null;
 }
 
 interface UnitMeshEntry {
@@ -575,6 +578,7 @@ export class ThreeBattleRenderer {
   // blending (shadow depth passes need a hard cutout, not a blend) and colorWrite/depthWrite off
   // (see decorShadowMaterialFor's own comment), so it can't just reuse the visible material.
   private decorShadowMatCache = new Map<string, THREE.MeshBasicMaterial>();
+  private decorFogCutMatCache = new Map<string, THREE.MeshBasicMaterial>();
   private decorEntries: DecorMeshEntry[] = [];
   private builtDecorKey = "";
 
@@ -1041,6 +1045,17 @@ export class ThreeBattleRenderer {
     return mat;
   }
 
+  /** Depth-only twin of decorMaterialFor for a house's fogCut mesh: no color, writes depth
+   * where the art is solid (alphaTest). `transparent` keeps it in the transparent pass so its
+   * renderOrder (99, just under the fog's 100) puts it after everything else visible. */
+  private decorFogCutMaterialFor(fileId: string, colorMat: THREE.MeshLambertMaterial): THREE.MeshBasicMaterial {
+    const hit = this.decorFogCutMatCache.get(fileId);
+    if (hit) return hit;
+    const mat = new THREE.MeshBasicMaterial({ map: colorMat.map, alphaTest: 0.5, colorWrite: false, depthWrite: true, transparent: true });
+    this.decorFogCutMatCache.set(fileId, mat);
+    return mat;
+  }
+
   /** (Re)builds every ground/behind-layer decoration mesh at its fixed world position — same
    * "built once, camera moves instead" philosophy as tiles (see ensureBuilt). Skips "front"-
    * layer and foreground=true props on purpose: those are meant to occlude character sprites,
@@ -1057,6 +1072,7 @@ export class ThreeBattleRenderer {
       this.shadowCasterGroup.remove(entry.shadowMesh);
       if (entry.contactMesh) this.decorContactGroup.remove(entry.contactMesh);
       if (entry.proxy) this.shadowCasterGroup.remove(entry.proxy);
+      if (entry.fogCut) this.decorGroup.remove(entry.fogCut);
     }
     this.decorEntries = [];
     this.builtDecorKey = key;
@@ -1185,7 +1201,19 @@ export class ThreeBattleRenderer {
         this.shadowCasterGroup.add(proxy);
       }
 
-      this.decorEntries.push({ mesh, placement: p, shadowMesh, contactMesh, light, proxy });
+      // Same art, position and facing as the visible mesh, but writes depth only (see
+      // decorFogCutMaterialFor); the fog sheet depth-tests against it (ThreeFogMask).
+      let fogCut: THREE.Mesh | null = null;
+      if (HOUSE_DECOR_IDS.has(p.id) || BIG_HOUSE_DECOR_IDS.has(p.id)) {
+        fogCut = new THREE.Mesh(this.quadGeo, this.decorFogCutMaterialFor(fileId, mat));
+        fogCut.renderOrder = 99;
+        fogCut.position.set(wx, -wy, 60);
+        fogCut.scale.copy(mesh.scale);
+        fogCut.rotation.copy(mesh.rotation);
+        this.decorGroup.add(fogCut);
+      }
+
+      this.decorEntries.push({ mesh, placement: p, shadowMesh, contactMesh, light, proxy, fogCut });
     }
   }
 
@@ -1443,6 +1471,7 @@ export class ThreeBattleRenderer {
         entry.mesh.visible = entry.shadowMesh.visible = true;
         if (entry.contactMesh) entry.contactMesh.visible = true;
         if (entry.proxy) entry.proxy.visible = true;
+        if (entry.fogCut) entry.fogCut.visible = true;
       }
       return;
     }
@@ -1452,6 +1481,7 @@ export class ThreeBattleRenderer {
       entry.mesh.visible = entry.shadowMesh.visible = visible;
       if (entry.contactMesh) entry.contactMesh.visible = visible;
       if (entry.proxy) entry.proxy.visible = visible;
+      if (entry.fogCut) entry.fogCut.visible = visible;
     }
   }
 
