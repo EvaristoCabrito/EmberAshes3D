@@ -10,10 +10,13 @@ export interface DevGfxSettings {
   /** A short, darken-only grounding decal at every unit's and prop's opaque base, independent of
    * the shadow map (see CONTACT_SHADOW_* in ThreeBattleRenderer.ts). */
   contactShadows: boolean;
+  /** Environmental ambient occlusion in the terrain's lighting, from props and raised/
+   * blocking terrain (see ThreeGroundAO.ts). */
+  ambientOcclusion: boolean;
 }
 
 const KEY = "emberash:devGfx";
-const DEFAULTS: DevGfxSettings = { realShadows: true, softShadows: true, contactShadows: true };
+const DEFAULTS: DevGfxSettings = { realShadows: true, softShadows: true, contactShadows: true, ambientOcclusion: true };
 
 function load(): DevGfxSettings {
   try {

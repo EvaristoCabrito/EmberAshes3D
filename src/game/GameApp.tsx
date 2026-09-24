@@ -2824,6 +2824,7 @@ const DEV_GFX_ROWS: { key: keyof DevGfxSettings; label: string; hint: string }[]
   { key: "realShadows", label: "Sombras reais", hint: "Sombra projetada pelo sol (unidades e props)." },
   { key: "softShadows", label: "Sombras suaves (PCF)", hint: "Borda da sombra suavizada em vez de serrilhada." },
   { key: "contactShadows", label: "Contact shadows", hint: "Mancha escura curta nos pés de cada unidade." },
+  { key: "ambientOcclusion", label: "Oclusão ambiente", hint: "Escurece de leve a luz ambiente do chão junto a props, muros e desníveis." },
 ];
 
 /** Dev-only toggles for the battle renderer's shadow features (see gfx/three/devGfx.ts) —

@@ -47,6 +47,7 @@ import type { BattleEngine } from "../../engine";
 import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECORATIONS, HOUSE_DECOR_IDS, TERRAIN, decorationFacing, decorationImage, placedFootprint } from "../../data";
 import { tileAt } from "../../pathfinding";
 import type { DecorationDef, DecorationPlacement, TerrainId } from "../../types";
+import { GroundAO, type AoOccluder } from "./ThreeGroundAO";
 import { ThreeAtmosphere } from "./ThreeAtmosphere";
 import { getDevGfx } from "./devGfx";
 
@@ -412,6 +413,11 @@ export class ThreeBattleRenderer {
   // per-object shade).
   private materialCache = new Map<string, THREE.MeshLambertMaterial>();
   private fallbackMaterial = new THREE.MeshLambertMaterial({ color: 0x1e1b18 });
+  /** Environmental AO in the terrain's lighting (see ThreeGroundAO.ts) — every terrain
+   * material is patched to read it; aoTerrainVersion bumps whenever syncDirtyTiles swaps a
+   * tile's terrain, so the field rebuilds only when the board actually reshapes. */
+  private groundAO = new GroundAO();
+  private aoTerrainVersion = 0;
   private hexGeo = buildHexGeometry();
   private builtCols = -1;
   private builtRows = -1;
@@ -698,6 +704,7 @@ export class ThreeBattleRenderer {
     tex.wrapS = THREE.ClampToEdgeWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
     const mat = new THREE.MeshLambertMaterial({ map: tex });
+    this.groundAO.patch(mat);
     this.materialCache.set(key, mat);
     return mat;
   }
@@ -761,6 +768,7 @@ export class ThreeBattleRenderer {
       const variant = engine.tileVariants[key] ?? 0;
       const rot = engine.tileRots[key] ?? 0;
       if (id !== entry.id || variant !== entry.variant) {
+        if (id !== entry.id) this.aoTerrainVersion++;
         entry.mesh.material = this.materialFor(id, variant);
         entry.id = id;
         entry.variant = variant;
@@ -1261,6 +1269,7 @@ export class ThreeBattleRenderer {
     this.ensureBuilt(tile);
     this.syncDirtyTiles();
     this.ensureDecorBuilt(tile);
+    this.syncGroundAO(tile);
     this.syncDecorVisibility();
     this.syncOverlay(tile);
     this.syncUnits(tile);
@@ -1302,6 +1311,59 @@ export class ThreeBattleRenderer {
     this.sunLight.shadow.radius = gfx.softShadows ? SHADOW_RADIUS_SOFT : SHADOW_RADIUS_HARD;
     this.contactShadowGroup.visible = gfx.contactShadows;
     this.decorContactGroup.visible = gfx.contactShadows && this.decorGroup.visible;
+    this.groundAO.setEnabled(gfx.ambientOcclusion);
+  }
+
+  /** Occluders for the ground AO field: every decoration footprint cell, plus raised/blocking
+   * terrain (hill, column, barricade, door — not water or the void edge trim, which are low or
+   * empty, not surrounding geometry). Rebuilt only when the map/terrain/decoration set changes. */
+  private syncGroundAO(tile: number): void {
+    const engine = this.engine;
+    const key = `${engine.mission.id}:${engine.cols}x${engine.rows}:${this.aoTerrainVersion}:${engine.decorations.length}`;
+    this.groundAO.update(key, engine.cols, engine.rows, BOARD_PAD_MUL, tile, () => {
+      const out: AoOccluder[] = [];
+      for (let row = 0; row < engine.rows; row++) {
+        for (let col = 0; col < engine.cols; col++) {
+          const id = tileAt(engine.tiles, engine.cols, col, row);
+          const t = TERRAIN[id];
+          const { wx, wy } = hexWorld(col, row, 1);
+          if (t.height) out.push({ x: wx, y: wy, weight: 0.7 });
+          else if (!t.passable && t.blocksShot && id !== "void") out.push({ x: wx, y: wy, weight: 1 });
+        }
+      }
+      for (const p of engine.decorations) {
+        if (!DECORATIONS[p.id]) continue;
+        for (const { dx, dy } of placedFootprint(p)) {
+          const { wx, wy } = hexWorld(p.x + dx, p.y + dy, 1);
+          out.push({ x: wx, y: wy, weight: 1 });
+        }
+      }
+      return out;
+    }, (x, y) => {
+      // Nearest hex center = the exact hex cell this point lies in (see hexWorld).
+      const row0 = Math.round((y - BOARD_PAD_MUL - 1) / 1.5);
+      let best = Infinity;
+      let bc = -1;
+      let br = -1;
+      for (let row = row0 - 1; row <= row0 + 1; row++) {
+        const col0 = Math.round(x / SQRT3 - 0.5 * (row & 1) - 0.5);
+        for (let col = col0 - 1; col <= col0 + 1; col++) {
+          const c = hexWorld(col, row, 1);
+          const d = (c.wx - x) ** 2 + (c.wy - y) ** 2;
+          if (d < best) {
+            best = d;
+            bc = col;
+            br = row;
+          }
+        }
+      }
+      if (bc < 0 || br < 0 || bc >= engine.cols || br >= engine.rows) return false;
+      // Same set as the terrain occluders above: a hilltop or a pillar/barricade/door top
+      // never occludes itself, only the ground around its foot.
+      const cellId = tileAt(engine.tiles, engine.cols, bc, br);
+      const t = TERRAIN[cellId];
+      return !!t.height || (!t.passable && !!t.blocksShot && cellId !== "void");
+    });
   }
 
   dispose(): void {
@@ -1318,6 +1380,7 @@ export class ThreeBattleRenderer {
     this.backdropMaterial.dispose();
     this.backdropTexture?.dispose();
     this.fallbackMaterial.dispose();
+    this.groundAO.dispose();
     for (const mat of this.materialCache.values()) {
       mat.map?.dispose();
       mat.dispose();
