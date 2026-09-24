@@ -17,7 +17,7 @@
  * answer, and a flag that is on can only add. Neither can make a barricade walkable
  * or take height off a hill.
  */
-import { BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, HOUSE_DECOR_IDS, TERRAIN, WEAPONS } from "./data.ts";
+import { BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, TERRAIN, WEAPONS } from "./data.ts";
 import type { DecorationPlacement, TerrainDef, TerrainId, Unit } from "./types.ts";
 
 export const HEX_BLOCKED = 1;
@@ -57,7 +57,7 @@ export function buildDecorOverlay(
     // placement. Folded in here (not just defaulted at editor placement time, the way
     // BARRICADE_LIKE_DECOR is) so it also covers every house already placed on an existing
     // map, not only new placements going forward.
-    const isHouse = HOUSE_DECOR_IDS.has(p.id) || BIG_HOUSE_DECOR_IDS.has(p.id);
+    const isHouse = HOUSE_DECOR_IDS.has(p.id) || BIG_HOUSE_DECOR_IDS.has(p.id) || SOLID_HOUSE_DECOR_IDS.has(p.id);
     // A locked chest is solid until picked, same as a house — folded in here rather than
     // stamping "chest" terrain under it (see DECORATIONS.locked-chest's own comment), so
     // the real floor stays untouched and every existing placement is covered for free.

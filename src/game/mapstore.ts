@@ -291,15 +291,48 @@ export function latestSavedDraft(id: string): MapDraft | undefined {
   return LATEST.get(id)?.draft;
 }
 
+/** Edits the editor has committed to THIS session — a "Salvar"/"Ativar" that just ran in
+ * this very tab — overlaid onto ALL_MISSIONS below. `import.meta.glob(..., { eager: true })`
+ * freezes SAVED_MISSIONS/LATEST at the moment this module first loaded, and the dev server
+ * deliberately excludes src/game/maps/*.json from its file watcher (see vite.config.ts — a
+ * watched reload would kick the author back to the title screen mid-edit), so nothing
+ * short of a hard refresh would otherwise notice a file this tab itself just wrote. The
+ * editor is the one source of truth for its own content: every action that changes what's
+ * live (Salvar, Ativar, Desativar) must be reflected here immediately, in this same
+ * session, with no reload and no separate "it'll catch up on refresh" window. */
+const sessionMapOverrides = new Map<string, MapDraft>();
+
 /** The campaign, with saved maps applied: a saved map whose id matches a shipped mission
- * replaces it, and one with a new id is appended as a new mission. */
-export const ALL_MISSIONS: Mission[] = (() => {
+ * replaces it, and one with a new id is appended as a new mission. Recomputed (not just
+ * appended to) every time a session override changes, so a "Desativar" or an older version
+ * being reactivated is reflected exactly as faithfully as a new save. */
+function computeAllMissions(): Mission[] {
   const saved = new Map(SAVED_MISSIONS.map((m) => [m.id, m]));
+  for (const [id, draft] of sessionMapOverrides) saved.set(id, draftToMission(draft));
   const merged = MISSIONS.map((m) => saved.get(m.id) ?? m);
   const shipped = new Set(MISSIONS.map((m) => m.id));
-  for (const m of SAVED_MISSIONS) if (!shipped.has(m.id)) merged.push(m);
+  for (const m of saved.values()) if (!shipped.has(m.id)) merged.push(m);
   return merged;
-})();
+}
+
+export let ALL_MISSIONS: Mission[] = computeAllMissions();
+
+/** Called the instant the editor makes some draft "the" content for its scenario id —
+ * Salvar, Ativar, or loading an exact file version for campaign play. Every mission lookup
+ * in the running app (missionById, save.ts's own ALL_MISSIONS.find calls, the debug/world
+ * map, an in-progress battle's pending mission) reads through this same array, so nothing
+ * else needs to know an override just happened. */
+export function registerSessionMapOverride(draft: MapDraft): void {
+  sessionMapOverrides.set(draft.id, draft);
+  ALL_MISSIONS = computeAllMissions();
+}
+
+/** Called by "Desativar": drops this session's override so the id goes back to resolving
+ * from its real file (or the shipped static mission, if it has none). */
+export function clearSessionMapOverride(id: string): void {
+  if (!sessionMapOverrides.delete(id)) return;
+  ALL_MISSIONS = computeAllMissions();
+}
 
 /** Browser-local overrides written by the Map Editor's "Ativar" — these are what make an
  * activated edit "the" campaign scenario everywhere the game reads a mission, not only at

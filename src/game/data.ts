@@ -451,6 +451,10 @@ export const HOUSE_DECOR_IDS = new Set(["small-house", "stone-hut", "burning-hou
  * as HOUSE_DECOR_IDS but sized for its wider footprint. */
 export const BIG_HOUSE_DECOR_IDS = new Set(["abandoned-mansion"]);
 
+/** Other house props (drawn at their own size, not the house art scale) that are just as solid:
+ * impassable and never faded by fog, same as HOUSE_DECOR_IDS. */
+export const SOLID_HOUSE_DECOR_IDS = new Set(["burning-hamlet"]);
+
 /** City props that read as a barricade/wall and should block like one — impassable, blocks
  * shots — without repainting the hex underneath to barricade terrain (that would replace
  * the nice city ground art with barricade's dirt/rubble look). See BARRICADE_LIKE_DECOR

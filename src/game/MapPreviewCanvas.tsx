@@ -15,6 +15,7 @@ export type PreviewDecorationSelection = { id: string; x: number; y: number; rot
 
 // The technical map is a native scroll surface; keep preview scrollbar travel deliberately gentler.
 const PREVIEW_SCROLL_PAN_RATE = 0.45;
+const PREVIEW_ZOOM_MIN = 0.75;
 
 /** A read-only window onto the map exactly as the real battle would render it — same tile
  * art, same decoration art, same unit sprites — instead of the paint grid's flat color
@@ -29,6 +30,7 @@ export function MapPreviewCanvas({
   selectedDecorationId,
   selectedPlacedDecoration,
   onUnitSelect,
+  onHeldUnitDelete,
   onUnitPlace,
   onDecorationSelect,
   onDecorationPlace,
@@ -39,6 +41,8 @@ export function MapPreviewCanvas({
   selectedDecorationId?: string;
   selectedPlacedDecoration?: PreviewDecorationSelection | null;
   onUnitSelect?: (unit: PreviewUnitSelection) => void;
+  /** Delete is deliberate: it only applies while the author is holding a placed unit. */
+  onHeldUnitDelete?: (unit: PreviewUnitSelection) => void;
   onUnitPlace?: (unit: PreviewUnitSelection, x: number, y: number) => void;
   /** Right-click-drag pickup, mirroring onUnitSelect for units: fires as soon as an existing
    * placement is grabbed, before it's known where it'll be dropped. */
@@ -55,18 +59,24 @@ export function MapPreviewCanvas({
   const unitDragRef = useRef<{ pointerId: number; unit: PreviewUnitSelection } | null>(null);
   const decorationDragRef = useRef<{ pointerId: number; decoration: PreviewDecorationSelection } | null>(null);
   const cameraRef = useRef<{ x: number; y: number } | null>(null);
+  /** CSS pixels divided by this value become the preview engine's logical pixels while the
+   * board is fitted into a smaller editor panel. */
+  const renderScaleRef = useRef(1);
   const verticalScrollTopRef = useRef(0);
   const horizontalScrollLeftRef = useRef(0);
   const verticalScrollInitializedRef = useRef(false);
-  const armTimerRef = useRef<number | null>(null);
-  const [zoom, setZoom] = useState(1);
+  // Start at the engine's widest framing. An editor preview is for reading the whole
+  // composition; authors can still zoom in when they need to place or inspect something.
+  const [zoom, setZoom] = useState(PREVIEW_ZOOM_MIN);
   const [isPanning, setIsPanning] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   // Same board size the engine itself renders at (see BattleEngine.boardSize) — the scroll
   // surface only grows past its window when the real board is actually bigger than it.
-  const previewTileRadius = zoom < 1.125 ? 34 : zoom < 1.375 ? 50 : 72;
+  const previewTileRadius = zoom < 0.875 ? 22 : zoom < 1.125 ? 34 : zoom < 1.375 ? 50 : 72;
   const previewBoardWidth = Math.ceil(previewTileRadius * Math.sqrt(3) * (mission.cols + 0.5));
-  const previewBoardHeight = Math.ceil(previewTileRadius * (1.5 * (mission.rows - 1) + 2));
+  // Keep this in step with BattleEngine.boardSize: its extra 2.4 radii are the board's
+  // vertical breathing room, which must be included when calculating a genuine fit.
+  const previewBoardHeight = Math.ceil(previewTileRadius * (1.5 * (mission.rows - 1) + 4.4));
   // Scrolling only moves the camera at PREVIEW_SCROLL_PAN_RATE of the raw scroll delta (a
   // deliberately gentler feel than the technical grid's native scroll), so the scrollable
   // range has to be inflated by the same factor — otherwise dragging the scrollbar all the
@@ -119,10 +129,19 @@ export function MapPreviewCanvas({
 
     let engine: BattleEngine;
     try {
-      engine = new BattleEngine(mission, art, { hp: {}, levels: {} }, 1);
+      // The editor is an authoring surface, not a play session: even when a draft opts into
+      // fog for the actual battle, its preview must expose every tile, prop, and spawn.
+      // Keep this override local to the throwaway preview engine so playtests and gameplay
+      // still honor the mission's saved fog setting.
+      engine = new BattleEngine({ ...mission, fog: false }, art, { hp: {}, levels: {} }, 1);
       // Keep the canvas the size of the window. The BattleEngine owns the real
       // camera, so dragging moves the board rather than an oversized empty canvas.
-      engine.setZoom(Math.max(1, Math.min(3, Math.round((zoom - 0.75) * 4))));
+      engine.setZoom(Math.max(0, Math.min(3, Math.round((zoom - 0.75) * 4))));
+      // Real battle never needs sideways pan room (the board fills the play window's
+      // width), but the editor's preview panel is often narrower than the board plus its
+      // backdrop, so give it the same pan margin left/right that cameraMargin already
+      // grants vertically.
+      engine.setHorizontalPanMargin(3);
       engineRef.current = engine;
     } catch {
       return;
@@ -150,26 +169,35 @@ export function MapPreviewCanvas({
       const w = Math.max(1, Math.floor(viewport.clientWidth));
       const h = Math.max(1, Math.floor(viewport.clientHeight));
       if (w <= 0 || h <= 0) return;
-      canvas.width = Math.max(1, Math.floor(w * dpr));
-      canvas.height = Math.max(1, Math.floor(h * dpr));
+      // At the editor's default (widest) zoom, render into a larger logical viewport and
+      // scale it down to the panel. Unlike merely choosing the smallest tactical zoom, this
+      // guarantees that even a large draft opens as one complete, inspectable board.
+      const fitScale = zoom <= PREVIEW_ZOOM_MIN
+        ? Math.min(1, Math.max(0.1, (w - 12) / previewBoardWidth, (h - 12) / previewBoardHeight))
+        : 1;
+      const renderW = Math.ceil(w / fitScale);
+      const renderH = Math.ceil(h / fitScale);
+      renderScaleRef.current = fitScale;
+      canvas.width = Math.max(1, Math.floor(renderW * dpr));
+      canvas.height = Math.max(1, Math.floor(renderH * dpr));
       canvas.style.width = `${w}px`;
       canvas.style.height = `${h}px`;
       ctx.setSize(canvas.width, canvas.height);
       if (unitsCanvas && unitsCtx) {
-        unitsCanvas.width = Math.max(1, Math.floor(w * dpr));
-        unitsCanvas.height = Math.max(1, Math.floor(h * dpr));
+        unitsCanvas.width = Math.max(1, Math.floor(renderW * dpr));
+        unitsCanvas.height = Math.max(1, Math.floor(renderH * dpr));
         unitsCanvas.style.width = `${w}px`;
         unitsCanvas.style.height = `${h}px`;
         unitsCtx.setSize(unitsCanvas.width, unitsCanvas.height);
       }
       const drawGroundAndUnits = () => {
         ctx.clear();
-        engine.renderGround(ctx, w, h, dpr);
+        engine.renderGround(ctx, renderW, renderH, dpr);
         if (unitsCtx && unitsCanvas) {
           unitsCtx.clear();
           unitsCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          unitsCtx.clearRect(0, 0, w, h);
-          engine.renderUnitsAndOverlays(unitsCtx, w, h);
+          unitsCtx.clearRect(0, 0, renderW, renderH);
+          engine.renderUnitsAndOverlays(unitsCtx, renderW, renderH);
         }
       };
       drawGroundAndUnits();
@@ -203,7 +231,7 @@ export function MapPreviewCanvas({
         if (fx.hasEffects()) {
           fxCanvas.style.width = `${w}px`;
           fxCanvas.style.height = `${h}px`;
-          fx.resize(w, h, dpr);
+          fx.resize(renderW, renderH, dpr);
           fxCanvas.style.display = "block";
           fx.render(canvas, dt, (col, row) => engine.effectAnchor(col, row));
         } else {
@@ -247,15 +275,36 @@ export function MapPreviewCanvas({
     };
   }, [mission, art, onCellClick, selectedDecorationId, selectedPlacedDecoration, zoom]);
 
+  useEffect(() => {
+    const deleteHeldUnit = (event: KeyboardEvent) => {
+      if (event.key !== "Delete") return;
+      const held = unitDragRef.current;
+      if (!held) return;
+      event.preventDefault();
+      onHeldUnitDelete?.(held.unit);
+      const viewport = viewportRef.current;
+      if (viewport?.hasPointerCapture(held.pointerId)) viewport.releasePointerCapture(held.pointerId);
+      unitDragRef.current = null;
+      setIsDragging(false);
+    };
+    window.addEventListener("keydown", deleteHeldUnit);
+    return () => window.removeEventListener("keydown", deleteHeldUnit);
+  }, [onHeldUnitDelete]);
+
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    if (event.button === 0) {
+    // Units are deliberately picked up with the secondary button. The primary button stays
+    // available for the map itself: a held left-drag pans, while an ordinary left click uses
+    // the active paint brush.
+    if (event.button === 2) {
+      event.preventDefault();
       const canvas = canvasRef.current;
       const engine = engineRef.current;
       if (!canvas || !engine) return;
       const rect = canvas.getBoundingClientRect();
-      const cell = engine.cellAt(event.clientX - rect.left, event.clientY - rect.top);
+      const scale = renderScaleRef.current;
+      const cell = engine.cellAt((event.clientX - rect.left) / scale, (event.clientY - rect.top) / scale);
       if (!cell) return;
       const unit = unitAt(cell.x, cell.y);
       if (unit) {
@@ -273,12 +322,8 @@ export function MapPreviewCanvas({
         setIsDragging(true);
         return;
       }
-    }
-    if (event.button === 2) {
-      event.preventDefault();
-      dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, armed: true, moved: false };
-      viewport.setPointerCapture(event.pointerId);
-      setIsPanning(true);
+      // Right-clicking empty ground is intentionally inert: map panning belongs to the
+      // primary-button hold gesture below, so it never competes with moving a unit.
       return;
     }
     if (event.button !== 0) return;
@@ -288,17 +333,10 @@ export function MapPreviewCanvas({
       y: event.clientY,
       startX: event.clientX,
       startY: event.clientY,
-      armed: false,
+      armed: true,
       moved: false,
     };
     viewport.setPointerCapture(event.pointerId);
-    armTimerRef.current = window.setTimeout(() => {
-      const drag = dragRef.current;
-      if (!drag || drag.pointerId !== event.pointerId) return;
-      drag.armed = true;
-      // The hand is the immediate confirmation that the hold-to-pan gesture is ready.
-      setIsPanning(true);
-    }, 650);
   };
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const unitDrag = unitDragRef.current;
@@ -310,16 +348,18 @@ export function MapPreviewCanvas({
     if (!viewport || !drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.x;
     const dy = event.clientY - drag.y;
-    // The brush owns normal clicks and drags. Pan begins only after the hold
-    // timer arms it, then a real movement, so it can never auto-activate.
+    // A stationary click still paints. Once the held pointer moves far enough, it becomes
+    // a map pan immediately—there is no delay that makes horizontal dragging feel broken.
     if (!drag.moved) {
       const movedFarEnough = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 6;
       if (drag.armed && movedFarEnough) {
         drag.moved = true;
+        setIsPanning(true);
       }
     }
     if (drag.moved) {
-      engineRef.current?.panBy(-dx, -dy);
+      const scale = renderScaleRef.current;
+      engineRef.current?.panBy(-dx / scale, -dy / scale);
       redrawRef.current?.();
     }
     drag.x = event.clientX;
@@ -336,7 +376,8 @@ export function MapPreviewCanvas({
         const engine = engineRef.current;
         if (canvas && engine) {
           const rect = canvas.getBoundingClientRect();
-          const cell = engine.cellAt(event.clientX - rect.left, event.clientY - rect.top);
+          const scale = renderScaleRef.current;
+          const cell = engine.cellAt((event.clientX - rect.left) / scale, (event.clientY - rect.top) / scale);
           if (cell) onUnitPlace?.(unitDrag.unit, cell.x, cell.y);
         }
       }
@@ -352,7 +393,8 @@ export function MapPreviewCanvas({
         const engine = engineRef.current;
         if (canvas && engine) {
           const rect = canvas.getBoundingClientRect();
-          const cell = engine.cellAt(event.clientX - rect.left, event.clientY - rect.top);
+          const scale = renderScaleRef.current;
+          const cell = engine.cellAt((event.clientX - rect.left) / scale, (event.clientY - rect.top) / scale);
           if (cell) onDecorationPlace?.(decorationDrag.decoration, cell.x, cell.y);
         }
       }
@@ -363,10 +405,6 @@ export function MapPreviewCanvas({
     }
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    if (armTimerRef.current !== null) {
-      window.clearTimeout(armTimerRef.current);
-      armTimerRef.current = null;
-    }
     // Normal left click remains the terrain/decorations brush. Panning is still hold + drag.
     if (!cancelled && !drag.moved && event.button === 0) {
       const canvas = canvasRef.current;
@@ -389,7 +427,8 @@ export function MapPreviewCanvas({
     verticalScrollTopRef.current = viewport.scrollTop;
     horizontalScrollLeftRef.current = viewport.scrollLeft;
     if (!deltaX && !deltaY) return;
-    engineRef.current?.panBy(deltaX * PREVIEW_SCROLL_PAN_RATE, deltaY * PREVIEW_SCROLL_PAN_RATE);
+    const scale = renderScaleRef.current;
+    engineRef.current?.panBy(deltaX * PREVIEW_SCROLL_PAN_RATE / scale, deltaY * PREVIEW_SCROLL_PAN_RATE / scale);
     redrawRef.current?.();
   };
 
@@ -401,8 +440,8 @@ export function MapPreviewCanvas({
           className="h-7 w-7 text-base text-fg hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="Diminuir zoom da prévia"
           title="Diminuir zoom"
-          disabled={zoom <= 1}
-          onClick={() => setZoom((value) => Math.max(1, Number((value - 0.25).toFixed(2))))}
+          disabled={zoom <= PREVIEW_ZOOM_MIN}
+          onClick={() => setZoom((value) => Math.max(PREVIEW_ZOOM_MIN, Number((value - 0.25).toFixed(2))))}
         >
           −
         </button>
@@ -411,7 +450,7 @@ export function MapPreviewCanvas({
           className="min-w-12 border-x border-border px-1 text-[10px] font-semibold text-fg hover:bg-surface-2"
           aria-label="Restaurar zoom da prévia"
           title="Restaurar zoom"
-          onClick={() => setZoom(1)}
+          onClick={() => setZoom(PREVIEW_ZOOM_MIN)}
         >
           {Math.round(zoom * 100)}%
         </button>

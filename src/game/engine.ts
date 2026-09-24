@@ -1189,6 +1189,10 @@ export class BattleEngine {
   speedMode: "slow" | "normal" | "fast" = "normal";
   camX = 0;
   camY = 0;
+  /** Off (0) by default so real battle camera panning is unchanged. The map editor's
+   * preview panel opts in via setHorizontalPanMargin() so authors can pan left/right into
+   * a mission's painted backdrop the same way cameraMargin's y already allows. */
+  private previewPanMarginX = 0;
   private viewW = 1;
   private viewH = 1;
   private camReady = false;
@@ -7550,7 +7554,15 @@ export class BattleEngine {
    * painted backdrop (thebridge-bg.jpg) needs more room to actually show above and below
    * the board than the default margin leaves. */
   private cameraMargin(tile: number): { x: number; y: number } {
-    return { x: 0, y: tile * (this.mission.id === "thebridge" ? 4.5 : 3) };
+    return { x: this.previewPanMarginX * tile, y: tile * (this.mission.id === "thebridge" ? 4.5 : 3) };
+  }
+
+  /** Editor-only: let the map editor's preview panel pan left/right into the backdrop
+   * margin, matching the vertical room cameraMargin already gives every camera. Real battle
+   * play never calls this, so its camera stays exactly as before. */
+  setHorizontalPanMargin(radii: number): void {
+    this.previewPanMarginX = radii;
+    this.clampCam();
   }
 
   private clampCam(): void {

@@ -13,7 +13,7 @@ import { InnScreen } from "./InnScreen";
 import { PartyInventoryOverlay, ItemTip } from "./InventoryScreens";
 import { DialogOverlay } from "./DialogOverlay";
 import { DialogEditor } from "./DialogEditor";
-import { BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, decorationImage, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
+import { BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, decorationImage, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
 import { BattleEngine, heroSpriteFor } from "./engine";
 import { MapPreviewCanvas, type PreviewDecorationSelection, type PreviewUnitSelection } from "./MapPreviewCanvas";
 import { WorldMapScreen } from "./WorldMapScreen";
@@ -33,8 +33,10 @@ import {
   MAP_VERSIONS_KEY,
   RANDOM_ENCOUNTER_REGIONS,
   isRandomEncounter,
+  clearSessionMapOverride,
   draftToMission,
   latestSerialFor,
+  registerSessionMapOverride,
   loadActiveDrafts,
   loadActiveVersions,
   loadLocaisLocal,
@@ -4040,7 +4042,7 @@ function MapEditorScreen({
       // Barricade-family City props block like a real barricade without repainting the
       // hex to barricade's dirt/rubble ground art — defaulted on here instead of the
       // author having to remember to check "Bloquear caminho" every time. Houses too.
-      const blocksByDefault = BARRICADE_LIKE_DECOR.has(decoBrush) || HOUSE_DECOR_IDS.has(decoBrush) || BIG_HOUSE_DECOR_IDS.has(decoBrush);
+      const blocksByDefault = BARRICADE_LIKE_DECOR.has(decoBrush) || HOUSE_DECOR_IDS.has(decoBrush) || BIG_HOUSE_DECOR_IDS.has(decoBrush) || SOLID_HOUSE_DECOR_IDS.has(decoBrush);
       const placed = blocksByDefault ? { id: decoBrush, x, y, blocksPath: true } : { id: decoBrush, x, y };
       setSelectedPlacedDecoration(placed);
       return { ...d, tiles, decorations: [...d.decorations, placed] };
@@ -4148,7 +4150,16 @@ function MapEditorScreen({
   };
 
   const selectPreviewUnit = (unit: PreviewUnitSelection) => {
-    setNote(`${unit.name} selecionado. Clique direito em um hex vazio da prévia para definir sua posição inicial.`);
+    setNote(`${unit.name}: segure com o botão direito e pressione Delete para remover, ou arraste para mover.`);
+  };
+
+  const deleteHeldPreviewUnit = (selected: PreviewUnitSelection) => {
+    setDraft((d) => {
+      const unit = (d[selected.side] ?? [])[selected.index];
+      if (!unit) return d;
+      setNote(`${unit.name} removido do mapa.`);
+      return { ...d, [selected.side]: (d[selected.side] ?? []).filter((_, index) => index !== selected.index) };
+    });
   };
 
   const placePreviewUnit = (selected: PreviewUnitSelection, x: number, y: number) => {
@@ -4283,6 +4294,9 @@ function MapEditorScreen({
     saveActiveDrafts({ ...loadActiveDrafts(), [savedDraft.id]: savedDraft });
     saveActiveVersions(nextActive);
     setActiveVersions(nextActive);
+    // Makes this save "the" content for its scenario id everywhere in the running app —
+    // Debug, the world map, an in-progress battle — this instant, no reload required.
+    registerSessionMapOverride(savedDraft);
     window.dispatchEvent(new CustomEvent("ember:missions-saved"));
 
     armEditorResume(savedDraft);
@@ -4334,6 +4348,7 @@ function MapEditorScreen({
     }
     setActiveVersions(next);
     saveActiveVersions(next);
+    registerSessionMapOverride(selected.draft);
     window.dispatchEvent(new CustomEvent("ember:missions-saved"));
     setNote(`v${serialLabel(serial)} agora é a cópia exata valendo pra "${draft.id}" na campanha.`);
   };
@@ -4346,6 +4361,7 @@ function MapEditorScreen({
     setActiveVersions(next);
     saveActiveVersions(next);
     saveActiveDrafts(activeDrafts);
+    clearSessionMapOverride(draft.id);
     window.dispatchEvent(new CustomEvent("ember:missions-saved"));
     setNote(`"${draft.id}" voltou a usar o cenário original.`);
   };
@@ -4361,6 +4377,7 @@ function MapEditorScreen({
     setActiveVersions(next);
     saveActiveVersions(next);
     setDraft(f.draft);
+    registerSessionMapOverride(f.draft);
     window.dispatchEvent(new CustomEvent("ember:missions-saved"));
     setNote(`${f.file ?? mapFileName(draft.id, f.serial)} agora é a cópia exata ativa na campanha.`);
   };
@@ -5418,6 +5435,7 @@ function MapEditorScreen({
                 selectedDecorationId={mode === "decoration" ? decoBrush : undefined}
                 selectedPlacedDecoration={selectedPlacedDecoration}
                 onUnitSelect={selectPreviewUnit}
+                onHeldUnitDelete={deleteHeldPreviewUnit}
                 onUnitPlace={placePreviewUnit}
                 onDecorationSelect={selectPreviewDecoration}
                 onDecorationPlace={placePreviewDecoration}

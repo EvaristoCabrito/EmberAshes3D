@@ -45,7 +45,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { WEB_SHOT_TRAVEL, type BattleEngine } from "../../engine";
 import { FireballV2 } from "./ThreeFireballV2";
-import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECOR_ART_SCALE, DECORATIONS, HOUSE_ART_SCALE, HOUSE_DECOR_IDS, TERRAIN, decorationFacing, decorationImage, placedFootprint } from "../../data";
+import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECOR_ART_SCALE, DECORATIONS, HOUSE_ART_SCALE, HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, TERRAIN, decorationFacing, decorationImage, placedFootprint } from "../../data";
 import { tileAt } from "../../pathfinding";
 import type { DecorationDef, DecorationPlacement, MapTimeOfDay, TerrainId } from "../../types";
 import { GroundAO, type AoOccluder } from "./ThreeGroundAO";
@@ -1204,7 +1204,7 @@ export class ThreeBattleRenderer {
       // Same art, position and facing as the visible mesh, but writes depth only (see
       // decorFogCutMaterialFor); the fog sheet depth-tests against it (ThreeFogMask).
       let fogCut: THREE.Mesh | null = null;
-      if (HOUSE_DECOR_IDS.has(p.id) || BIG_HOUSE_DECOR_IDS.has(p.id)) {
+      if (HOUSE_DECOR_IDS.has(p.id) || BIG_HOUSE_DECOR_IDS.has(p.id) || SOLID_HOUSE_DECOR_IDS.has(p.id)) {
         fogCut = new THREE.Mesh(this.quadGeo, this.decorFogCutMaterialFor(fileId, mat));
         fogCut.renderOrder = 99;
         fogCut.position.set(wx, -wy, 60);
@@ -1677,8 +1677,17 @@ export class ThreeBattleRenderer {
    * actual 3D illumination, shadows, or the normal final render. */
   private renderBloomWithoutLightSourceArt(): void {
     const hidden: THREE.Mesh[] = [];
+    // Houses that burn (fogCut marks a house) are drawn black instead of hidden: hiding one let
+    // the bloom buffer show the ground behind it, which the mix pass then added over the house,
+    // making the whole building look see-through. Black still adds no bloom of its own.
+    const blacked: { mesh: THREE.Mesh; material: THREE.Material | THREE.Material[] }[] = [];
     for (const entry of this.decorEntries) {
       if (!entry.light || !entry.mesh.visible) continue;
+      if (entry.fogCut) {
+        blacked.push({ mesh: entry.mesh, material: entry.mesh.material });
+        entry.mesh.material = this.bloomBlackMaterialFor(entry.mesh.material as THREE.MeshLambertMaterial);
+        continue;
+      }
       entry.mesh.visible = false;
       hidden.push(entry.mesh);
     }
@@ -1686,7 +1695,18 @@ export class ThreeBattleRenderer {
       this.bloomComposer.render();
     } finally {
       for (const mesh of hidden) mesh.visible = true;
+      for (const b of blacked) b.mesh.material = b.material;
     }
+  }
+
+  /** Black silhouette of a decoration's art (same texture alpha) for the bloom-only pass. */
+  private bloomBlackMatCache = new Map<THREE.Material, THREE.MeshBasicMaterial>();
+  private bloomBlackMaterialFor(colorMat: THREE.MeshLambertMaterial): THREE.MeshBasicMaterial {
+    const hit = this.bloomBlackMatCache.get(colorMat);
+    if (hit) return hit;
+    const mat = new THREE.MeshBasicMaterial({ map: colorMat.map, color: 0x000000, transparent: true, depthWrite: false });
+    this.bloomBlackMatCache.set(colorMat, mat);
+    return mat;
   }
 
   /** Dreaming Web floor: mirrors Canvas2D renderGround's webZones block — each explored cell
