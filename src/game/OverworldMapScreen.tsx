@@ -3,7 +3,8 @@ import { Check, ChevronLeft, Lock, MapPin, SlidersHorizontal, Volume2, VolumeX, 
 import { missionsForLocation } from "./mapstore";
 import type { EquipSlot, Mission, PotionId, SaveData, WorldLocation } from "./types";
 import { PartyInventoryOverlay } from "./InventoryScreens";
-import { heroRecruited } from "./data";
+import { CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, heroRecruited, rulesClass, tierUses } from "./data";
+import { fullness } from "./hunger";
 import { GoldAmount } from "./GoldAmount";
 import { getAudioVolumes, setCutsceneVolume, setMusicVolume, setSfxVolume, sfxPlay, unlockAudio } from "./audio";
 import { canStepOverworld, hexToWorld, isOverworldCell, locationExpired, neighborsOf, OVERWORLD_START_HEX, type OverworldEvent, worldToHex } from "./overworld";
@@ -61,6 +62,7 @@ export function OverworldMapScreen({
   save,
   onUseRation,
   onUseRationAll,
+  onCastCreateFoodAndWater,
   onEquipWeapon,
   onEquipItem,
   onUsePotion,
@@ -94,6 +96,10 @@ export function OverworldMapScreen({
   save: SaveData;
   onUseRation: (hero: string) => void;
   onUseRationAll?: (heroes: string[]) => number;
+  /** World-map cast of Create Food and Water (Healer tier 1) — returns false (and does
+   * nothing) when the hero isn't a healer, has no tier-1 charges left, or is already at the
+   * spell's own fullness target. See GameApp.tsx's castCreateFoodAndWater. */
+  onCastCreateFoodAndWater?: (hero: string) => boolean;
   /** Wired into the Mochila/Paperdoll's own equip picker — omitted for a while, which left
    * every tap there a silent no-op (see PartyInventoryOverlay below). */
   onEquipWeapon?: (hero: string, weaponId: string) => void;
@@ -143,6 +149,7 @@ export function OverworldMapScreen({
   const [hint, setHint] = useState<string | null>(null);
   const [zoomIdx, setZoomIdx] = useState(ZOOM_STOPS.length - 1);
   const [audioSettingsOpen, setAudioSettingsOpen] = useState(false);
+  const [fieldSpellsOpen, setFieldSpellsOpen] = useState(false);
   const [audioLevels, setAudioLevels] = useState(() => getAudioVolumes());
   const [dragging, setDragging] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -361,6 +368,61 @@ export function OverworldMapScreen({
           >
             Alimentar todos
           </button>
+        )}
+        {onCastCreateFoodAndWater && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setFieldSpellsOpen((o) => !o)}
+              className="size-11 overflow-hidden rounded-md bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              aria-label="Feitiços de campo"
+              aria-expanded={fieldSpellsOpen}
+            >
+              <img src="/game/icons/field-spells.png" alt="" draggable={false} className="block h-full w-full object-cover" />
+            </button>
+            {fieldSpellsOpen && (
+              <div className="absolute right-0 top-full mt-2 w-72 rounded-md border border-border bg-bg/95 p-3 flex flex-col gap-2 shadow-lg shadow-bg/40 z-20">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted">Feitiços de campo</p>
+                {(() => {
+                  const healers = (["Kael", "Neera", "Voss", "Salazar", "Aldric", "Malrec"] as const).filter((name) => {
+                    if (!(test || heroRecruited(name, save.completed))) return false;
+                    if ((save.unitHp[name] ?? 1) <= 0) return false;
+                    const classId = save.promotions[name] ?? { Kael: "swordsman", Neera: "archer", Voss: "mage", Salazar: "healer", Aldric: "aldric", Malrec: "conjurer" }[name];
+                    return rulesClass(classId) === "healer";
+                  });
+                  if (healers.length === 0) return <p className="text-sm text-subtle">Nenhum feitiço de campo disponível.</p>;
+                  return healers.map((name) => {
+                    const level = save.levels[name] ?? 1;
+                    const classId = save.promotions[name] ?? "healer";
+                    const spent = save.spellUses[name]?.tier3 ?? 0;
+                    const remaining = Math.max(0, tierUses(classId, 3, level) - spent);
+                    const power = createFoodAndWaterPower(level);
+                    const alreadyFull = fullness(save.heroHunger[name]) >= power.fullness;
+                    const disabled = remaining <= 0 || alreadyFull;
+                    return (
+                      <div key={name} className="flex items-center justify-between gap-2 text-sm">
+                        <div className="min-w-0">
+                          <p className="text-fg truncate">{CREATE_FOOD_AND_WATER.name}</p>
+                          <p className="text-xs text-muted truncate">{name} (Lv {level}) · {createFoodAndWaterFormula(level)} · {remaining}x</p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={disabled}
+                          className="h-8 px-2 rounded-md border border-border bg-bg/70 text-xs disabled:opacity-40"
+                          onClick={() => {
+                            const ok = onCastCreateFoodAndWater(name);
+                            showHint(ok ? `${name} restaurou a fome.` : "Não foi possível lançar.");
+                          }}
+                        >
+                          Lançar
+                        </button>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            )}
+          </div>
         )}
         <button type="button" onClick={onMute} className="size-9 grid place-items-center rounded-md border border-border bg-bg/70" aria-label="Som">
           {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
@@ -618,7 +680,7 @@ export function OverworldMapScreen({
           {([['Kael', 'kaelFinal'], ['Neera', 'neera'], ['Voss', 'voss'], ['Salazar', 'salazar'], ['Aldric', 'aldric'], ['Malrec', 'conjurer']] as const).filter(([name]) => test || heroRecruited(name, save.completed)).map(([name, sprite]) => (
             <div key={name} className="w-10" title={name}>
               <button type="button" aria-label={`Inventário de ${name}`} onClick={() => setInventoryHero(name)} className="min-h-11">
-                <img src={portraitFor(sprite).src} alt={name} className="w-10 h-12 object-cover rounded" />
+                <img src={portraitFor(sprite).src} alt={name} style={{ objectPosition: portraitFor(sprite).position }} className="w-10 h-12 object-cover rounded" />
               </button>
               <HungerBar name={name} value={heroHunger[name]} />
             </div>

@@ -2,7 +2,7 @@ import { CHEST_LOOT, EMPTY_BAG, EQUIPMENT, heroRecruited, MAX_LEVEL, partyBagHas
 import { DAILY_HUNGER_COST, drainHunger } from "./hunger";
 import { missionsForLocation, RANDOM_ENCOUNTER_REGIONS } from "./mapstore";
 import { cubeRound, cubeToOddr, hexNeighbors, key, oddrToCube } from "./pathfinding";
-import type { ClassId, Point, SaveData, WorldLocation } from "./types";
+import type { ClassId, Point, SaveData, TierKey, WorldLocation } from "./types";
 
 /** RPG map only: the hidden hex grid laid over the world-map image. The renderer never
  * draws this — it only ever asks `neighborsOf` the party's current hex for what's
@@ -316,6 +316,21 @@ export function stepOverworld(save: SaveData, toCol: number, toRow: number, loca
     if (ages(hero)) heroHunger[hero] = drainHunger(heroHunger[hero], DAILY_HUNGER_COST);
   }
 
+  // Every overworld step is exactly one day (see this function's own doc comment) — half of
+  // every hero's every spent Tier charge (any class, any tier, not just Create Food and
+  // Water) recovers each day, on top of the existing full reset at scenario end
+  // (GameApp.tsx's scenarioStart check). Rounds in favor of the player: floor(spent/2)
+  // REMAINS spent, so more than half can come back on an odd count.
+  const spellUses: Record<string, Partial<Record<TierKey, number>>> = {};
+  for (const [hero, tiers] of Object.entries(save.spellUses)) {
+    const next: Partial<Record<TierKey, number>> = {};
+    for (const [t, spent] of Object.entries(tiers ?? {})) {
+      const recovered = Math.floor((spent ?? 0) / 2);
+      if (recovered > 0) next[t as TierKey] = recovered;
+    }
+    if (Object.keys(next).length > 0) spellUses[hero] = next;
+  }
+
   const fed = Object.keys(HERO_BASE_CLASS).filter(ages).every((hero) => (heroHunger[hero] ?? 100) > 0);
   const rations = save.rations;
   const prevPenalty = hungerPenaltyFor(save.hungerStreak);
@@ -493,6 +508,7 @@ export function stepOverworld(save: SaveData, toCol: number, toRow: number, loca
       weapons,
       looseEquipment,
       bags,
+      spellUses,
     },
     event,
   };

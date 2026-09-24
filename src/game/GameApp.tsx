@@ -7,12 +7,13 @@ import { BattleCanvas } from "./BattleCanvas";
 import { ELEMENT_LABELS, PLACEABLE_ELEMENT_KINDS, type PlaceableElementKind } from "./gfx/params";
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_BLOOM_INTENSITY, DEFAULT_SUN_INTENSITY } from "./gfx/three/ThreeBattleRenderer";
 import { getDevGfx, setDevGfx, subscribeDevGfx, type DevGfxSettings } from "./gfx/three/devGfx";
+import { DevGfxPreview } from "./gfx/three/DevGfxPreview";
 import { InnScreen } from "./InnScreen";
 import { PartyInventoryOverlay, ItemTip } from "./InventoryScreens";
 import { DialogOverlay } from "./DialogOverlay";
 import { DialogEditor } from "./DialogEditor";
-import { BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, decorationImage, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, type SpellTier } from "./data";
-import { BattleEngine } from "./engine";
+import { BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, decorationImage, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
+import { BattleEngine, heroSpriteFor } from "./engine";
 import { MapPreviewCanvas, type PreviewDecorationSelection, type PreviewUnitSelection } from "./MapPreviewCanvas";
 import { WorldMapScreen } from "./WorldMapScreen";
 import { OverworldMapScreen } from "./OverworldMapScreen";
@@ -394,13 +395,13 @@ const PRESTIGE_SPELLS: Partial<Record<ClassId, SpellKind[]>> = {
   elementalist: ["lightningTier3"],
 };
 
-function classSpells(classId: ClassId): SpellKind[] {
+function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY): SpellKind[] {
   // Promoted classes keep everything the base class already granted (hybrid, nothing
   // lost at PROMOTE_LEVEL), plus their own prestige-only spells from PRESTIGE_SPELLS.
   const base = ((): SpellKind[] => {
     switch (rulesClass(classId)) {
       case "swordsman":
-        return ["doubleStrike", "cleave"];
+        return ["doubleStrike", "bullRush", "cleave", "shieldBash", "executionerStrike"];
       case "mage":
         return ["magicMissile", "lightning", "fireball", "causticVenom"];
       case "conjurer":
@@ -425,7 +426,7 @@ function classSpells(classId: ClassId): SpellKind[] {
       case "archer":
         return ["longShot", "piercing", "multiShot"];
       case "healer":
-        return ["cureMinor", "cureWounds", "cureDisease"];
+        return ["cureMinor", "cureWounds", "burningHands", "cureDisease", "createFoodAndWater"];
       case "lancer":
       case "aldric":
         return ["piercingThrust", "sweep", "trip"];
@@ -433,12 +434,12 @@ function classSpells(classId: ClassId): SpellKind[] {
         return [];
     }
   })();
-  return [...base, ...(PRESTIGE_SPELLS[classId] ?? [])];
+  return [...base, ...(PRESTIGE_SPELLS[classId] ?? [])].filter((spell) => spell !== "bullRush" || level >= BULL_RUSH_UNLOCK_LEVEL);
 }
 
-function defaultSlots(classId: ClassId): (SlotAction | null)[] {
+function defaultSlots(classId: ClassId, level = Number.POSITIVE_INFINITY): (SlotAction | null)[] {
   const combined: SlotAction[] = [
-    ...classSpells(classId).map((spell): SlotAction => ({ kind: "spell", spell })),
+    ...classSpells(classId, level).map((spell): SlotAction => ({ kind: "spell", spell })),
     ...ALL_POTIONS.map((potion): SlotAction => ({ kind: "potion", potion })),
   ];
   const slots: (SlotAction | null)[] = combined.slice(0, HOTBAR_SLOTS);
@@ -503,12 +504,12 @@ function slotIcon(action: SlotAction): string {
     // No dedicated art yet — reuses Magic Missile's own icon, closest in theme to a single
     // ranged magic bolt.
     case "phantasmalForce":
-      return spellIcon("magic-missile");
+      return spellIcon("phantasmal-force");
     // No dedicated art yet for the tier-2/3 summons — each reuses the same familiar icon.
     case "summonFamiliar2":
-      return spellIcon("summon-familiar");
+      return spellIcon("summon-familiar2");
     case "summonFamiliar3":
-      return spellIcon("summon-familiar");
+      return spellIcon("summon-familiar3");
     case "webOfDreams":
       return spellIcon("web-of-dreams");
     // Familiar Maior's own second spell — no dedicated art; reuses the cure icon since it's
@@ -533,6 +534,16 @@ function slotIcon(action: SlotAction): string {
       return spellIcon("cleave");
     case "stampede":
       return spellIcon("cleave-crossed-blades");
+    case "bullRush":
+      return spellIcon("bull-rush");
+    case "executionerStrike":
+      return spellIcon("executioner-strike");
+    case "shieldBash":
+      return spellIcon("shield-bash");
+    case "burningHands":
+      return spellIcon("burning-hands");
+    case "createFoodAndWater":
+      return spellIcon("create-food-and-water");
   }
 }
 
@@ -599,6 +610,16 @@ function slotLabel(action: SlotAction): string {
       return SHOULDER_SMASH.name;
     case "stampede":
       return STAMPEDE.name;
+    case "bullRush":
+      return BULL_RUSH.name;
+    case "executionerStrike":
+      return EXECUTIONER_STRIKE.name;
+    case "shieldBash":
+      return SHIELD_BASH.name;
+    case "burningHands":
+      return BURNING_HANDS.name;
+    case "createFoodAndWater":
+      return CREATE_FOOD_AND_WATER.name;
   }
 }
 
@@ -655,7 +676,7 @@ function mapStatusUnit(save: SaveData, hero: string): UnitPublic {
   const diseaseKeep = save.heroDiseases[hero] ? 0.9 : 1;
   const maxHp = Math.round((stats.hp + gearBonus.hp) * hungerKeep);
   return {
-    id: `map:${hero}`, name: hero, classId, className: cls.name, role: cls.role, side: "player", sprite: hero === "Kael" ? CLASSES.kaelFinal.sprite : cls.sprite,
+    id: `map:${hero}`, name: hero, classId, className: cls.name, role: cls.role, side: "player", sprite: heroSpriteFor(hero, cls.sprite),
     hp: Math.min(maxHp, save.unitHp[hero] ?? maxHp), maxHp,
     atk: Math.round((stats.atk + gearBonus.atk) * hungerKeep * diseaseKeep),
     mag: Math.round((stats.mag + gearBonus.mag) * hungerKeep * diseaseKeep),
@@ -664,7 +685,7 @@ function mapStatusUnit(save: SaveData, hero: string): UnitPublic {
     initiative: cls.init ?? 0, initiativeRoll: cls.init ?? 0, mov: Math.max(1, Math.round((stats.mov + gearBonus.mov) * diseaseKeep)), movLeft: Math.max(1, Math.round((stats.mov + gearBonus.mov) * diseaseKeep)), minRange: cls.minRange, maxRange: cls.maxRange,
     moved: false, acted: false, x: save.overworldPos.col, y: save.overworldPos.row, level, xp: save.xp[hero] ?? 0,
     bag: save.bags[hero] ?? { mid: 0, weak: 0, potent: 0, disease: 0, manaSmall: 0, manaMid: 0, manaLarge: 0, lockpick: 0 },
-    spells: emptySpells, weaponId: save.equipped[hero] ?? null, weaponEnh: 0, size: cls.size, diseased: save.heroDiseases[hero] === true, poisoned: false,
+    spells: emptySpells, weaponId: save.equipped[hero] ?? null, weaponEnh: 0, size: cls.size, diseased: save.heroDiseases[hero] === true, poisoned: false, bleeding: false, shock: null,
     hungry: hungerPenaltyPct > 0, hungerPct: Math.round(hungerPenaltyPct * 100), fullness: save.heroHunger[hero], stunned: false, crippled: false, offHandId: null, summoned: false, asleep: false, restrained: false,
     gear,
   };
@@ -686,9 +707,8 @@ export function GameApp() {
   const [resumeEditorDraft] = useState<MapDraft | null>(() => (typeof window === "undefined" ? null : readEditorResume()));
   const [screen, setScreen] = useState<ScreenId>(() => (resumeEditorDraft ? "mapEditor" : "title"));
   const loadingCurtain = useLoadingCurtain(screen);
-  // Which map the player picked this session — classic (click any unlocked pin) or the RPG
-  // hex-crawl. Deliberately not persisted: resets on every reload, so a new session asks
-  // again instead of silently remembering last time's choice.
+  // The currently active map style. Normal campaigns persist their choice in SaveData;
+  // test mode deliberately remains session-only.
   const [mapMode, setMapMode] = useState<"classic" | "rpg" | null>(null);
   const [overworldEvent, setOverworldEvent] = useState<OverworldEvent | null>(null);
   const [mapStatusHero, setMapStatusHero] = useState<string | null>(null);
@@ -1269,14 +1289,17 @@ export function GameApp() {
     playMenuMusic();
   }, [screen, muted, missionId]);
 
-  // Routes to the mapChoice screen every time. Every "return to the map" spot in this file
-  // goes through here rather than naming "worldMap" directly, so both maps share one entry
-  // point. Deliberately asks on every single trip back (finished mission, the Inn, Debug,
-  // etc.), not just the first — by explicit request, so either map is always one pick away
-  // instead of getting locked in for the rest of the tab's session.
+  // Normal campaigns keep the one travel style selected when the campaign began. Test mode
+  // deliberately has no persistent save, so it returns to the choice screen every time.
   const goToMap = useCallback(() => {
+    const mode = testMode ? null : save.mapMode;
+    if (mode) {
+      setMapMode(mode);
+      setScreen(mode === "classic" ? "worldMap" : "overworldMap");
+      return;
+    }
     setScreen("mapChoice");
-  }, []);
+  }, [save.mapMode, testMode]);
 
   const leaveBoot = useCallback(() => {
     // Entering the world map is a hard music boundary: do not leave intro.mp3 under it.
@@ -1396,6 +1419,31 @@ export function GameApp() {
     if (next.hungerStreak > 0 && partyIsFed(next, testMode)) next = { ...next, hungerStreak: 0 };
     writeMapSave(next);
     return fed;
+  };
+  /** World-map-only cast of Create Food and Water (Healer tier 1) — the battle-side version
+   * is engine.startCreateFoodAndWater(); this one lands directly on SaveData since there's
+   * no live BattleEngine to hold the effect outside a fight. Spends from the same
+   * save.spellUses tier-3 pool (shares Cure Disease's charges — see SPELL_TIER) a battle
+   * cast would (see remainingTier/tierRemaining in engine.ts, which reads the exact same
+   * field at battle start) — recovers at half-rate per overworld day, see stepOverworld's
+   * new spellUses math in overworld.ts. */
+  const castCreateFoodAndWater = (hero: string): boolean => {
+    const rec = readMapSave();
+    const classId = rec.promotions[hero] ?? MAP_STATUS_CLASS[hero];
+    if (!classId || rulesClass(classId) !== "healer") return false;
+    const level = rec.levels[hero] ?? 1;
+    const spent = rec.spellUses[hero]?.tier3 ?? 0;
+    if (tierUses(classId, 3, level) - spent <= 0) return false;
+    const power = createFoodAndWaterPower(level);
+    if (fullness(rec.heroHunger[hero]) >= power.fullness) return false;
+    const gained = power.dice > 0 ? rollDice(power.dice, power.faces, power.bonus, Math.random) : 0;
+    writeMapSave({
+      ...rec,
+      heroHunger: { ...rec.heroHunger, [hero]: power.fullness },
+      rations: rec.rations + gained,
+      spellUses: { ...rec.spellUses, [hero]: { ...rec.spellUses[hero], tier3: spent + 1 } },
+    });
+    return true;
   };
   // Modo teste only: a non-adjacent pin jumps straight there, free of charge — see
   // OverworldMapScreen's onTeleport doc. Adjacent pins/wild hexes still go through
@@ -1521,6 +1569,7 @@ export function GameApp() {
           onBack={() => setScreen(testMode ? "testMenu" : "title")}
           onPick={(mode) => {
             setMapMode(mode);
+            if (!testMode) persistCurrent({ ...save, mapMode: mode });
             // Picking the RPG map on a brand-new campaign (nothing completed, nothing in
             // progress) plays its own intro before O Vau's briefing instead of landing on
             // the hex map first — a returning campaign, or the classic map, skips straight
@@ -1613,6 +1662,7 @@ export function GameApp() {
           save={overworldSave}
           onUseRation={consumeRation}
           onUseRationAll={consumeRationAll}
+          onCastCreateFoodAndWater={castCreateFoodAndWater}
           onEquipWeapon={equipHeroWeapon}
           onEquipItem={equipHeroItem}
           onUsePotion={useHeroPotionOutside}
@@ -2371,7 +2421,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     tier: spellTier("longShot")!,
     formula: (level: number) => longShotFormula(level),
     param: "level" as const,
-    note: `Alcance ×${LONG_SHOT.rangeMul}+${LONG_SHOT.rangeBonus}. Dado sobe em níveis 2,3,5,7,9,12,14.`,
+    note: `Alcance 7. Dado sobe em níveis 2,3,5,7,9,12,14.`,
   },
   { name: CURES.cureMinor.name, cls: SKILL_CLASS.cureMinor!, tier: spellTier("cureMinor")!, formula: (mag: number) => `${healFormula(mag, "cureMinor")} (cura)`, note: "—" },
   {
@@ -2425,7 +2475,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     formula: "—",
     note: `Alcance ${WEB_OF_DREAMS.range}. Raio ${WEB_OF_DREAMS.size} (2 no nível 7, 3 no nível 12). ${Math.round(WEB_OF_DREAMS.sleepChance * 100)}% de dormir por ${diceFormula(WEB_OF_DREAMS.sleepDice, WEB_OF_DREAMS.sleepFaces, 0)} turnos (+${Math.round(WEB_OF_DREAMS.sleepBonusDamage * 100)}% dano ao acordar); prende o movimento a 1 hex na área por ${WEB_OF_DREAMS.durationRounds} turnos.`,
   },
-  { name: TRIP.name, cls: SKILL_CLASS.trip!, tier: spellTier("trip")!, formula: `arma +${diceFormula(1, TRIP.bonusFaces, TRIP.bonusBonus)}`, note: `Atordoa ${TRIP.stunRounds} turnos; −${Math.round(TRIP.statPenalty * 100)}% de status pro resto da batalha.` },
+  { name: TRIP.name, cls: SKILL_CLASS.trip!, tier: spellTier("trip")!, formula: `arma +${diceFormula(1, TRIP.bonusFaces, TRIP.bonusBonus)}`, note: `Causa Sangramento (1D8 a cada ação); −${Math.round(TRIP.statPenalty * 100)}% de status pro resto da batalha.` },
   {
     name: FIREBALL.name,
     cls: SKILL_CLASS.fireball!,
@@ -2448,7 +2498,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     tier: spellTier("multiShot")!,
     formula: (level: number) => multiShotFormula(level),
     param: "level" as const,
-    note: `2 alvos (3 no nível 11), alcance arma+${MULTI_SHOT.rangeBonus}. Dado sobe no nível 8 e 13.`,
+    note: `2 alvos (3 no nível 11), alcance 6. Dado sobe no nível 8 e 13.`,
   },
   {
     name: SECOND_WIND.name,
@@ -2792,6 +2842,7 @@ function DevControlsScreen({ onBack }: { onBack: () => void }) {
         </div>
       </header>
       <div className="flex-1 min-h-0 flex flex-col justify-center gap-3 p-5 max-w-md mx-auto w-full">
+        <DevGfxPreview />
         <p className="text-sm uppercase tracking-[0.14em] text-muted">Sombras</p>
         {DEV_GFX_ROWS.map((row) => (
           <button
@@ -6323,9 +6374,9 @@ function BattleScreen({
   const prevInspectedIdRef = useRef<string | null>(null);
   useEffect(() => {
     const id = hud.inspected?.id ?? null;
-    if (id && id !== prevInspectedIdRef.current && !hud.selected && !hud.pendingFoe) {
+    if (id && id !== prevInspectedIdRef.current && (!hud.selected && !hud.pendingFoe || hud.inspected?.side === "player")) {
       setShowStatus(true);
-      setBrowseId(null);
+      setBrowseId(hud.inspected?.side === "player" ? id : null);
     }
     prevInspectedIdRef.current = id;
   }, [hud.inspected?.id, hud.selected, hud.pendingFoe]);
@@ -6381,8 +6432,8 @@ function BattleScreen({
   const slots = actor
     ? (() => {
         const saved = hotbars[actor.name];
-        const expectedSpells = classSpells(actor.classId);
-        if (!saved) return defaultSlots(actor.classId);
+        const expectedSpells = classSpells(actor.classId, actor.level);
+        if (!saved) return defaultSlots(actor.classId, actor.level);
         // Repair hotbars persisted while a hero alias incorrectly resolved to no spells, or
         // to a stale class's spells (hotbars are keyed by hero NAME, not classId — a bar
         // saved for a name before that hero's class was fixed elsewhere, e.g. Malrec once
@@ -6513,6 +6564,21 @@ function BattleScreen({
         break;
       case "secondWind":
         // Passive — never reaches the hotbar (see PRESTIGE_SPELLS); nothing to run.
+        break;
+      case "bullRush":
+        engine.startBullRush();
+        break;
+      case "executionerStrike":
+        engine.startExecutionerStrike();
+        break;
+      case "shieldBash":
+        engine.startShieldBash();
+        break;
+      case "burningHands":
+        engine.startBurningHands();
+        break;
+      case "createFoodAndWater":
+        engine.startCreateFoodAndWater();
         break;
     }
   }
@@ -6759,6 +6825,7 @@ function BattleScreen({
                 <img
                   src={portraitFor(unit.sprite).src}
                   alt=""
+                  style={{ objectPosition: portraitFor(unit.sprite).position }}
                   className={portraitFor(unit.sprite).framed ? "h-16 w-12 sm:h-20 sm:w-14 object-cover rounded-md" : "h-14 w-14 object-contain"}
                 />
                 {unit.side === "player" && <HungerBar name={unit.name} value={unit.fullness} />}
@@ -6889,25 +6956,26 @@ function BattleScreen({
               {slots.map((action, i) => {
                 const empty = !action;
                 const disabled = action ? slotDisabled(action) : !editingSlots;
+                const fullFrameIcon = action?.kind === "spell" && action.spell === "summonFamiliar3";
                 return (
                   <ItemTip key={i} text={`F${i + 1} · ${action ? slotTooltip(action) : "Slot vazio"}`} className="relative">
                     <button
                       type="button"
                       disabled={!editingSlots && disabled}
                       onClick={() => activateSlot(i)}
-                      className={`relative size-9 grid place-items-center rounded-md border ${
+                      className={`relative size-9 grid place-items-center overflow-visible rounded-md border ${
                         action && slotActive(action) ? "border-accent bg-accent/20" : "border-border bg-bg"
                       } ${editingSlots ? "outline outline-1 outline-dashed outline-muted" : ""} disabled:opacity-40`}
                     >
-                      <span className="absolute -top-1 -left-1 bg-surface border border-border rounded px-0.5 text-[8px] tabular-nums leading-tight text-muted">
+                      <span className="absolute z-10 -top-1 -left-1 bg-surface border border-border rounded px-0.5 text-[8px] tabular-nums leading-tight text-muted">
                         F{i + 1}
                       </span>
                       {empty ? (
                         <span className="text-muted text-xs">+</span>
                       ) : (
                         <>
-                          <img src={slotIcon(action)} alt="" className="size-6 rounded-sm object-cover" />
-                          <span className="absolute -bottom-1 -right-1 bg-surface border border-border rounded px-0.5 text-[9px] tabular-nums leading-tight">
+                          <img src={slotIcon(action)} alt="" className={fullFrameIcon ? "absolute inset-0 h-full w-full object-cover" : "size-6 rounded-sm object-cover"} />
+                          <span className="absolute z-10 -bottom-1 -right-1 bg-surface border border-border rounded px-0.5 text-[9px] tabular-nums leading-tight">
                             {slotCount(action, actor)}
                           </span>
                         </>
@@ -7191,6 +7259,7 @@ function BattleScreen({
       {pickerSlot != null && actor && (
         <SlotPicker
           classId={actor.classId}
+          level={actor.level}
           onPick={(action) => {
             setSlot(pickerSlot, action);
             setPickerSlot(null);
@@ -7204,15 +7273,17 @@ function BattleScreen({
 
 function SlotPicker({
   classId,
+  level,
   onPick,
   onClose,
 }: {
   classId: ClassId;
+  level: number;
   onPick: (action: SlotAction | null) => void;
   onClose: () => void;
 }) {
   const options: SlotAction[] = [
-    ...classSpells(classId).map((spell): SlotAction => ({ kind: "spell", spell })),
+    ...classSpells(classId, level).map((spell): SlotAction => ({ kind: "spell", spell })),
     ...ALL_POTIONS.map((potion): SlotAction => ({ kind: "potion", potion })),
   ];
   return (
@@ -7261,13 +7332,45 @@ function SlotPicker({
 }
 
 type CharacterCondition = {
-  title: "Saudável" | "Envenenado" | "Doente" | "Com fome" | "Inconsciente";
+  title: "Saudável" | "Envenenado" | "Doente" | "Atordoado" | "Dormindo" | "Eletrificado" | "Sangrando" | "Com fome" | "Inconsciente";
   detail: string;
-  icon: "healthy" | "poisoned" | "diseased" | "hungry";
+  icon: "healthy" | "poisoned" | "diseased" | "stunned" | "asleep" | "shocked" | "bleeding" | "hungry";
   tone: "ok" | "danger" | "warn";
 };
 
 function characterCondition(unit: UnitPublic): CharacterCondition {
+  if (unit.stunned) {
+    return {
+      title: "Atordoado",
+      detail: "Atordoamento · perde o próximo turno.",
+      icon: "stunned",
+      tone: "danger",
+    };
+  }
+  if (unit.asleep) {
+    return {
+      title: "Dormindo",
+      detail: "Sono mágico · perde turnos até acordar ou sofrer dano.",
+      icon: "asleep",
+      tone: "danger",
+    };
+  }
+  if (unit.bleeding) {
+    return {
+      title: "Sangrando",
+      detail: "Sangramento · sofre 1D8 de dano a cada ação: atacar, lançar magia, usar item, e ao se mover (uma vez por turno).",
+      icon: "bleeding",
+      tone: "danger",
+    };
+  }
+  if (unit.shock) {
+    return {
+      title: "Eletrificado",
+      detail: "Choque elétrico · o eco do relâmpago atinge este personagem no início do próximo turno.",
+      icon: "shocked",
+      tone: "danger",
+    };
+  }
   if (unit.poisoned) {
     return {
       title: "Envenenado",
@@ -7381,12 +7484,13 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                     crop is a no-op. Malrec's face portrait reads correctly at its natural
                     scale, so it fills the panel directly rather than being cropped again. */}
                 {unit.sprite === "conjurer" || unit.sprite === "malrec" ? (
-                  <img src={portraitFor(unit.sprite).src} alt="" className="h-full w-full object-cover" />
+                  <img src={portraitFor(unit.sprite).src} alt="" style={{ objectPosition: portraitFor(unit.sprite).position }} className="h-full w-full object-cover" />
                 ) : (
                   <span className="block w-full shrink-0" style={{ aspectRatio: "2 / 3" }}>
                     <img
                       src={portraitFor(unit.sprite).src}
                       alt=""
+                      style={{ objectPosition: portraitFor(unit.sprite).position }}
                       className="h-full w-full object-cover"
                     />
                   </span>
@@ -7557,7 +7661,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                   {mage && (
                     <>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
-                        <img src={spellIcon("magic-missile")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                        <img src={spellIcon("phantasmal-force")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
                           {MAGIC_MISSILE.name} {damageFormula(unit.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)}{" "}
                           <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("magicMissile")!)]}</span>
@@ -7602,7 +7706,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                   {conjurer && (
                     <>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
-                        <img src={spellIcon("summon-familiar")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                        <img src={spellIcon("summon-familiar2")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
                           {SUMMON_FAMILIAR.name} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("summonFamiliar")!)]}</span>
                         </p>
@@ -7622,14 +7726,14 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
-                        <img src={spellIcon("summon-familiar")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                        <img src={spellIcon("summon-familiar2")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
                           {SUMMON_FAMILIAR2.name} <span className="tabular-nums text-muted">×{unit.level >= SUMMON_FAMILIAR2_UNLOCK_LEVEL ? unit.spells[tierKey(spellTier("summonFamiliar2")!)] : 0}</span>
                           {unit.level < SUMMON_FAMILIAR2_UNLOCK_LEVEL && <span className="text-muted"> · nível {SUMMON_FAMILIAR2_UNLOCK_LEVEL}+</span>}
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
-                        <img src={spellIcon("summon-familiar")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                        <img src={spellIcon("summon-familiar3")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
                           {SUMMON_FAMILIAR3.name} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("summonFamiliar3")!)]}</span>
                         </p>

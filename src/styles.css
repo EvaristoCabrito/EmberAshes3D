@@ -3,7 +3,7 @@
 
 .hunger-bar {
   position: relative;
-  display: block;
+  display: flex;
   height: 4px;
   width: 100%;
   margin-top: 4px;
@@ -17,10 +17,10 @@
   transition: width 240ms ease;
 }
 .hunger-bar > .hunger-bonus {
-  position: absolute;
-  top: 0;
-  right: 0;
-  background: var(--color-fg);
+  /* A genuinely distinct warm gold, not --color-fg (which used to sit almost on top of
+     --color-accent's own fill color, making the 100-120% "overfed" segment nearly invisible
+     even before it was fixed to actually extend the bar instead of painting over it). */
+  background: #c9a227;
 }
 .overworld-step {
   z-index: 10;
@@ -269,22 +269,75 @@
   width: 32px;
   height: 32px;
   flex: 0 0 32px;
-  background-image: url("/game/icons/status/condition-atlas-001.png");
+  background-image: none;
   background-repeat: no-repeat;
   background-size: 200% 200%;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
 }
 
-.status-condition-icon-healthy { background-position: 0% 0%; }
-.status-condition-icon-poisoned { background-position: 100% 0%; }
-.status-condition-icon-diseased { background-position: 0% 100%; }
-.status-condition-icon-hungry { background-position: 100% 100%; }
+.status-condition-icon.status-condition-icon-hungry,
+.status-condition-icon-lg.status-condition-icon-hungry {
+  background-image: url("/game/icons/status/condition-hungry-001.svg");
+  background-position: center;
+  background-size: contain;
+}
+
+/* Each condition uses its own user-supplied PNG. `contain` preserves the artwork's
+   original proportions in both the compact button and the expanded information box. */
+.status-condition-icon.status-condition-icon-bleeding,
+.status-condition-icon-lg.status-condition-icon-bleeding { background-image: url("/game/icons/status/bleeding.png"); }
+.status-condition-icon.status-condition-icon-poisoned,
+.status-condition-icon-lg.status-condition-icon-poisoned { background-image: url("/game/icons/status/poisoned.png"); }
+.status-condition-icon.status-condition-icon-burning,
+.status-condition-icon-lg.status-condition-icon-burning { background-image: url("/game/icons/status/burning.png"); }
+.status-condition-icon.status-condition-icon-frozen,
+.status-condition-icon-lg.status-condition-icon-frozen { background-image: url("/game/icons/status/frozen.png"); }
+.status-condition-icon.status-condition-icon-shocked,
+.status-condition-icon-lg.status-condition-icon-shocked { background-image: url("/game/icons/status/shocked.png"); }
+
+.status-condition-icon.status-condition-icon-bleeding,
+.status-condition-icon-lg.status-condition-icon-bleeding,
+.status-condition-icon.status-condition-icon-poisoned,
+.status-condition-icon-lg.status-condition-icon-poisoned,
+.status-condition-icon.status-condition-icon-burning,
+.status-condition-icon-lg.status-condition-icon-burning,
+.status-condition-icon.status-condition-icon-frozen,
+.status-condition-icon-lg.status-condition-icon-frozen,
+.status-condition-icon.status-condition-icon-shocked,
+.status-condition-icon-lg.status-condition-icon-shocked {
+  background-position: center;
+  background-size: contain;
+}
+
+.status-condition-icon.status-condition-icon-asleep,
+.status-condition-icon.status-condition-icon-healthy,
+.status-condition-icon.status-condition-icon-diseased,
+.status-condition-icon-lg.status-condition-icon-asleep,
+.status-condition-icon-lg.status-condition-icon-healthy,
+.status-condition-icon-lg.status-condition-icon-diseased {
+  background-size: contain;
+  background-position: center;
+}
+
+.status-condition-icon.status-condition-icon-asleep,
+.status-condition-icon-lg.status-condition-icon-asleep { background-image: url("/game/icons/status/asleep.png"); }
+.status-condition-icon.status-condition-icon-healthy,
+.status-condition-icon-lg.status-condition-icon-healthy { background-image: url("/game/icons/status/healthy.png"); }
+.status-condition-icon.status-condition-icon-diseased,
+.status-condition-icon-lg.status-condition-icon-diseased { background-image: url("/game/icons/status/diseased.png"); }
+
+.status-condition-icon.status-condition-icon-stunned,
+.status-condition-icon-lg.status-condition-icon-stunned {
+  background-image: url("/game/icons/status/stun.png");
+  background-position: center;
+  background-size: contain;
+}
 
 .status-condition-icon-lg {
   width: 96px;
   height: 96px;
   flex: 0 0 96px;
-  background-image: url("/game/icons/status/condition-atlas-001.png");
+  background-image: none;
   background-repeat: no-repeat;
   background-size: 200% 200%;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7));

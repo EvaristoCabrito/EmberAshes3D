@@ -61,7 +61,7 @@ export function tileVariantSrc(id: TerrainId, variant: number): string {
 const HERO_PORTRAIT: Partial<Record<string, string>> = {
   defaultWarrior: "/game/portraits/kael.png?v=2",
   kaelFinal: "/game/portraits/kael-final-face-001.jpg?v=1",
-  neera: "/game/portraits/neera.png",
+  neera: "/game/portraits/neera-v2.jpg",
   voss: "/game/portraits/voss.png",
   salazar: "/game/portraits/salazar.png",
   aldric: "/game/portraits/aldric-profile-001.jpg?v=3",
@@ -71,15 +71,19 @@ const HERO_PORTRAIT: Partial<Record<string, string>> = {
   // Malrec is the named Conjurer hero: always use his face portrait, never a battle sprite frame.
   malrec: "/game/portraits/conjurer-002.png?v=2",
   theButcher: "/game/portraits/the-butcher-portrait-001.jpg?v=1",
+  // Familiar Titã uses a direct crop of the player's supplied concept art; no art is generated.
+  familiar3: "/game/portraits/familiar3-profile.jpeg?v=3",
 };
 
 /** The one place the portrait-or-sprite-frame fallback lives — used by the unit inspect
  * popup, the footer portrait button, and DialogOverlay. Every "framed" portrait renders in
  * the same fixed box via object-cover, so the frame is always the same size regardless of
  * the source image's own dimensions. */
-export function portraitFor(sprite: SpriteId): { src: string; framed: boolean } {
+export function portraitFor(sprite: SpriteId): { src: string; framed: boolean; position?: string } {
   const framed = HERO_PORTRAIT[sprite];
-  return framed ? { src: framed, framed: true } : { src: `/game/sprites/${sprite}/1.png`, framed: false };
+  return framed
+    ? { src: framed, framed: true }
+    : { src: `/game/sprites/${sprite}/1.png`, framed: false };
 }
 
 const TILES = Object.keys(TILE_VARIANT_COUNT) as TerrainId[];
@@ -183,7 +187,7 @@ export async function loadGameArt(): Promise<GameArt> {
   const attacks: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
   await Promise.all(
     SPRITES.map(async (id) => {
-      const n = id === "conjurer" || id === "kaelFinal" || id === "aldric" || id === "cultist-v2" || id === "malrec" || id === "familiar3" ? 36 : id === "sandoval" || id === "mordavian-wolf" ? 8 : id === "birolho2" ? 18 : id === "birolho3" ? 12 : HERO_IDLE.has(id) ? 12 : 4;
+      const n = id === "neera" || id === "conjurer" || id === "kaelFinal" || id === "aldric" || id === "cultist-v2" || id === "malrec" || id === "familiar3" ? 36 : id === "sandoval" || id === "mordavian-wolf" ? 8 : id === "birolho2" ? 18 : id === "birolho3" ? 12 : HERO_IDLE.has(id) ? 12 : 4;
       const cacheBust = id === "troll" ? "?v=11" : id === "Asherah" ? "?v=3" : id === "familiar" ? "?v=6" : id === "aldric" ? "?v=aldric-final-001" : id === "defaultLancer" ? "?v=sheet2" : id === "lancer" ? "?v=3" : id === "sandoval" ? "?v=sandoval-complete-001" : id === "kaelFinal" ? "?v=kael-final-002" : id === "kaelEarly" ? "?v=kael-early" : id === "defaultWarrior" ? "?v=kael-v2" : id === "conjurer" ? "?v=conjurer-complete-003" : "";
       sprites[id] = await Promise.all(
         Array.from({ length: n }, (_, i) =>
@@ -201,7 +205,7 @@ export async function loadGameArt(): Promise<GameArt> {
     // himself is a different unit entirely and plays as kaelFinal instead.
     defaultWarrior: { n: 12, bust: "?v=kael-v2" },
     kaelEarly: { n: 12, bust: "?v=kael-early" },
-    neera: { n: 4, bust: "" },
+    neera: { n: 36, bust: "" },
     voss: { n: 4, bust: "" },
     salazar: { n: 4, bust: "" },
     // Generic-enemy "alter" sprites (see the SpriteId comment in types.ts) — same file
@@ -254,6 +258,9 @@ export async function loadGameArt(): Promise<GameArt> {
     birolho: { n: 3, bust: "" },
     birolho2: { n: 3, bust: "" },
     birolho3: { n: 18, bust: "" },
+    // Neera's supplied Special cut plays for spell-type archer skills; physical attacks
+    // stay on her dedicated ATT cut above.
+    neera: { n: 36, bust: "" },
     // The spell cast intentionally uses the former Idle sheet; ATT remains the physical attack.
     conjurer: { n: 36, bust: "?v=conjurer-complete-003" },
     // Malrec's own cast-*.png — a copy of conjurer's same dedicated cast sequence.
@@ -281,6 +288,17 @@ export async function loadGameArt(): Promise<GameArt> {
     (Object.keys(ATTACK2_FRAMES) as SpriteId[]).map(async (id) => {
       const { n, bust } = ATTACK2_FRAMES[id]!;
       attacks2[id] = await Promise.all(Array.from({ length: n }, (_, i) => loadImage(spriteFrameSrc(id, `atk2-${i + 1}`, bust))));
+    }),
+  );
+  // Short-range (off-hand dagger/katar) attack cut — see GameArt.attacksShort.
+  const ATTACK_SHORT_FRAMES: Partial<Record<SpriteId, { n: number; bust: string }>> = {
+    neera: { n: 36, bust: "" },
+  };
+  const attacksShort: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
+  await Promise.all(
+    (Object.keys(ATTACK_SHORT_FRAMES) as SpriteId[]).map(async (id) => {
+      const { n, bust } = ATTACK_SHORT_FRAMES[id]!;
+      attacksShort[id] = await Promise.all(Array.from({ length: n }, (_, i) => loadImage(spriteFrameSrc(id, `atk-short-${i + 1}`, bust))));
     }),
   );
   const casts: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
@@ -325,6 +343,12 @@ export async function loadGameArt(): Promise<GameArt> {
     // authored left-facing cut (real distinct footage, not the CSS mirror every other
     // sprite absent from walksLeft falls back to).
     familiar2: { n: 12, bust: "" },
+    // Shot facing left, the same "opposite of the usual facing-1-as-drawn convention" case
+    // as the familiar — see computeUnitVisual's neeraWalkReversed in engine.ts, which mirrors
+    // this pool for rightward travel and draws it as-is for leftward travel (backwards from
+    // every other sprite's own walk pool). A plain CSS mirror-on-left-only treatment (as if
+    // this were right-facing footage) used to read as walking backwards in BOTH directions.
+    neera: { n: 36, bust: "" },
     "ancient-golem": { n: 8, bust: "" },
     aldric: { n: 36, bust: "?v=aldric-final-001" },
     defaultLancer: { n: 6, bust: "?v=sheet2" },
@@ -395,6 +419,11 @@ export async function loadGameArt(): Promise<GameArt> {
   // mirroring the right-facing pool when facing left.
   walksLeft.familiar2 = await Promise.all(
     Array.from({ length: WALK_FRAMES.familiar2!.n }, (_, i) => loadImage(spriteFrameSrc("familiar2", `move-left-${i + 1}`, WALK_FRAMES.familiar2!.bust))),
+  );
+  // Familiar 3 (Titan V2) has its own authored left-facing walk cycle. Keep its gait
+  // directional instead of mirroring the supplied right-facing frames.
+  walksLeft.familiar3 = await Promise.all(
+    Array.from({ length: WALK_FRAMES.familiar3!.n }, (_, i) => loadImage(spriteFrameSrc("familiar3", `move-left-${i + 1}`, WALK_FRAMES.familiar3!.bust))),
   );
   // Mordavian Puppy has real, distinct left-facing walk footage sliced from the same
   // reference sheet's WALK LEFT row — 7 frames there vs 6 in WALK_FRAMES["morvenian-wolf"]'s
@@ -480,5 +509,5 @@ export async function loadGameArt(): Promise<GameArt> {
     // priority over them while moving (see the render loop's img lookup), leaving that
     // animation dead code.
   };
-  return { tiles, decorations, sprites, attacks, attacks2, attacksLeft, casts, castsLeft, counters, countersLeft, walks, walksLeft, idles, idles2, walkDirs, impact, fireballCore, causticVenomCore, arrowCore, lightningCores, webfloor, backdrops };
+  return { tiles, decorations, sprites, attacks, attacks2, attacksShort, attacksLeft, casts, castsLeft, counters, countersLeft, walks, walksLeft, idles, idles2, walkDirs, impact, fireballCore, causticVenomCore, arrowCore, lightningCores, webfloor, backdrops };
 }

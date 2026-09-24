@@ -32,6 +32,7 @@ export function DialogOverlay({ tree, onClose }: { tree: DialogTree; onClose: ()
           <img
             src={portrait.src}
             alt=""
+            style={{ objectPosition: portrait.position }}
             className={portrait.framed ? "h-24 w-20 object-cover rounded-lg border border-border shrink-0" : "h-20 w-20 object-contain shrink-0"}
           />
         )}

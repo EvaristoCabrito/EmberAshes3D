@@ -216,6 +216,103 @@ export function cleaveHexes(from: Point, start: Point, count: number, cols: numb
   return out;
 }
 
+/**
+ * Walks a straight hex-axis ray from `from` in the exact direction `dir` (one of the 6
+ * `CUBE_DIRS`), stopping at the first hex `blockedAt` reports true for. `blockedAt` is
+ * supplied by the caller so this stays free of any live Unit/occupancy state (same
+ * one-way-dependency reasoning as `buildDecorOverlay`'s injected `cellsOf` in
+ * ./hexprops) — it composes terrain/decoration passability and live-unit occupancy
+ * however the caller needs.
+ *
+ * Used both for Bull Rush's charge approach (walking toward the target, stopping the
+ * instant something occupies or blocks a hex) and for its knockback (walking away from
+ * the attacker along that same `dir`, past the target, to find where a wall-impact
+ * would land).
+ */
+export function axisWalk(
+  from: Point,
+  dir: Cube,
+  cols: number,
+  rows: number,
+  maxSteps: number,
+  blockedAt: (p: Point) => boolean,
+): { path: Point[]; stoppedAt: Point | null } {
+  const ray = hexRay(from, dir, cols, rows).slice(0, Math.max(0, maxSteps));
+  const path: Point[] = [];
+  for (const p of ray) {
+    if (blockedAt(p)) return { path, stoppedAt: p };
+    path.push(p);
+  }
+  return { path, stoppedAt: null };
+}
+
+/** The 3 hexes of `ringOrigin`'s own neighbor ring centered on `target` — `target` itself
+ * plus the one neighbor on each side of it in the ring. Used to build Burning Hands' cone
+ * as a symmetric wedge (front hex + one flank each side), unlike `cleaveHexes`, which
+ * always starts AT its `start` hex and sweeps one direction around the ring. */
+function centeredArc(ringOrigin: Point, target: Point): Point[] {
+  const ring = hexNeighbors(ringOrigin.x, ringOrigin.y);
+  const i = ring.findIndex((p) => p.x === target.x && p.y === target.y);
+  if (i < 0) return [target];
+  return [ring[(i + 5) % 6]!, ring[i]!, ring[(i + 1) % 6]!];
+}
+
+/**
+ * Burning Hands' cone: a symmetric wedge centered on `dir`. Ring 1 is the 3-hex front rank
+ * (the facing hex plus one flank each side). When `wide`, ring 2 adds a second, wider rank
+ * further out — 5 more hexes fanning out from the ring-1 hexes pushed one more step along
+ * `dir` — for the higher-level "5-hex cone" tiers.
+ */
+function stepFrom(p: Point, dir: Cube): Point {
+  const c = cubeAdd(oddrToCube(p.x, p.y), dir);
+  return cubeToOddr(c.q, c.r);
+}
+
+export function coneWedge(from: Point, dir: Cube, wide: boolean, cols: number, rows: number): Point[] {
+  const front1 = stepFrom(from, dir);
+  const ring1 = centeredArc(from, front1).filter((p) => inBounds(p.x, p.y, cols, rows));
+  const out: Point[] = [...ring1];
+  const push = (p: Point) => {
+    if (inBounds(p.x, p.y, cols, rows) && !out.some((o) => o.x === p.x && o.y === p.y)) out.push(p);
+  };
+  if (wide && ring1.length === 3) {
+    const front2 = stepFrom(front1, dir);
+    for (const p of centeredArc(front1, front2)) push(p);
+    push(stepFrom(ring1[0]!, dir));
+    push(stepFrom(ring1[2]!, dir));
+  }
+  return out;
+}
+
+/** A slim hex cone out to `radius` rows from `from`, centred on `dir`: rows are 3, 3, 5, 5,
+ * 7, 7 hexes wide (widening by 2 every other row), so radius 1..6 covers 3, 6, 11, 16, 23, 30
+ * hexes. Row 1 is the same 3 hexes coneWedge's narrow form gives. Used by Burning Hands'
+ * level-scaled cone. */
+export function coneSector(from: Point, dir: Cube, radius: number, cols: number, rows: number): Point[] {
+  const i = CUBE_DIRS.findIndex((d) => d.q === dir.q && d.r === dir.r && d.s === dir.s);
+  if (i < 0) return [];
+  const left = CUBE_DIRS[(i + 5) % 6]!;
+  const right = CUBE_DIRS[(i + 1) % 6]!;
+  const o = oddrToCube(from.x, from.y);
+  const out: Point[] = [];
+  for (let k = 1; k <= radius; k++) {
+    // Row k of the full 120° wedge, left corner -> straight ahead (k*dir) -> right corner:
+    // 2k+1 hexes. Keep only the centred `width` of them.
+    const row: Cube[] = [];
+    for (let a = k; a >= 0; a--) row.push({ q: left.q * a + dir.q * (k - a), r: left.r * a + dir.r * (k - a), s: 0 });
+    for (let a = 1; a <= k; a++) row.push({ q: right.q * a + dir.q * (k - a), r: right.r * a + dir.r * (k - a), s: 0 });
+    const width = 3 + 2 * Math.floor((k - 1) / 2);
+    const half = (width - 1) / 2;
+    for (let j = k - half; j <= k + half; j++) {
+      const c = row[j];
+      if (!c) continue;
+      const p = cubeToOddr(o.q + c.q, o.r + c.r);
+      if (inBounds(p.x, p.y, cols, rows)) out.push(p);
+    }
+  }
+  return out;
+}
+
 export interface ReachCell {
   x: number;
   y: number;
@@ -250,7 +347,11 @@ export function footprint(
   // player, where the feet render); the rest of the shape trails behind it, never past
   // unit.y, so nothing sits hidden behind the sprite from the player's view.
   if (unit.footprintOffsets) {
-    return unit.footprintOffsets.map((o) => ({ x: unit.x + o.dx, y: unit.y + o.dy }));
+    // Offsets are authored for an even anchor row. On an odd-r grid, an odd-dy row sits half a
+    // hex the other way when the anchor row is odd, so shift it one column right to keep the
+    // blocked cells under the sprite (which always centers on the front row) on every row.
+    const shift = unit.y & 1;
+    return unit.footprintOffsets.map((o) => ({ x: unit.x + o.dx + (o.dy & 1 ? shift : 0), y: unit.y + o.dy }));
   }
   if (s >= 4) {
     // Fallback: a plain footprintW x footprintH rectangle (default 2x4). Hex rows alternate
@@ -345,6 +446,10 @@ export function footprintCost(
     const who = occ.get(key(p.x, p.y));
     if (!who || who.id === self.id) continue;
     if (who.side !== self.side) return null;
+    // A creature's body-type target zone (FOOTPRINT_TYPE_*) is never walked into or through,
+    // friend or foe, so nobody ends up hidden under a larger monster. This only restricts
+    // OTHER movers — the creature's own pathfinding still checks just its front row (above).
+    if (who.footprintOffsets) return null;
     if (stop) return null;
   }
   return cost;

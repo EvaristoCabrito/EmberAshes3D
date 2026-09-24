@@ -1,4 +1,5 @@
 import { TIER_KEYS } from "./types.ts";
+import { INN_FULLNESS } from "./hunger.ts";
 import type { Bag, ClassDef, ClassId, DecorationDef, DecorationPlacement, EquipmentDef, EquipSlot, HealId, Mission, PotionId, SaveData, SpellKind, TerrainDef, TerrainId, TierKey, Unit, WeaponDef, WorldLocation } from "./types.ts";
 // The attribute is what Node's ESM loader needs to import JSON, and it is what lets
 // `node --test` reach anything that imports this file — the fog tests included.
@@ -2034,6 +2035,14 @@ export function weaponIcon(id: string): string {
 /** Dark-fantasy spell sprites live in their own black-backed atlas slice set so every
  * combat surface uses one cohesive visual family. */
 export function spellIcon(id: string): string {
+  if (id === "summon-familiar2") return "/game/icons/summon-familiar2.png";
+  if (id === "summon-familiar3") return "/game/icons/summon-familiar3.png";
+  if (id === "phantasmal-force") return "/game/icons/phantasmal-force.png";
+  if (id === "bull-rush") return "/game/icons/bull-rush.png";
+  if (id === "executioner-strike") return "/game/icons/executioner-strike.png";
+  if (id === "burning-hands") return "/game/icons/burning-hands.png";
+  if (id === "shield-bash") return "/game/icons/shield-bash.png";
+  if (id === "create-food-and-water") return "/game/icons/create-food-and-water.png";
   if (id === "multi-shot") return "/game/icons/refresh-006/combat/multi-shot-006.png";
   if (id === "cure-light") return "/game/icons/refresh-006/healing/cure-light-new-006.png";
   if (id === "cure-minor") return "/game/icons/refresh-006/healing/cure-light-new-006.png";
@@ -2337,6 +2346,7 @@ export const EQUIPMENT: Record<string, EquipmentDef> = {
   "escudo-de-bandas-cruzadas": { id: "escudo-de-bandas-cruzadas", name: "Escudo de Bandas Cruzadas", slot: "offHand", kind: "shield", usableBy: SHIELD_WEARERS, def: 3, res: 1, dmgMul: 0.8, price: 1300 },
   "escudo-andrajoso": { id: "escudo-andrajoso", name: "Escudo Andrajoso", slot: "offHand", kind: "shield", usableBy: SHIELD_WEARERS, mag: 1, def: 1, dmgMul: 0.7, price: 380 },
   "adaga-secundaria": { id: "adaga-secundaria", name: "Adaga Secundária", slot: "offHand", kind: "weapon", usableBy: ARCHER_TRIO, dice: 1, faces: 4, bonus: 0, minRange: 1, maxRange: 1, price: 70 },
+  "katar-secundario": { id: "katar-secundario", name: "Katar Secundário", slot: "offHand", kind: "weapon", usableBy: ARCHER_TRIO, dice: 1, faces: 6, bonus: 0, minRange: 1, maxRange: 1, price: 90 },
 
   // ============ ACESSÓRIOS ============
   // ==== neck ====
@@ -2749,8 +2759,7 @@ export const CAUSTIC_VENOM = {
 
 export const LONG_SHOT = {
   name: "Tiro Longo",
-  rangeMul: 2,
-  rangeBonus: 1,
+  range: 7,
 };
 
 /** Long Shot's bonus die, always added on top of plain weapon damage (never in place of
@@ -2871,13 +2880,82 @@ export function cleaveFormula(level: number): string {
   return `arma + ${diceFormula(p.dice, p.faces, 0)}`;
 }
 
+/** Warrior tier 1's alternative to Corte Duplo, unlocked at level 3 — shares the same tier-1 charge pool (see
+ * SPELL_TIER). A straight-line charge: stops adjacent to the first enemy reached along an
+ * unobstructed hex axis, hits it for weapon + bonus dice with no counter, then knocks it
+ * straight away. If the knockback is blocked (wall/edge/column/barricade/locked door/
+ * decoration/unit), it stops immediately and the wall-impact dice are folded into the same
+ * damage roll (see castBullRush in engine.ts) rather than landing as a second hit. */
+export const BULL_RUSH = { name: "Investida Touro" };
+export const BULL_RUSH_UNLOCK_LEVEL = 3;
+
+export function bullRushPower(level: number): { chargeRange: number; dice: number; faces: number; knockback: number; wallDice: number; wallFaces: number } {
+  if (level >= 27) return { chargeRange: 4, dice: 2, faces: 12, knockback: 3, wallDice: 2, wallFaces: 10 };
+  if (level >= 23) return { chargeRange: 4, dice: 2, faces: 10, knockback: 2, wallDice: 2, wallFaces: 8 };
+  if (level >= 19) return { chargeRange: 4, dice: 2, faces: 8, knockback: 2, wallDice: 2, wallFaces: 8 };
+  if (level >= 16) return { chargeRange: 4, dice: 2, faces: 6, knockback: 2, wallDice: 2, wallFaces: 6 };
+  if (level >= 13) return { chargeRange: 3, dice: 2, faces: 6, knockback: 2, wallDice: 2, wallFaces: 6 };
+  if (level >= 10) return { chargeRange: 3, dice: 1, faces: 10, knockback: 1, wallDice: 1, wallFaces: 8 };
+  if (level >= 7) return { chargeRange: 3, dice: 1, faces: 8, knockback: 1, wallDice: 1, wallFaces: 8 };
+  if (level >= 4) return { chargeRange: 3, dice: 1, faces: 6, knockback: 1, wallDice: 1, wallFaces: 6 };
+  return { chargeRange: 2, dice: 1, faces: 4, knockback: 1, wallDice: 1, wallFaces: 4 };
+}
+
+export function bullRushFormula(level: number): string {
+  const p = bullRushPower(level);
+  return `arma + ${diceFormula(p.dice, p.faces, 0)}`;
+}
+
+/** Warrior tier 3: an adjacent strike whose execution multiplier REPLACES a normal critical
+ * hit rather than stacking with it (see castExecutionerStrike/stepCombat's "hit" branch,
+ * which rebuilds off rollDamage's preCritDmg whenever the execution threshold is met) — a
+ * late-game crit + execution stacking would otherwise be far too swingy. */
+export const EXECUTIONER_STRIKE = { name: "Golpe do Carrasco" };
+
+export function executionerStrikePower(level: number): { dice: number; faces: number; threshold: number; mult: number } {
+  if (level >= 28) return { dice: 3, faces: 10, threshold: 0.4, mult: 2.25 };
+  if (level >= 25) return { dice: 2, faces: 12, threshold: 0.4, mult: 2.0 };
+  if (level >= 21) return { dice: 2, faces: 10, threshold: 0.35, mult: 2.0 };
+  if (level >= 17) return { dice: 2, faces: 8, threshold: 0.35, mult: 1.75 };
+  if (level >= 14) return { dice: 2, faces: 6, threshold: 0.3, mult: 1.75 };
+  if (level >= 11) return { dice: 1, faces: 10, threshold: 0.3, mult: 1.5 };
+  return { dice: 1, faces: 8, threshold: 0.3, mult: 1.5 };
+}
+
+export function executionerStrikeFormula(level: number): string {
+  const p = executionerStrikePower(level);
+  return `arma + ${diceFormula(p.dice, p.faces, 0)}, execução ×${p.mult} se o alvo estiver a ≤${Math.round(p.threshold * 100)}% de vida`;
+}
+
+/** Warrior tier 2's shield-only option (shares Cleave's tier-2 pool) — refuses to arm
+ * without a shield in the off hand (see startShieldBash, the mirror of startShoulderSmash's
+ * own "no shield" gate). Plain weapon + bonus dice, then stuns — no stat penalty, unlike
+ * Rasteira. */
+export const SHIELD_BASH = { name: "Golpe de Escudo" };
+
+export function shieldBashPower(level: number): { dice: number; faces: number; stunTurns: number } {
+  if (level >= 27) return { dice: 2, faces: 12, stunTurns: 3 };
+  if (level >= 23) return { dice: 2, faces: 10, stunTurns: 3 };
+  if (level >= 19) return { dice: 2, faces: 8, stunTurns: 2 };
+  if (level >= 16) return { dice: 2, faces: 6, stunTurns: 2 };
+  if (level >= 13) return { dice: 1, faces: 10, stunTurns: 2 };
+  if (level >= 10) return { dice: 1, faces: 8, stunTurns: 1 };
+  if (level >= 7) return { dice: 1, faces: 6, stunTurns: 1 };
+  return { dice: 1, faces: 4, stunTurns: 1 };
+}
+
+export function shieldBashFormula(level: number): string {
+  const p = shieldBashPower(level);
+  return `arma + ${diceFormula(p.dice, p.faces, 0)}, atordoa por ${p.stunTurns} turno${p.stunTurns > 1 ? "s" : ""}`;
+}
+
 /** Archer tier 3: fires at several targets in one shot, each rolling weapon damage plus its
  * own bonus die. Two targets from the tier's unlock at level 7, a third at level 11; the
  * bonus die itself starts at level 8 and upgrades once at level 13 (replaces, doesn't stack —
  * same convention as every other bonus die in this file). */
 export const MULTI_SHOT = {
   name: "Tiro Múltiplo",
-  rangeBonus: 3,
+  range: 6,
 };
 
 export function multiShotTargets(level: number): number {
@@ -3049,7 +3127,7 @@ export function birolhoSpellUses(level: number): { magicMissile: number; caustic
  * no duration to track, no re-cast limit beyond the tier's own uses per scenario. */
 export const SUMMON_FAMILIAR = {
   name: "Invocar Familiar",
-  range: 7,
+  range: 4,
   statScale: 0.5,
 };
 
@@ -3088,7 +3166,7 @@ export function phantasmalForceFormula(level: number, mag: number): string {
  * parameter and SPELL_TIER.summonFamiliar2). */
 export const SUMMON_FAMILIAR2 = {
   name: "Invocar Familiar Maior",
-  range: 7,
+  range: 4,
   statScale: 0.75,
 };
 
@@ -3104,7 +3182,7 @@ export const SUMMON_FAMILIAR2_UNLOCK_LEVEL = 5;
  * summoned — see familiarSpellCharges. */
 export const SUMMON_FAMILIAR3 = {
   name: "Invocar Familiar Titã",
-  range: 7,
+  range: 5,
   statScale: 1,
 };
 
@@ -3302,6 +3380,32 @@ export const CURE_DISEASE = {
   range: 2,
 };
 
+/** Healer tier 3 (shares Cure Disease's pool): self-only, no targeting — always tops off the caster's OWN hunger (never
+ * an ally's) and conjures a level-scaled batch of plain Rations, ordinary inventory items,
+ * no secondary effect. `fullness` and the bonus-Rations dice are two independent breakpoint
+ * ladders: the 120%-"overfed" tier (same value a paid Inn meal already grants, INN_FULLNESS)
+ * starts flat at level 10, cutting across the dice table's own 9-10 pairing. */
+export const CREATE_FOOD_AND_WATER = { name: "Curar Fome e Sede" };
+
+export function createFoodAndWaterPower(level: number): { dice: number; faces: number; bonus: number; fullness: number } {
+  const fullness = level >= 10 ? INN_FULLNESS : 100;
+  if (level >= 15) return { dice: 2, faces: 4, bonus: 2, fullness };
+  if (level >= 13) return { dice: 1, faces: 6, bonus: 2, fullness };
+  if (level >= 11) return { dice: 1, faces: 6, bonus: 1, fullness };
+  if (level >= 9) return { dice: 1, faces: 4, bonus: 1, fullness };
+  if (level >= 7) return { dice: 1, faces: 4, bonus: 0, fullness };
+  if (level >= 5) return { dice: 1, faces: 3, bonus: 0, fullness };
+  if (level >= 3) return { dice: 1, faces: 2, bonus: 0, fullness };
+  return { dice: 0, faces: 0, bonus: 0, fullness };
+}
+
+export function createFoodAndWaterFormula(level: number): string {
+  const p = createFoodAndWaterPower(level);
+  const food = `Comida completa${p.fullness > 100 ? ` (${p.fullness}%)` : ""}`;
+  const rations = diceFormula(p.dice, p.faces, p.bonus);
+  return rations ? `${food} + ${rations} Rações` : food;
+}
+
 /** Flat, for the same reason as fireballPower: the caster's MAG carries the growth now. */
 export function lightningDice(): number {
   return LIGHTNING.dice;
@@ -3312,6 +3416,38 @@ export function lightningDice(): number {
  * and the number that lands agree. */
 export function spellFormula(mag: number, mul: number, dice: number, faces: number, bonus: number): string {
   return `${Math.floor(Math.floor(mag / 2) * mul)} + ${diceFormula(dice, faces, bonus)}`;
+}
+
+/** Priest tier 2 (shares Cura Média's pool): a short frontal cone with friendly fire — the priest has to position
+ * carefully instead of firing through allies. Its multiplier starts under Magic Missile's
+ * 1.15 and stays below Fireball's 1.35 even at max level, matching its short cone and
+ * friendly-fire risk. `range` only bounds how far the priest can click to set the facing
+ * direction (see startBurningHands's wrathRay use) — the cone's own footprint is governed
+ * by `wide` (see coneWedge in pathfinding.ts): false = the 3-hex front rank only, true =
+ * that rank plus a second, wider rank further out (the "5-hex cone" tiers). */
+export const BURNING_HANDS = { name: "Mãos Flamejantes" };
+
+/** Burning Hands' cone radius: grows in even steps from 1 hex at level 1 to 6 at level 15
+ * (1-3: 1, 4-6: 2, 7-9: 3, 10-12: 4, 13-14: 5, 15+: 6). Aim range always equals it. The cone
+ * itself is slim (see coneSector): 3, 6, 11, 16, 23, 30 hexes for radius 1-6. */
+export function burningHandsRadius(level: number): number {
+  return Math.min(6, 1 + Math.floor((Math.max(1, level) - 1) * 5 / 14));
+}
+
+export function burningHandsPower(level: number): { range: number; radius: number; dice: number; faces: number; mul: number } {
+  const radius = burningHandsRadius(level);
+  if (level >= 25) return { range: radius, radius, dice: 2, faces: 10, mul: 1.35 };
+  if (level >= 21) return { range: radius, radius, dice: 2, faces: 8, mul: 1.3 };
+  if (level >= 17) return { range: radius, radius, dice: 2, faces: 6, mul: 1.25 };
+  if (level >= 13) return { range: radius, radius, dice: 2, faces: 4, mul: 1.2 };
+  if (level >= 9) return { range: radius, radius, dice: 1, faces: 8, mul: 1.15 };
+  if (level >= 5) return { range: radius, radius, dice: 1, faces: 6, mul: 1.1 };
+  return { range: radius, radius, dice: 1, faces: 4, mul: 1.05 };
+}
+
+export function burningHandsFormula(level: number, mag: number): string {
+  const p = burningHandsPower(level);
+  return spellFormula(mag, p.mul, p.dice, p.faces, 0);
 }
 
 export function lightningFormula(mag: number): string {
@@ -3601,6 +3737,11 @@ export const SPELL_TIER: Partial<Record<SpellKind, SpellTier>> = {
   shoulderSmash: 4,
   intimidatingPresence: 5,
   stampede: 6,
+  bullRush: 1,
+  shieldBash: 2,
+  executionerStrike: 3,
+  burningHands: 2,
+  createFoodAndWater: 3,
 };
 
 export function spellTier(kind: SpellKind): SpellTier | null {
