@@ -3380,12 +3380,14 @@ export const CURE_DISEASE = {
   range: 2,
 };
 
-/** Healer tier 3 (shares Cure Disease's pool): self-only, no targeting — always tops off the caster's OWN hunger (never
- * an ally's) and conjures a level-scaled batch of plain Rations, ordinary inventory items,
- * no secondary effect. `fullness` and the bonus-Rations dice are two independent breakpoint
- * ladders: the 120%-"overfed" tier (same value a paid Inn meal already grants, INN_FULLNESS)
- * starts flat at level 10, cutting across the dice table's own 9-10 pairing. */
-export const CREATE_FOOD_AND_WATER = { name: "Curar Fome e Sede" };
+/** Healer tier 3 (shares Cure Disease's pool): instant, self-centered, no aim — same as Aura
+ * of Protection/Intimidating Presence — tops off the hunger of the caster and every ally
+ * within `radius` hexes, and conjures a level-scaled batch of plain Rations per ally fed,
+ * ordinary inventory items, no secondary effect. `fullness` and the bonus-Rations dice are
+ * two independent breakpoint ladders: the 120%-"overfed" tier (same value a paid Inn meal
+ * already grants, INN_FULLNESS) starts flat at level 10, cutting across the dice table's own
+ * 9-10 pairing. */
+export const CREATE_FOOD_AND_WATER = { name: "Curar Fome e Sede", radius: 2 };
 
 export function createFoodAndWaterPower(level: number): { dice: number; faces: number; bonus: number; fullness: number } {
   const fullness = level >= 10 ? INN_FULLNESS : 100;

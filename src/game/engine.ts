@@ -4557,26 +4557,32 @@ export class BattleEngine {
     sfxPlay.ui();
   }
 
-  /** Healer tier 3: self-only, resolves instantly like Aura of Protection/Intimidating
-   * Presence — never arms awaitSpell, so it never reaches spellAimValid/confirmSpell. Tops
-   * off the CASTER'S OWN hunger only (never an ally's) and adds plain Rations to the same
-   * pool a battle-picked-up ration would (see lootRations, reconciled back into save.rations
-   * at battle end — see GameApp.tsx). */
+  /** Healer tier 3: resolves instantly like Aura of Protection/Intimidating Presence — never
+   * arms awaitSpell, so it never reaches spellAimValid/confirmSpell. Tops off the hunger of
+   * the caster and every ally within CREATE_FOOD_AND_WATER.radius hexes, adding plain Rations
+   * per ally fed to the same pool a battle-picked-up ration would (see lootRations,
+   * reconciled back into save.rations at battle end — see GameApp.tsx). */
   startCreateFoodAndWater(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || u.acted || this.tierRemaining(u, "createFoodAndWater") <= 0) return;
     const power = createFoodAndWaterPower(u.level);
-    if (fullness(u.fullness) >= power.fullness) {
+    const targets = this.units.filter(
+      (t) => t.alive && t.side === u.side && hexDist(u, t) <= CREATE_FOOD_AND_WATER.radius && fullness(t.fullness) < power.fullness,
+    );
+    if (targets.length === 0) {
       this.tip = "Já está bem alimentado.";
       sfxPlay.ui();
       return;
     }
-    u.fullness = power.fullness;
-    u.hungerPenaltyPct = 0;
-    this.reapplyGear(u);
-    const gained = power.dice > 0 ? rollDice(power.dice, power.faces, power.bonus, this.rng) : 0;
+    let gained = 0;
+    for (const t of targets) {
+      t.fullness = power.fullness;
+      t.hungerPenaltyPct = 0;
+      this.reapplyGear(t);
+      gained += power.dice > 0 ? rollDice(power.dice, power.faces, power.bonus, this.rng) : 0;
+      this.emitHolyFx(t.x, t.y, "food", t.id);
+    }
     this.lootRations += gained;
-    this.emitHolyFx(u.x, u.y, "food", u.id);
     this.spendTier(u, "createFoodAndWater");
     this.spellKind = null;
     this.spellArmed = false;
@@ -8029,6 +8035,9 @@ export class BattleEngine {
       return Math.min(n - 1, Math.floor(Math.min(0.99, animationT / castDuration) * n));
     }
     if (a.type === "combat") {
+      // Bull Rush has its own charge animation and impact FX (rushTrail/rushImpact) —
+      // it never plays the ATT swing sheet, unlike every other combat step.
+      if (a.spellKind === "bullRush") return null;
       const counter = a.stage.startsWith("counter");
       const actor = counter ? a.def : a.att;
       if (u.id !== actor) return null;
