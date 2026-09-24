@@ -236,27 +236,127 @@ function decorSize(id: string, def: DecorationDef, tile: number): { w: number; h
 const SHADOW_RADIUS_HARD = 1;
 const SHADOW_RADIUS_SOFT = 4;
 
-/** Contact-shadow footprint, relative to the unit's drawn sprite width: wider than tall, a
- * stance shape rather than a circle. */
-const CONTACT_SHADOW_W = 0.6;
-const CONTACT_SHADOW_H = 0.24;
-const CONTACT_SHADOW_OPACITY = 0.7;
+/** Contact shadow = short-range grounding only, never a second cast shadow. The scene is flat
+ * orthographic billboards (no depth relationship between sprite and ground to sample), so this
+ * is a per-object ground decal sized from the art's own opaque base (see artBase) — transparent
+ * sprite pixels never count as contact, and one object's decal can never darken another object
+ * (decals sit at z=0.51, under every sprite/prop).
+ * W: decal width as a multiple of the measured opaque base width (a little spill past the edge).
+ * H: decal height as a fraction of its width (ground seen at the board's 3/4 angle).
+ * OPACITY: peak darkening at the contact point — a multiply, so 0.4 keeps 60% of the ground's
+ * own light; never black. MAX_W caps the decal against the sprite's drawn width. */
+const CONTACT_SHADOW_W = 1.15;
+const CONTACT_SHADOW_H = 0.3;
+const CONTACT_SHADOW_OPACITY = 0.4;
+const CONTACT_SHADOW_MAX_W = 0.6;
+/** Absolute cap on decal height, in hex radii — keeps a wide base (wall, log) from growing a
+ * deep oval that reaches far in front of/behind the contact line. */
+const CONTACT_SHADOW_MAX_H = 0.2;
+/** Fraction of an image's height, measured up from its lowest opaque row, that counts as "the
+ * base touching the ground" (feet, paws, trunk, wall foot). */
+const CONTACT_BASE_BAND = 0.08;
 
-/** Soft dark radial gradient shared by every unit's contact shadow — the same CanvasTexture
- * technique activeTurnShadowCatcher already uses (proven to render in this renderer). A custom
- * ShaderMaterial computing the falloff from UV was tried first and silently drew nothing here,
- * even at 3x size / opacity 1, while a plain MeshBasicMaterial on the same mesh did. */
+/** Falloff mask shared by every contact decal. Alpha only — the material (see
+ * makeContactShadowMaterial) multiplies the ground by (1 - alpha), so the color channels are
+ * irrelevant. (1 - r²)³: strongest at the contact, ~42% at half radius, ~13% at 70%, and exactly
+ * zero with zero slope at the edge, so no ring marks where it stops. */
 function makeContactShadowTexture(): THREE.CanvasTexture {
+  const size = 128;
   const c = document.createElement("canvas");
-  c.width = c.height = 128;
+  c.width = c.height = size;
   const ctx = c.getContext("2d")!;
-  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  g.addColorStop(0, "rgba(20,16,12,1)");
-  g.addColorStop(0.45, "rgba(20,16,12,0.6)");
-  g.addColorStop(1, "rgba(20,16,12,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 128, 128);
+  const img = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (x + 0.5) / (size / 2) - 1;
+      const dy = (y + 0.5) / (size / 2) - 1;
+      const k = Math.max(0, 1 - (dx * dx + dy * dy));
+      const i = (y * size + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+      img.data[i + 3] = Math.round(255 * k * k * k);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
   return new THREE.CanvasTexture(c);
+}
+
+/** dst * (1 - srcAlpha): can only darken what is already on the ground, never lighten or tint it.
+ * The previous alpha-blended dark-grey gradient measured as LIGHTENING dark grass by up to +45
+ * luminance (a grey film, not a shadow) — its "dark" color landed mid-grey after output encoding. */
+function makeContactShadowMaterial(map: THREE.Texture): THREE.MeshBasicMaterial {
+  return new THREE.MeshBasicMaterial({
+    map,
+    opacity: CONTACT_SHADOW_OPACITY,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.AddEquation,
+    blendSrc: THREE.ZeroFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+  });
+}
+
+/** Where an image's opaque art actually meets the ground, normalized to the image (u across,
+ * v down): the alpha-weighted 5th–95th percentile span of opaque pixels within CONTACT_BASE_BAND
+ * of the lowest opaque row. Percentiles (not min/max) so a stray sword tip or claw doesn't
+ * stretch the decal. null = no opaque pixels / unreadable image. Cached per image. */
+interface ArtBase {
+  u0: number;
+  u1: number;
+  v: number;
+}
+const artBaseCache = new WeakMap<HTMLImageElement, ArtBase | null>();
+function artBase(img: HTMLImageElement): ArtBase | null {
+  if (artBaseCache.has(img)) return artBaseCache.get(img)!;
+  let result: ArtBase | null = null;
+  try {
+    const scale = Math.min(1, 256 / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d", { willReadFrequently: true })!;
+    ctx.drawImage(img, 0, 0, w, h);
+    const a = ctx.getImageData(0, 0, w, h).data;
+    let bottom = -1;
+    for (let y = h - 1; y >= 0 && bottom < 0; y--) {
+      for (let x = 0; x < w; x++) {
+        if (a[(y * w + x) * 4 + 3]! > 128) {
+          bottom = y;
+          break;
+        }
+      }
+    }
+    if (bottom >= 0) {
+      const top = Math.max(0, bottom - Math.max(1, Math.round(h * CONTACT_BASE_BAND)));
+      const cols = new Float64Array(w);
+      let total = 0;
+      for (let y = top; y <= bottom; y++) {
+        for (let x = 0; x < w; x++) {
+          const al = a[(y * w + x) * 4 + 3]!;
+          if (al > 128) {
+            cols[x] += al;
+            total += al;
+          }
+        }
+      }
+      let acc = 0;
+      let x0 = 0;
+      let x1 = w - 1;
+      for (let x = 0; x < w; x++) {
+        const prev = acc;
+        acc += cols[x]!;
+        if (prev < total * 0.05 && acc >= total * 0.05) x0 = x;
+        if (prev < total * 0.95 && acc >= total * 0.95) x1 = x;
+      }
+      result = { u0: x0 / w, u1: (x1 + 1) / w, v: (bottom + 1) / h };
+    }
+  } catch {
+    result = null;
+  }
+  artBaseCache.set(img, result);
+  return result;
 }
 
 interface DecorMeshEntry {
@@ -265,6 +365,9 @@ interface DecorMeshEntry {
   /** Same quadGeo + alpha-tested copy of the prop's own art (colorWrite off, see
    * decorShadowMaterialFor) that casts this prop's real shadow as its own silhouette, not a box. */
   shadowMesh: THREE.Mesh;
+  /** Contact decal at the prop's opaque base (see artBase); null when the art has no readable
+   * base or the prop is a spun placeholder (facing fallback) with no meaningful "bottom". */
+  contactMesh: THREE.Mesh | null;
 }
 
 interface UnitMeshEntry {
@@ -283,6 +386,9 @@ interface UnitMeshEntry {
    * own fade/lift); the gradient texture itself is shared (contactShadowTexture). */
   contactMesh: THREE.Mesh;
   contactMaterial: THREE.MeshBasicMaterial;
+  /** Smoothed decal center/width in world units — the base is re-measured from each animation
+   * frame, so this eases between frames instead of snapping (null until first placed). */
+  contactFit: { dx: number; dy: number; w: number } | null;
 }
 
 export class ThreeBattleRenderer {
@@ -397,6 +503,11 @@ export class ThreeBattleRenderer {
    * (units draw on the Canvas2D top layer), but these are ground marks, so they stay here. */
   private contactShadowGroup = new THREE.Group();
   private contactShadowTexture = makeContactShadowTexture();
+  /** Decoration contact decals — separate from contactShadowGroup because, unlike unit decals,
+   * these must hide whenever decorGroup does (no decal left under a prop that isn't drawn). One
+   * shared material: props don't fade individually (fog-of-war toggles mesh.visible instead). */
+  private decorContactGroup = new THREE.Group();
+  private decorContactMaterial = makeContactShadowMaterial(this.contactShadowTexture);
   // Textures are shared by image (same pattern as tiles/decor — cheap, no per-unit GPU upload),
   // but each unit gets its OWN material (see UnitMeshEntry) so u.fade can drive real per-unit
   // opacity: a shared material (the tile/decor pattern) would make every unit sharing one sprite
@@ -508,6 +619,7 @@ export class ThreeBattleRenderer {
     this.scene.add(this.activeTurnGlow);
     this.scene.add(this.activeTurnShadowCatcher);
     this.scene.add(this.contactShadowGroup);
+    this.scene.add(this.decorContactGroup);
     this.scene.add(this.decorGroup);
     this.scene.add(this.unitGroup);
     this.scene.add(this.atmosphere.group);
@@ -772,6 +884,7 @@ export class ThreeBattleRenderer {
     for (const entry of this.decorEntries) {
       this.decorGroup.remove(entry.mesh);
       this.shadowCasterGroup.remove(entry.shadowMesh);
+      if (entry.contactMesh) this.decorContactGroup.remove(entry.contactMesh);
     }
     this.decorEntries = [];
     this.builtDecorKey = key;
@@ -853,7 +966,21 @@ export class ThreeBattleRenderer {
       }
       this.shadowCasterGroup.add(shadowMesh);
 
-      this.decorEntries.push({ mesh, placement: p, shadowMesh });
+      // Contact decal at the art's own opaque base (visible-mesh space: centered at wx,wy,
+      // spanning w x h). Skipped for the spun-bitmap facing fallback — its "bottom" isn't the
+      // ground side any more.
+      let contactMesh: THREE.Mesh | null = null;
+      const base = facing.step !== 0 && !facing.own ? null : artBase(img);
+      if (base) {
+        const sign = facing.own && facing.mirror ? -1 : 1;
+        const cw = (base.u1 - base.u0) * w * CONTACT_SHADOW_W;
+        contactMesh = new THREE.Mesh(this.quadGeo, this.decorContactMaterial);
+        contactMesh.position.set(wx + sign * ((base.u0 + base.u1) / 2 - 0.5) * w, -(wy - h / 2 + base.v * h), 0.51);
+        contactMesh.scale.set(cw, Math.min(cw * CONTACT_SHADOW_H, tile * CONTACT_SHADOW_MAX_H), 1);
+        this.decorContactGroup.add(contactMesh);
+      }
+
+      this.decorEntries.push({ mesh, placement: p, shadowMesh, contactMesh });
     }
   }
 
@@ -910,10 +1037,10 @@ export class ThreeBattleRenderer {
         const shadowMesh = new THREE.Mesh(this.quadGeo, shadowMaterial);
         shadowMesh.castShadow = true;
         this.shadowCasterGroup.add(shadowMesh);
-        const contactMaterial = new THREE.MeshBasicMaterial({ map: this.contactShadowTexture, transparent: true, depthWrite: false });
+        const contactMaterial = makeContactShadowMaterial(this.contactShadowTexture);
         const contactMesh = new THREE.Mesh(this.quadGeo, contactMaterial);
         this.contactShadowGroup.add(contactMesh);
-        entry = { mesh, material, img: null, shadowMesh, shadowMaterial, contactMesh, contactMaterial };
+        entry = { mesh, material, img: null, shadowMesh, shadowMaterial, contactMesh, contactMaterial, contactFit: null };
         this.unitEntries.set(u.id, entry);
       }
       entry.mesh.visible = true;
@@ -964,12 +1091,31 @@ export class ThreeBattleRenderer {
       entry.shadowMesh.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY), elevation / 2 - UNIT_SHADOW_GROUND_INSET / 2);
       entry.shadowMesh.visible = true;
 
-      // Contact shadow: same ground-contact point as the caster above (ignores bob/lift so it
-      // stays on the ground), fading and shrinking as the unit lifts off it.
+      // Contact shadow: at this frame's opaque base (feet/paws — see artBase), in the same
+      // local frame the sprite is drawn in (image spans y in [-h+footOffset, footOffset] before
+      // scale), but from the ground origin (ignores bob/lift so it stays on the ground), fading
+      // and shrinking as the unit lifts off it.
       const liftFade = Math.max(0, 1 - v.lift / Math.max(1, tile * 0.6));
       const footW = Math.abs(v.scaleX) * v.w;
-      entry.contactMesh.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY), 0.51);
-      entry.contactMesh.scale.set(footW * CONTACT_SHADOW_W * (0.7 + 0.3 * liftFade), footW * CONTACT_SHADOW_H * (0.7 + 0.3 * liftFade), 1);
+      const base = artBase(img);
+      const target = base
+        ? {
+            dx: ((base.u0 + base.u1) / 2 - 0.5) * v.w * v.scaleX,
+            dy: (-v.h + v.footOffset + base.v * v.h) * v.scaleY,
+            w: Math.min(footW * CONTACT_SHADOW_MAX_W, (base.u1 - base.u0) * footW * CONTACT_SHADOW_W),
+          }
+        : { dx: 0, dy: 0, w: footW * 0.35 };
+      const fit = entry.contactFit;
+      if (!fit) entry.contactFit = target;
+      else {
+        fit.dx += (target.dx - fit.dx) * 0.3;
+        fit.dy += (target.dy - fit.dy) * 0.3;
+        fit.w += (target.w - fit.w) * 0.3;
+      }
+      const cf = entry.contactFit!;
+      const cw = cf.w * (0.7 + 0.3 * liftFade);
+      entry.contactMesh.position.set(anchor.worldX + v.sway + cf.dx, -(anchor.worldY + v.footY + cf.dy), 0.51);
+      entry.contactMesh.scale.set(cw, Math.min(cw * CONTACT_SHADOW_H, tile * CONTACT_SHADOW_MAX_H), 1);
       entry.contactMaterial.opacity = CONTACT_SHADOW_OPACITY * u.fade * liftFade;
       entry.contactMesh.visible = liftFade > 0;
     }
@@ -1000,13 +1146,17 @@ export class ThreeBattleRenderer {
   private syncDecorVisibility(): void {
     const engine = this.engine;
     if (!engine.fogged) {
-      for (const entry of this.decorEntries) entry.mesh.visible = entry.shadowMesh.visible = true;
+      for (const entry of this.decorEntries) {
+        entry.mesh.visible = entry.shadowMesh.visible = true;
+        if (entry.contactMesh) entry.contactMesh.visible = true;
+      }
       return;
     }
     for (const entry of this.decorEntries) {
       const p = entry.placement;
       const visible = placedFootprint(p).some((f) => engine.explored(p.x + f.dx, p.y + f.dy));
       entry.mesh.visible = entry.shadowMesh.visible = visible;
+      if (entry.contactMesh) entry.contactMesh.visible = visible;
     }
   }
 
@@ -1216,6 +1366,7 @@ export class ThreeBattleRenderer {
     if (this.sunLight.castShadow !== gfx.realShadows) this.sunLight.castShadow = gfx.realShadows;
     this.sunLight.shadow.radius = gfx.softShadows ? SHADOW_RADIUS_SOFT : SHADOW_RADIUS_HARD;
     this.contactShadowGroup.visible = gfx.contactShadows;
+    this.decorContactGroup.visible = gfx.contactShadows && this.decorGroup.visible;
   }
 
   dispose(): void {
@@ -1257,6 +1408,7 @@ export class ThreeBattleRenderer {
     this.activeTurnShadowCatcherMaterial.dispose();
     this.activeTurnShadowCatcherTexture.dispose();
     this.contactShadowTexture.dispose();
+    this.decorContactMaterial.dispose();
     this.renderer.dispose();
   }
 }
