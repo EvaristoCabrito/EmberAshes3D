@@ -7,8 +7,8 @@ export interface DevGfxSettings {
   /** Widens the PCF filter radius so shadow edges soften instead of stair-stepping.
    * (PCFSoftShadowMap was removed in this Three.js version — radius is the knob now.) */
   softShadows: boolean;
-  /** A short, soft dark footprint under every unit's feet, independent of the shadow map —
-   * the real cast shadow never quite reaches the feet (see activeTurnShadowCatcher's comment). */
+  /** A short, darken-only grounding decal at every unit's and prop's opaque base, independent of
+   * the shadow map (see CONTACT_SHADOW_* in ThreeBattleRenderer.ts). */
   contactShadows: boolean;
 }
 

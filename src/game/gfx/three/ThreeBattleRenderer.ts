@@ -472,25 +472,6 @@ export class ThreeBattleRenderer {
   private activeTurnGlowMaterial: THREE.SpriteMaterial;
   private activeTurnGlow: THREE.Sprite;
 
-  // ADDITIVE ONLY — does not read from or modify activeTurnGlow/place()'s flat hex above in any
-  // way, per direct instruction never to touch that system again. THREE.ShadowMaterial renders as
-  // fully transparent everywhere except where a real shadow actually falls (it's the stock
-  // Three.js "shadow catcher" material, built for exactly this: compositing a real shadow onto
-  // something else without otherwise altering it). Drawn at a higher z than both the flat hex
-  // (0.5) and the glow sprite (0.45), so on the one tile that's already fully opaque gold, the
-  // active unit's own real cast shadow can still show through on top of it — the hex's own color/
-  // size/opacity/pulse timing are never read or written here.
-  // ADDITIVE ONLY — does not read from or modify activeTurnGlow/place()'s flat hex above in any
-  // way, per direct instruction never to touch that system again. A direct dark radial sprite
-  // anchored at the active unit's own real foot position (anchor + footY, the exact same point
-  // its real shadow-caster box uses — NOT the tile's plain grid-cell center, which is offset from
-  // where a standing unit's feet actually are; see syncOverlay's own comment). Drawn at a higher z
-  // than both the flat hex (0.5) and the glow sprite (0.45) so it always shows on top — the hex's
-  // own color/size/opacity/pulse timing are never read or written here.
-  private activeTurnShadowCatcherTexture: THREE.CanvasTexture;
-  private activeTurnShadowCatcherMaterial: THREE.SpriteMaterial;
-  private activeTurnShadowCatcher: THREE.Sprite;
-
   // Animated units (see THREEJS_MILESTONE1_HANDOFF.md) — one persistent mesh per live unit id,
   // repositioned/retextured/rescaled every frame in syncUnits rather than rebuilt, since units
   // (unlike terrain/decor) change position, pose and art every frame. HP bars, hover/selection
@@ -569,33 +550,6 @@ export class ThreeBattleRenderer {
     this.activeTurnGlow = new THREE.Sprite(this.activeTurnGlowMaterial);
     this.activeTurnGlow.position.z = 0.45;
     this.activeTurnGlow.visible = false;
-    // ADDITIVE ONLY — see the field's own comment. THREE.ShadowMaterial (reveal-the-real-shadow)
-    // was tried first but the real WebGL shadow simply doesn't reach close enough to a unit's own
-    // anchor point to ever read as "touching their feet" — confirmed empirically, not assumed; see
-    // git history for that attempt. This is a direct dark radial-gradient sprite instead (same
-    // CanvasTexture technique as activeTurnGlowTexture just above, inverted to dark-center/
-    // transparent-edge), anchored at the same world position the unit's own real shadow-caster box
-    // uses — independent of the real shadow computation's reach, so it reliably darkens right at
-    // the feet regardless.
-    const feetCanvas = document.createElement("canvas");
-    feetCanvas.width = feetCanvas.height = 128;
-    const feetCtx = feetCanvas.getContext("2d")!;
-    const feetGradient = feetCtx.createRadialGradient(64, 64, 4, 64, 64, 64);
-    feetGradient.addColorStop(0, "rgba(20,16,12,0.6)");
-    feetGradient.addColorStop(0.55, "rgba(20,16,12,0.32)");
-    feetGradient.addColorStop(1, "rgba(20,16,12,0)");
-    feetCtx.fillStyle = feetGradient;
-    feetCtx.fillRect(0, 0, 128, 128);
-    this.activeTurnShadowCatcherTexture = new THREE.CanvasTexture(feetCanvas);
-    this.activeTurnShadowCatcherMaterial = new THREE.SpriteMaterial({
-      map: this.activeTurnShadowCatcherTexture,
-      transparent: true,
-      depthWrite: false,
-      opacity: 0,
-    });
-    this.activeTurnShadowCatcher = new THREE.Sprite(this.activeTurnShadowCatcherMaterial);
-    this.activeTurnShadowCatcher.position.z = 0.51;
-    this.activeTurnShadowCatcher.visible = false;
     // Author-controlled lighting (Mission.environment/sunIntensity/ambientIntensity, editable in
     // the Map Editor's "Iluminação" section — see GameApp.tsx) — an explicit sunIntensity/
     // ambientIntensity always wins; otherwise "indoor" gets its own flatter preset, and anything
@@ -617,7 +571,6 @@ export class ThreeBattleRenderer {
     this.scene.add(this.overlayGlowGroup);
     this.scene.add(this.overlayGroup);
     this.scene.add(this.activeTurnGlow);
-    this.scene.add(this.activeTurnShadowCatcher);
     this.scene.add(this.contactShadowGroup);
     this.scene.add(this.decorContactGroup);
     this.scene.add(this.decorGroup);
@@ -1286,26 +1239,8 @@ export class ThreeBattleRenderer {
       this.activeTurnGlow.scale.setScalar(tile * (2.45 + pulse * 0.32));
       this.activeTurnGlowMaterial.color.set(active.player ? 0xd6a12a : 0xd25436);
       this.activeTurnGlowMaterial.opacity = active.player ? Math.min(1, (0.32 + pulse * 0.18) * 1.5) : 0.72;
-      // ADDITIVE ONLY — see activeTurnShadowCatcher's own field comment. `wx,wy` above (from
-      // hexWorld) is the tile's plain grid-cell center, which is NOT where a standing unit's feet
-      // actually are — syncUnits positions the real per-unit shadow-caster box at
-      // `anchor.worldX + v.sway, -(anchor.worldY + v.footY)` instead (footY nudges it toward the
-      // tile's visual "front"), so this has to use that same computation, not wx/wy, or it lands
-      // in the wrong spot relative to the character. None of the hex/glow lines above this are
-      // read from or written to.
-      const activeUnit = engine.units.find((u) => u.x === active.x && u.y === active.y && u.alive);
-      if (activeUnit && !getDevGfx().contactShadows) {
-        const unitAnchor = engine.unitAnchor(activeUnit);
-        const v = engine.unitVisual(activeUnit, tile);
-        this.activeTurnShadowCatcher.visible = true;
-        this.activeTurnShadowCatcher.position.set(unitAnchor.worldX + v.sway, -(unitAnchor.worldY + v.footY), 0.51);
-        this.activeTurnShadowCatcher.scale.set(tile * 1.1, tile * 1.1, 1);
-      } else {
-        this.activeTurnShadowCatcher.visible = false;
-      }
     } else {
       this.activeTurnGlow.visible = false;
-      this.activeTurnShadowCatcher.visible = false;
     }
     // The mouse-selection hex, drawn here instead of on the Canvas2D units shim (see
     // BattleEngine.renderUnitsAndOverlays' skipCursorHex) so it lands at this same z=0.5 —
@@ -1405,8 +1340,6 @@ export class ThreeBattleRenderer {
     for (const glow of this.overlayGlowPool) (glow.material as THREE.SpriteMaterial).dispose();
     this.activeTurnGlowMaterial.dispose();
     this.activeTurnGlowTexture.dispose();
-    this.activeTurnShadowCatcherMaterial.dispose();
-    this.activeTurnShadowCatcherTexture.dispose();
     this.contactShadowTexture.dispose();
     this.decorContactMaterial.dispose();
     this.renderer.dispose();
