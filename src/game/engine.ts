@@ -1489,7 +1489,9 @@ export class BattleEngine {
         const active = this.activeTurnUnit();
         return this.turnOrder
           .map((id) => this.units.find((u) => u.id === id))
-          .filter((u): u is Unit => !!u && u.alive)
+          // Fog of war: an enemy the party can't currently see stays off the list too, so the
+          // turn order never gives away who is out there (unitHidden is false without fog).
+          .filter((u): u is Unit => !!u && u.alive && !this.unitHidden(u))
           .map((u) => ({ id: u.id, name: u.name, side: u.side, acted: u.moved, active: u.id === active?.id, initiative: u.initiative }));
       })(),
       log: this.log,

@@ -312,6 +312,8 @@ export function BattleCanvas({
         hud.spellReady,
         hud.turnQueue.find((q) => q.active)?.id,
         hud.turnQueue.map((q) => (q.acted ? "1" : "0")).join(""),
+        // Which enemies are listed changes as fog reveals/hides them.
+        hud.turnQueue.map((q) => q.id).join(","),
         hud.chestLoot ? `${hud.chestLoot.unitName}:${hud.chestLoot.ember}:${hud.chestLoot.items.map((i) => i.name).join(",")}` : null,
         hud.pendingDialog ? `${hud.pendingDialog.id}` : null,
       ].join("|");
