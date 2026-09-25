@@ -111,6 +111,24 @@ function readBack(file) {
   }
 }
 
+/** Drops mapstore.ts from Vite's module cache so the next page load re-reads whatever is
+ * actually on disk now, instead of whatever it held when the module was first transformed —
+ * same fix handleHotUpdate below applies for src/game/maps/*.json, needed here too because
+ * map-order.json/map-slots.json/location-order.json are deliberately excluded from Vite's
+ * watcher (see vite.config.ts) so an editor save never kicks the author back to the title
+ * screen. Being unwatched means handleHotUpdate never even fires for these three, so without
+ * this call here a Locais save could report "gravado no repositório" — true, the file really
+ * was written and read back — while the running server kept serving its stale, first-loaded
+ * ORDER_CONFIG/SLOT_CONFIG/LOCATION_ORDER_CONFIG forever, not just until the next reload but
+ * until the dev server itself restarted. That is what made Debug/campaign look like they
+ * never picked up a Locais change even after a hard refresh. */
+function invalidateMapstore(server) {
+  const mapstoreFile = join(server.config.root, "src", "game", "mapstore.ts");
+  for (const mod of server.moduleGraph.getModulesByFile(mapstoreFile) ?? []) {
+    server.moduleGraph.invalidateModule(mod);
+  }
+}
+
 export function mapSavePlugin() {
   let watchedMapsDir = "";
   return {
@@ -136,10 +154,7 @@ export function mapSavePlugin() {
     handleHotUpdate(ctx) {
       const changed = ctx.file.replaceAll("\\", "/");
       if (watchedMapsDir && changed.startsWith(`${watchedMapsDir}/`) && changed.endsWith(".json")) {
-        const mapstoreFile = join(ctx.server.config.root, "src", "game", "mapstore.ts");
-        for (const mod of ctx.server.moduleGraph.getModulesByFile(mapstoreFile) ?? []) {
-          ctx.server.moduleGraph.invalidateModule(mod);
-        }
+        invalidateMapstore(ctx.server);
         return [];
       }
     },
@@ -224,6 +239,7 @@ export function mapSavePlugin() {
               const wanted = JSON.parse(raw);
               const cleaned = [...new Set(Array.isArray(wanted) ? wanted.filter((id) => isSafeMapId(id)) : [])];
               writeFileSync(locationOrderPath, JSON.stringify(cleaned, null, 2) + "\n", "utf8");
+              invalidateMapstore(server);
               reply(200, { ok: true, file: LOCATION_ORDER_FILE, order: cleaned, onDisk: readBack(locationOrderPath) });
               return;
             }
@@ -253,6 +269,7 @@ export function mapSavePlugin() {
                 if (list.length > 0) cleaned[locationId] = list;
               }
               writeFileSync(orderPath, JSON.stringify(cleaned, null, 2) + "\n", "utf8");
+              invalidateMapstore(server);
               // Read it straight back off disk: the confirmation the editor shows is then
               // proof the file exists and holds this, not a promise that a write was tried.
               reply(200, { ok: true, file: ORDER_FILE, order: cleaned, onDisk: readBack(orderPath) });
@@ -267,6 +284,7 @@ export function mapSavePlugin() {
                 if (Number.isFinite(n) && n > 0) cleaned[id] = n;
               }
               writeFileSync(slotsPath, JSON.stringify(cleaned, null, 2) + "\n", "utf8");
+              invalidateMapstore(server);
               reply(200, { ok: true, file: SLOTS_FILE, slots: cleaned, onDisk: readBack(slotsPath) });
               return;
             }
