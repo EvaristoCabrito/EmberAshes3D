@@ -4150,7 +4150,7 @@ function MapEditorScreen({
   };
 
   const selectPreviewUnit = (unit: PreviewUnitSelection) => {
-    setNote(`${unit.name}: segure com o botão direito e pressione Delete para remover, ou arraste para mover.`);
+    setNote(`${unit.name}: pressione Delete para remover, ou arraste para outro hex pra mover.`);
   };
 
   const deleteHeldPreviewUnit = (selected: PreviewUnitSelection) => {

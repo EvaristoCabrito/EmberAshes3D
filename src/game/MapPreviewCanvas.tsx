@@ -56,7 +56,10 @@ export function MapPreviewCanvas({
   const engineRef = useRef<BattleEngine | null>(null);
   const redrawRef = useRef<(() => void) | null>(null);
   const dragRef = useRef<{ pointerId: number; x: number; y: number; startX: number; startY: number; armed: boolean; moved: boolean } | null>(null);
-  const unitDragRef = useRef<{ pointerId: number; unit: PreviewUnitSelection } | null>(null);
+  // moved stays false for a plain right-click (press and release without dragging) — that's
+  // a pick-up-and-hold, not a move, so releasing the button must not drop the unit back onto
+  // the board. Only a real drag past the threshold (see onPointerMove) arms a drop on release.
+  const unitDragRef = useRef<{ pointerId: number; unit: PreviewUnitSelection; startX: number; startY: number; moved: boolean } | null>(null);
   const decorationDragRef = useRef<{ pointerId: number; decoration: PreviewDecorationSelection } | null>(null);
   const cameraRef = useRef<{ x: number; y: number } | null>(null);
   /** CSS pixels divided by this value become the preview engine's logical pixels while the
@@ -308,7 +311,7 @@ export function MapPreviewCanvas({
       if (!cell) return;
       const unit = unitAt(cell.x, cell.y);
       if (unit) {
-        unitDragRef.current = { pointerId: event.pointerId, unit };
+        unitDragRef.current = { pointerId: event.pointerId, unit, startX: event.clientX, startY: event.clientY, moved: false };
         viewport.setPointerCapture(event.pointerId);
         onUnitSelect?.(unit);
         setIsDragging(true);
@@ -340,7 +343,14 @@ export function MapPreviewCanvas({
   };
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const unitDrag = unitDragRef.current;
-    if (unitDrag?.pointerId === event.pointerId) return;
+    if (unitDrag?.pointerId === event.pointerId) {
+      // Same 6px threshold as the pan gesture below: past it, this is a deliberate drag to a
+      // new hex, not a pick-up-and-hold — see endDrag, which only drops the unit if moved.
+      if (!unitDrag.moved && Math.hypot(event.clientX - unitDrag.startX, event.clientY - unitDrag.startY) >= 6) {
+        unitDrag.moved = true;
+      }
+      return;
+    }
     const decorationDrag = decorationDragRef.current;
     if (decorationDrag?.pointerId === event.pointerId) return;
     const viewport = viewportRef.current;
@@ -371,6 +381,18 @@ export function MapPreviewCanvas({
     if (!viewport) return;
     const unitDrag = unitDragRef.current;
     if (unitDrag?.pointerId === event.pointerId) {
+      if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+      // An ordinary right-click — press and release without dragging — is a pick-up-and-hold,
+      // not a move: releasing the button must not drop the unit back onto the board, and the
+      // selection has to survive the release so Delete still works afterward (a real mouse
+      // click is a near-instant press+release; requiring Delete to land before the button
+      // comes back up made the whole gesture impossible to actually perform). Only a real
+      // drag (unitDrag.moved) or a cancel ends the hold here.
+      if (!unitDrag.moved) {
+        if (cancelled) unitDragRef.current = null;
+        setIsDragging(false);
+        return;
+      }
       if (!cancelled) {
         const canvas = canvasRef.current;
         const engine = engineRef.current;
@@ -381,7 +403,6 @@ export function MapPreviewCanvas({
           if (cell) onUnitPlace?.(unitDrag.unit, cell.x, cell.y);
         }
       }
-      if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
       unitDragRef.current = null;
       setIsDragging(false);
       return;
