@@ -67,6 +67,13 @@ const BOARD_PAD_MUL = 2.4;
 const UNIT_SHADOW_HEIGHT_SCALE = 0.85;
 const DECOR_SHADOW_HEIGHT_SCALE = 0.9;
 
+/** renderOrder floor for a decoration drawn in front of the ground-mist atmosphere sheets
+ * (GroundMist2/3 use renderOrder 10-12, GroundMist4 uses 10 flat — see ThreeAtmosphere.ts).
+ * Those materials render with depthTest disabled, so they paint over anything behind them by
+ * draw order alone; a prop that must read through the mist (any LIGHT_DEFS light source, or a
+ * DecorationDef.aboveGroundMist prop) needs a renderOrder safely above that range instead. */
+const ABOVE_GROUND_MIST_ORDER = 15;
+
 /** How far BELOW the ground plane (z=0) every standing shadow-caster's base now extends, world
  * units. The caster's base sits exactly AT z=0 — coplanar with the ground mesh it casts onto —
  * which is the textbook cause of peter-panning (the shadow test can't reliably tell which surface
@@ -447,8 +454,9 @@ interface DecorMeshEntry {
   mesh: THREE.Mesh;
   placement: DecorationPlacement;
   /** Same quadGeo + alpha-tested copy of the prop's own art (colorWrite off, see
-   * decorShadowMaterialFor) that casts this prop's real shadow as its own silhouette, not a box. */
-  shadowMesh: THREE.Mesh;
+   * decorShadowMaterialFor) that casts this prop's real shadow as its own silhouette, not a box.
+   * Null for a DecorationDef.noShadow prop, which skips this entirely. */
+  shadowMesh: THREE.Mesh | null;
   /** Contact decal at the prop's opaque base (see artBase); null when the art has no readable
    * base or the prop is a spun placeholder (facing fallback) with no meaningful "bottom". */
   contactMesh: THREE.Mesh | null;
@@ -1069,7 +1077,7 @@ export class ThreeBattleRenderer {
     if (key === this.builtDecorKey) return;
     for (const entry of this.decorEntries) {
       this.decorGroup.remove(entry.mesh);
-      this.shadowCasterGroup.remove(entry.shadowMesh);
+      if (entry.shadowMesh) this.shadowCasterGroup.remove(entry.shadowMesh);
       if (entry.contactMesh) this.decorContactGroup.remove(entry.contactMesh);
       if (entry.proxy) this.shadowCasterGroup.remove(entry.proxy);
       if (entry.fogCut) this.decorGroup.remove(entry.fogCut);
@@ -1103,11 +1111,15 @@ export class ThreeBattleRenderer {
       const groundWy = sumWy / n; // ground contact, before decorSize's liftY visual offset
       const wy = groundWy + liftY;
 
+      // Hoisted above the mesh so its renderOrder can already account for it — see
+      // ABOVE_GROUND_MIST_ORDER's own comment.
+      const lightDef = LIGHT_DEFS[p.id];
       const mat = this.decorMaterialFor(fileId, img);
       const mesh = new THREE.Mesh(this.quadGeo, mat);
       // Front-layer props render after character billboards (order 2), matching the Canvas
       // renderer; their per-decoration priority resolves overlaps with other foreground props.
-      mesh.renderOrder = decorLayer === "front" ? 3 + (def.decorRenderOrder ?? 0) * 0.01 : (def.decorRenderOrder ?? 0) * 0.01;
+      const mistOrder = def.aboveGroundMist || lightDef ? ABOVE_GROUND_MIST_ORDER : 0;
+      mesh.renderOrder = mistOrder + (decorLayer === "front" ? 3 : 0) + (def.decorRenderOrder ?? 0) * 0.01;
       // Y negated to match the tile/camera convention (see module comment); z=1 keeps decor
       // reliably in front of the flat ground plane at z=0 for any depth-sorting Three does
       // between transparent objects.
@@ -1139,23 +1151,28 @@ export class ThreeBattleRenderer {
       // Peter Pan" on the equivalent unit version of this bug). Rotating it up turns local Y
       // (image-space up/down) into world Z, so scale.y=elevation + position.z=elevation/2 puts its
       // BASE exactly at the ground (z=0) at the prop's contact point and its top at `elevation`,
-      // same span the old box caster used.
+      // same span the old box caster used. Skipped entirely for a DecorationDef.noShadow prop —
+      // e.g. Parapeito, where a thin tall railing's cast shadow read as a wrong dark stripe
+      // across the board rather than grounding the prop.
       const elevation = Math.max(1, h * DECOR_SHADOW_HEIGHT_SCALE);
-      const shadowMat = this.decorShadowMaterialFor(fileId, mat);
-      const shadowMesh = new THREE.Mesh(this.quadGeo, shadowMat);
-      shadowMesh.castShadow = true;
-      shadowMesh.position.set(wx, -groundWy, elevation / 2 - DECOR_SHADOW_GROUND_INSET / 2);
-      if (facing.step === 0) {
-        shadowMesh.rotation.x = Math.PI / 2;
-        shadowMesh.scale.set(w, elevation + DECOR_SHADOW_GROUND_INSET, 1);
-      } else if (facing.own) {
-        shadowMesh.rotation.x = Math.PI / 2;
-        shadowMesh.scale.set(facing.mirror ? -w : w, elevation + DECOR_SHADOW_GROUND_INSET, 1);
-      } else {
-        shadowMesh.rotation.set(Math.PI / 2, 0, (-facing.step * Math.PI) / 3);
-        shadowMesh.scale.set(w, elevation + DECOR_SHADOW_GROUND_INSET, 1);
+      let shadowMesh: THREE.Mesh | null = null;
+      if (!def.noShadow) {
+        const shadowMat = this.decorShadowMaterialFor(fileId, mat);
+        shadowMesh = new THREE.Mesh(this.quadGeo, shadowMat);
+        shadowMesh.castShadow = true;
+        shadowMesh.position.set(wx, -groundWy, elevation / 2 - DECOR_SHADOW_GROUND_INSET / 2);
+        if (facing.step === 0) {
+          shadowMesh.rotation.x = Math.PI / 2;
+          shadowMesh.scale.set(w, elevation + DECOR_SHADOW_GROUND_INSET, 1);
+        } else if (facing.own) {
+          shadowMesh.rotation.x = Math.PI / 2;
+          shadowMesh.scale.set(facing.mirror ? -w : w, elevation + DECOR_SHADOW_GROUND_INSET, 1);
+        } else {
+          shadowMesh.rotation.set(Math.PI / 2, 0, (-facing.step * Math.PI) / 3);
+          shadowMesh.scale.set(w, elevation + DECOR_SHADOW_GROUND_INSET, 1);
+        }
+        this.shadowCasterGroup.add(shadowMesh);
       }
-      this.shadowCasterGroup.add(shadowMesh);
 
       // Contact decal at the art's own opaque base (visible-mesh space: centered at wx,wy,
       // spanning w x h). Skipped for the spun-bitmap facing fallback — its "bottom" isn't the
@@ -1175,7 +1192,6 @@ export class ThreeBattleRenderer {
       // Light-emitting prop: the light sits at the flame in its art, projected to the ground
       // under it (x, groundWy) with the flame's real height above that ground.
       let light: DecorMeshEntry["light"] = null;
-      const lightDef = LIGHT_DEFS[p.id];
       if (lightDef) {
         const f = artFlame(img);
         const sign = facing.own && facing.mirror ? -1 : 1;
@@ -1186,8 +1202,9 @@ export class ThreeBattleRenderer {
       // Hidden physical volume: a box standing on the prop's ground spot, as wide as its
       // opaque base, as tall as the shadow elevation, reaching back ("north", +Y) from the
       // contact line. Light-source props get none — their flame sits inside their own volume.
+      // A noShadow prop gets none either — this volume exists only to cast/block shadows.
       let proxy: THREE.Mesh | null = null;
-      if (!lightDef) {
+      if (!lightDef && !def.noShadow) {
         const pb = artBase(img);
         const sign = facing.own && facing.mirror ? -1 : 1;
         const bw = pb ? Math.max(tile * 0.3, (pb.u1 - pb.u0) * w) : w * 0.6;
@@ -1468,7 +1485,8 @@ export class ThreeBattleRenderer {
     const engine = this.engine;
     if (!engine.fogged) {
       for (const entry of this.decorEntries) {
-        entry.mesh.visible = entry.shadowMesh.visible = true;
+        entry.mesh.visible = true;
+        if (entry.shadowMesh) entry.shadowMesh.visible = true;
         if (entry.contactMesh) entry.contactMesh.visible = true;
         if (entry.proxy) entry.proxy.visible = true;
         if (entry.fogCut) entry.fogCut.visible = true;
@@ -1478,7 +1496,8 @@ export class ThreeBattleRenderer {
     for (const entry of this.decorEntries) {
       const p = entry.placement;
       const visible = placedFootprint(p).some((f) => engine.explored(p.x + f.dx, p.y + f.dy));
-      entry.mesh.visible = entry.shadowMesh.visible = visible;
+      entry.mesh.visible = visible;
+      if (entry.shadowMesh) entry.shadowMesh.visible = visible;
       if (entry.contactMesh) entry.contactMesh.visible = visible;
       if (entry.proxy) entry.proxy.visible = visible;
       if (entry.fogCut) entry.fogCut.visible = visible;

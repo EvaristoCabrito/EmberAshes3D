@@ -379,10 +379,15 @@ export const DECORATIONS: Record<string, DecorationDef> = {
   "abandoned-mansion": { id: "abandoned-mansion", name: "Mansão Abandonada", footprint: DECO_BLOCK_5 },
   "stone-bridge": { id: "stone-bridge", name: "Ponte de Pedra", footprint: DECO_PAIR },
   // Long, repeatable transparent modules for the two outer edges of a bridge map.
-  "bridge-parapet-gothic-statues-001": { id: "bridge-parapet-gothic-statues-001", name: "Parapeito Gótico — Estátuas", footprint: DECO_QUAD, foreground: true, unitLayer: "front", repeatGroup: "bridge-parapet-gothic-statues" },
-  "bridge-parapet-gothic-wall-001": { id: "bridge-parapet-gothic-wall-001", name: "Parapeito Gótico — Muralha", footprint: DECO_QUAD, unitLayer: "behind", repeatGroup: "bridge-parapet-gothic-wall" },
-  "bridge-parapet-tall-001": { id: "bridge-parapet-tall-001", name: "Tall-Parapeito", footprint: DECO_ROW_FIVE, unitLayer: "behind", repeatGroup: "bridge-parapet-tall", heightScale: 1.8 },
-  "bridge-parapet-tall-statues-001": { id: "bridge-parapet-tall-statues-001", name: "Tall-Parapeito — Estátuas", footprint: DECO_ROW_FIVE, foreground: true, unitLayer: "front", decorRenderOrder: 10, repeatGroup: "bridge-parapet-tall", heightScale: 1.8 },
+  // Every Parapeito prop casts no shadow — a thin, tall railing throwing a hard shadow stripe
+  // across the bridge read as wrong, not atmospheric. Tall-Parapeito also stays drawn in front
+  // of the ground-mist sheets (aboveGroundMist): it commonly sits right in the map's edge band,
+  // where Mist 4's border fog lives, and mist's depthTest-disabled material would otherwise
+  // paint over it and wash it out.
+  "bridge-parapet-gothic-statues-001": { id: "bridge-parapet-gothic-statues-001", name: "Parapeito Gótico — Estátuas", footprint: DECO_QUAD, foreground: true, unitLayer: "front", repeatGroup: "bridge-parapet-gothic-statues", noShadow: true },
+  "bridge-parapet-gothic-wall-001": { id: "bridge-parapet-gothic-wall-001", name: "Parapeito Gótico — Muralha", footprint: DECO_QUAD, unitLayer: "behind", repeatGroup: "bridge-parapet-gothic-wall", noShadow: true },
+  "bridge-parapet-tall-001": { id: "bridge-parapet-tall-001", name: "Tall-Parapeito", footprint: DECO_ROW_FIVE, unitLayer: "behind", repeatGroup: "bridge-parapet-tall", heightScale: 1.8, noShadow: true, aboveGroundMist: true },
+  "bridge-parapet-tall-statues-001": { id: "bridge-parapet-tall-statues-001", name: "Tall-Parapeito — Estátuas", footprint: DECO_ROW_FIVE, foreground: true, unitLayer: "front", decorRenderOrder: 10, repeatGroup: "bridge-parapet-tall", heightScale: 1.8, noShadow: true, aboveGroundMist: true },
   "ember-channels-001": { id: "ember-channels-001", name: "Canais de Brasa", footprint: DECO_PAIR },
   "broken-wall-segment": { id: "broken-wall-segment", name: "Muralha em Ruínas", footprint: DECO_PAIR, tile: "column", repeatGroup: "broken-wall-segment" },
   gatehouse: { id: "gatehouse", name: "Portão Fortificado", footprint: DECO_PAIR },

@@ -291,6 +291,18 @@ export interface DecorationDef {
   heightScale?: number;
   /** Visual multiplier applied to both dimensions without changing the footprint or rules. */
   artScale?: number;
+  /** Draws after (in front of) the ground-mist atmosphere sheets (Mist 2/3/4 — see
+   * ThreeAtmosphere.ts), which render with depthTest disabled and would otherwise paint over
+   * this prop and wash it out wherever the mist band crosses it. Any decoration with a
+   * LIGHT_DEFS entry (lighting.ts) gets this automatically — a light source must never read
+   * as extinguished/translucent under mist — this flag is for scenery that needs the same
+   * treatment without emitting light, e.g. tall props that commonly sit in the map's edge
+   * band where Mist 4's border fog lives. */
+  aboveGroundMist?: boolean;
+  /** Casts no shadow — true silhouette caster and hidden shadow-blocking volume both skipped
+   * (see ThreeBattleRenderer's decor sync). For thin/tall scenery whose cast shadow reads as
+   * an unwanted dark stripe across the board rather than grounding the prop. */
+  noShadow?: boolean;
 }
 
 /** A decoration placed on a mission's map, anchored at (x,y). */
