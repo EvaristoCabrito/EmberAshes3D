@@ -4007,6 +4007,10 @@ function MapEditorScreen({
   useEffect(() => {
     const onEditorDelete = (event: KeyboardEvent) => {
       if (event.key !== "Delete") return;
+      // The map preview's own Delete listener (MapPreviewCanvas) handles deleting a held unit
+      // and calls preventDefault() when it does — this listener must then stay out of it, or
+      // its own "nothing selected" note overwrites the unit-deleted note right after.
+      if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable=true]")) return;
       event.preventDefault();
@@ -4153,14 +4157,20 @@ function MapEditorScreen({
     setNote(`${unit.name}: pressione Delete para remover, ou arraste para outro hex pra mover.`);
   };
 
-  const deleteHeldPreviewUnit = (selected: PreviewUnitSelection) => {
+  // Stable identity: MapPreviewCanvas's own "Delete" keydown listener re-registers whenever
+  // this prop's reference changes (see its onHeldUnitDelete effect deps), and it needs to keep
+  // firing before GameApp's onEditorDelete listener below (which bails out once this one has
+  // already handled the key via event.preventDefault) — a fresh function every render made that
+  // ordering unreliable and let onEditorDelete's own note clobber this one's right after a
+  // successful delete.
+  const deleteHeldPreviewUnit = useCallback((selected: PreviewUnitSelection) => {
     setDraft((d) => {
       const unit = (d[selected.side] ?? [])[selected.index];
       if (!unit) return d;
       setNote(`${unit.name} removido do mapa.`);
       return { ...d, [selected.side]: (d[selected.side] ?? []).filter((_, index) => index !== selected.index) };
     });
-  };
+  }, [setDraft, setNote]);
 
   const placePreviewUnit = (selected: PreviewUnitSelection, x: number, y: number) => {
     const occupied = SPAWN_KEYS.some((side) => (draft[side] ?? []).some((spawn, index) =>

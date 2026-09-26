@@ -307,9 +307,17 @@ export function MapPreviewCanvas({
       if (!canvas || !engine) return;
       const rect = canvas.getBoundingClientRect();
       const scale = renderScaleRef.current;
-      const cell = engine.cellAt((event.clientX - rect.left) / scale, (event.clientY - rect.top) / scale);
-      if (!cell) return;
-      const unit = unitAt(cell.x, cell.y);
+      const px = (event.clientX - rect.left) / scale;
+      const py = (event.clientY - rect.top) / scale;
+      const cell = engine.cellAt(px, py);
+      // Try the exact hex first, then fall back to anywhere on the unit's drawn sprite — a
+      // sprite commonly extends well beyond its own hex on screen (tall creatures especially),
+      // which otherwise makes some units hard to grab.
+      let unit = cell ? unitAt(cell.x, cell.y) : null;
+      if (!unit) {
+        const spriteUnit = engine.unitSpriteAt(px, py);
+        if (spriteUnit) unit = unitAt(spriteUnit.x, spriteUnit.y);
+      }
       if (unit) {
         unitDragRef.current = { pointerId: event.pointerId, unit, startX: event.clientX, startY: event.clientY, moved: false };
         viewport.setPointerCapture(event.pointerId);
@@ -317,7 +325,7 @@ export function MapPreviewCanvas({
         setIsDragging(true);
         return;
       }
-      const decoration = decorationAt(cell.x, cell.y);
+      const decoration = cell ? decorationAt(cell.x, cell.y) : null;
       if (decoration) {
         decorationDragRef.current = { pointerId: event.pointerId, decoration };
         viewport.setPointerCapture(event.pointerId);

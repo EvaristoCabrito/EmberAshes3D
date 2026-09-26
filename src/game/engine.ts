@@ -7652,6 +7652,26 @@ export class BattleEngine {
     return { x: col, y: row };
   }
 
+  /** Finds the unit (if any) whose drawn sprite rectangle contains a canvas coordinate, not
+   * just whichever single hex it's anchored to — a sprite commonly extends well beyond its own
+   * hex on screen, so an exact-hex hit test alone makes some units hard to click. Used by the
+   * map editor's preview to make right-click pickup work anywhere on a unit's visible art,
+   * matching cellAt's own (cssX, cssY) convention. Ignores live idle wobble (sway/bob/lift):
+   * the editor preview never ticks, so those sit at their rest value anyway. */
+  unitSpriteAt(cssX: number, cssY: number): Unit | null {
+    const tile = ZOOM_RADII[this.zoom]!;
+    const cell = tile * Math.sqrt(3);
+    for (const u of this.units) {
+      if (u.fade <= 0 || this.unitHidden(u)) continue;
+      const { cx: px, cy: py } = this.unitPixel(u);
+      const { w, h, footY, footOffset } = this.computeUnitVisual(u, cell, tile);
+      if (cssX < px - w / 2 || cssX > px + w / 2) continue;
+      if (cssY < py + footY - h + footOffset || cssY > py + footY + footOffset) continue;
+      return u;
+    }
+    return null;
+  }
+
   private hexCenter(col: number, row: number): { cx: number; cy: number } {
     const { ox, oy, tile } = this.layout;
     const sqrt3 = Math.sqrt(3);
