@@ -45,7 +45,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { WEB_SHOT_TRAVEL, type BattleEngine } from "../../engine";
 import { FireballV2 } from "./ThreeFireballV2";
-import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECOR_ART_SCALE, DECORATIONS, HOUSE_ART_SCALE, HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, TERRAIN, decorationFacing, decorationImage, placedFootprint } from "../../data";
+import { BIG_HOUSE_DECOR_IDS, CHEST_DECOR_IDS, DECOR_ART_SCALE, DECORATIONS, HOUSE_ART_SCALE, HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, TERRAIN, decorationFacing, decorationImage, decorationImageRetryWebp, placedFootprint } from "../../data";
 import { tileAt } from "../../pathfinding";
 import type { DecorationDef, DecorationPlacement, MapTimeOfDay, TerrainId } from "../../types";
 import { GroundAO, type AoOccluder } from "./ThreeGroundAO";
@@ -1010,6 +1010,7 @@ export class ThreeBattleRenderer {
     if (!img) {
       img = new Image();
       img.src = decorationImage(fileId);
+      decorationImageRetryWebp(img, fileId);
       this.engine.art.decorations[fileId] = img;
     }
     return img.naturalWidth > 0 ? img : null;

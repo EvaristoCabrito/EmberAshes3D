@@ -62,6 +62,20 @@ export type ClassId =
   | "birolho2"
   | "birolho3"
   | "swampBlueCalf"
+  // Weak, killable flavor civilians (see SpriteId's own note) — random encounters and regular
+  // maps, deliberately not the (not yet built) city hubs, where a civilian instance would carry
+  // Spawn.dialog instead and never be a combat target at all.
+  | "beberrao"
+  | "breadLady"
+  | "brue"
+  | "crazyLady"
+  | "mudinho"
+  | "oldHealer"
+  | "peasant1"
+  | "shadyPatron"
+  | "soupLady"
+  | "villagerF1"
+  | "woodsman"
   | "assassin"
   | "rogue"
   | "lancer"
@@ -107,7 +121,20 @@ export type SpriteId = "defaultWarrior" | "neera" | "voss" | "salazar" | "aldric
   // later without any further code changes.
   | "archerRecruit"
   | "mageRecruit"
-  | "healerRecruit";
+  | "healerRecruit"
+  // Weak, killable flavor civilians (see ClassId's own note) — 4-frame idle each, the default
+  // frame count (not in HERO_IDLE), one character per source sheet.
+  | "beberrao"
+  | "breadLady"
+  | "brue"
+  | "crazyLady"
+  | "mudinho"
+  | "oldHealer"
+  | "peasant1"
+  | "shadyPatron"
+  | "soupLady"
+  | "villagerF1"
+  | "woodsman";
 export type HealId = "cureMinor" | "cureWounds" | "cureLight";
 export type SpellKind =
   | "fireball"
@@ -256,7 +283,11 @@ export interface Spawn {
   useClassSprite?: boolean;
 }
 
-export type WinCondition = "rout" | "boss";
+/** "escape" is Transversal Dungeons: winning has nothing to do with combat — the field never
+ * has to be cleared. It becomes available the instant a living player unit stands on an
+ * Escape/Dungeon Exit or a floor connector (see DecorationDef.exitKind), exactly like rout/boss
+ * make winAvailable true once the field is clear — see BattleEngine.evaluateEnd. */
+export type WinCondition = "rout" | "boss" | "escape";
 
 /** A multi-hex terrain prop (mountain, ruin, bridge, ...): rendered as a single image
  * spanning several hexes rather than clipped to one, drawn on top of the regular tile
@@ -303,6 +334,14 @@ export interface DecorationDef {
    * (see ThreeBattleRenderer's decor sync). For thin/tall scenery whose cast shadow reads as
    * an unwanted dark stripe across the board rather than grounding the prop. */
   noShadow?: boolean;
+  /** Marks this decoration as a Transversal Dungeon exit hex (see WinCondition's "escape" doc
+   * and BattleEngine.evaluateEnd). "escape"/"dungeon" are the two blue exit markers — reaching
+   * either makes winAvailable true, same as clearing the field does on a rout/boss mission;
+   * which one was reached only changes the result screen's flavor, not the outcome. "connector"
+   * is the red floor-to-floor hex: reaching it also makes winAvailable true, but confirming
+   * sends the party straight into DecorationPlacement.targetMapId (see startBattle) instead of
+   * back to the campaign map — see DecorationPlacement.returnConnector for its two directions. */
+  exitKind?: "escape" | "dungeon" | "connector";
 }
 
 /** A decoration placed on a mission's map, anchored at (x,y). */
@@ -330,6 +369,16 @@ export interface DecorationPlacement {
    */
   blocksPath?: boolean;
   yieldsHighGround?: boolean;
+  /** Floor-connector placements only (DecorationDef.exitKind === "connector"): the specific
+   * mission this hex leads to once the party confirms. That mission is reached only through
+   * this connector — it is never listed in a WorldLocation.missionIds, so it never appears as
+   * its own card in the campaign map (see WorldLocation.submaps). */
+  targetMapId?: string;
+  /** Floor-connector placements only: flips the result-screen wording and direction from
+   * "Avançar" (deeper into the dungeon) to "Voltar" (back to the floor above) — set on whichever
+   * connector was placed on the deeper floor, pointing back at the one above it. Purely a label/
+   * intent flag the author sets; nothing computes it from floor numbers automatically. */
+  returnConnector?: true;
 }
 
 /** A permanent WebGL elemental FX (src/game/gfx) anchored at (x,y) on a mission's map —
@@ -487,6 +536,13 @@ export interface WorldLocation {
   /** RPG map only: absolute gameClock day after which this location is flagged expired.
    * Opt-in — omitted on every location today, so nothing changes unless one is set. */
   deadlineDay?: number;
+  /** Extra maps chained to this location as Transversal Dungeon floors, reached only by a
+   * floor-connector decoration in-battle (see DecorationPlacement.targetMapId) — never listed
+   * in missionIds, so a submap never gets its own card in the Locais/campaign menu. `floor` is
+   * author bookkeeping only (which submap is "deeper" than which, for picking connector
+   * targets in the editor); nothing computes it from mission order automatically. Omitted on
+   * every location today, so nothing changes unless one is set. */
+  submaps?: { missionId: string; floor: number }[];
 }
 
 /** Attributes that can receive the three permanent points earned at every level-up. */
@@ -834,6 +890,10 @@ export interface HudSnapshot {
   busy: boolean;
   result: "victory" | "defeat" | null;
   winAvailable: boolean;
+  /** Transversal Dungeon ("escape" win condition) only: the exit hex currently satisfying
+   * winAvailable — see DecorationDef.exitKind and BattleEngine.evaluateEnd. Null on every other
+   * mission, and null on this one too whenever no player unit is standing on an exit hex. */
+  activeExit: DecorationPlacement | null;
   /** Whether the movement taken this turn can still be taken back — see canUndoMove. */
   canUndoMove: boolean;
   /** For a spell that picks more than one target (Magic Missile at level 3+), how many it

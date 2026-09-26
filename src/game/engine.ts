@@ -1,4 +1,4 @@
-import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, DECOR_ART_SCALE, HOUSE_ART_SCALE, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expForHit, FIREBALL, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, weightedWeaponPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashFormula, shieldBashPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower } from "./data";
+import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, DECOR_ART_SCALE, HOUSE_ART_SCALE, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expForHit, FIREBALL, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, decorationImageRetryWebp, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, weightedWeaponPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashFormula, shieldBashPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower } from "./data";
 import type { SpellTier } from "./data";
 import { canCounter, makeForecast, mulberry32, powerOf, protOf, rollDamage, rollDamageCustom } from "./combat";
 import {
@@ -1142,6 +1142,11 @@ export class BattleEngine {
    * remaining chests, and flips back to false on its own if a trap/trigger spawns a fresh
    * enemy after the field first looked clear. */
   winAvailable = false;
+  /** Transversal Dungeon ("escape" win condition) only: which exit hex a player unit is
+   * currently standing on, set alongside winAvailable by evaluateEnd. Read by the HUD/result
+   * screen once confirmFinish resolves the battle, to tell an ordinary exit (back to the
+   * campaign map) from a floor connector (straight into DecorationPlacement.targetMapId). */
+  activeExit: DecorationPlacement | null = null;
   banner: string | null = null;
   /** Ember found in chests opened mid-battle; folded into the save's Ember total on victory. */
   lootEmber = 0;
@@ -1289,6 +1294,7 @@ export class BattleEngine {
       if (this.art.decorations[p.id]?.naturalWidth) continue;
       const img = new Image();
       img.src = decorationImage(p.id);
+      decorationImageRetryWebp(img, p.id);
       this.art.decorations[p.id] = img;
     }
     // A decoration that names a tile (barricade, locked chest, rocks) stamps that terrain so
@@ -1495,6 +1501,7 @@ export class BattleEngine {
       busy: this.mode === "locked" || !!this.active || this.queue.length > 0,
       result: this.result,
       winAvailable: this.winAvailable,
+      activeExit: this.activeExit,
       canUndoMove: this.canUndoMove(),
       targetPrompt: this.targetPrompt(),
       zoom: this.zoom,
@@ -1830,6 +1837,11 @@ export class BattleEngine {
       this.onNextIdle = null;
       fn();
     }
+    // Transversal Dungeon exit hexes have no death/damage event to hang evaluateEnd off of
+    // (see the rout/boss call sites elsewhere) — position is all that matters, so it's
+    // rechecked once the engine is fully idle/settled, same guard as onNextIdle above, rather
+    // than threaded into the move-animation stepper (movement timing stays untouched).
+    if (this.mission.win === "escape" && !this.active && this.queue.length === 0) this.evaluateEnd();
     if (this.trauma > 0) this.trauma = Math.max(0, this.trauma - cap * 2.2);
     for (const u of this.units) {
       if (u.flash > 0) u.flash = Math.max(0, u.flash - cap * 4);
@@ -3753,7 +3765,9 @@ export class BattleEngine {
     const p = this.units.some((u) => u.side === "player" && u.alive && !u.summoned);
     const bossAlive = this.units.some((u) => u.side === "enemy" && u.alive && isBossClass(u.classId));
     const anyEnemy = this.units.some((u) => u.side === "enemy" && u.alive);
-    const won = this.mission.win === "boss" ? !bossAlive : !anyEnemy;
+    // Transversal Dungeon: combat is irrelevant, reaching a marked exit is the whole objective.
+    const exitHit = this.mission.win === "escape" ? this.exitDecorationHere() : null;
+    const won = this.mission.win === "boss" ? !bossAlive : this.mission.win === "escape" ? !!exitHit : !anyEnemy;
     // Victory doesn't end the battle by itself anymore — it just makes ending it an option
     // (see winAvailable/confirmFinish) so the player can keep taking normal turns to loot
     // remaining chests, with a click-whenever-ready control staying available the whole
@@ -3762,7 +3776,19 @@ export class BattleEngine {
     // back to false on its own until they're dealt with too. Defeat has no such choice:
     // with no player units left there's nothing left to do.
     this.winAvailable = won;
+    this.activeExit = exitHit;
     if (!p) this.result = "defeat";
+  }
+
+  /** Transversal Dungeon only: the exit hex a living player unit is currently standing on, if
+   * any — see DecorationDef.exitKind and evaluateEnd. */
+  private exitDecorationHere(): DecorationPlacement | null {
+    for (const u of this.units) {
+      if (u.side !== "player" || !u.alive) continue;
+      const hit = this.decorations.find((d) => DECORATIONS[d.id]?.exitKind && placedFootprint(d).some((f) => d.x + f.dx === u.x && d.y + f.dy === u.y));
+      if (hit) return hit;
+    }
+    return null;
   }
 
   /** Player-confirmed "yes, end the mission now" — only takes effect while winAvailable
@@ -7737,7 +7763,10 @@ export class BattleEngine {
       let img = this.art.decorations[p.id];
       if ((!img || !img.naturalWidth) && def) {
         img = this.art.decorations[p.id] ?? new Image();
-        if (!img.src) img.src = decorationImage(p.id);
+        if (!img.src) {
+          img.src = decorationImage(p.id);
+          decorationImageRetryWebp(img, p.id);
+        }
         this.art.decorations[p.id] = img;
       }
       const decorLayer = def?.unitLayer ?? (def?.foreground ? "front" : "ground");

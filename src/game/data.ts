@@ -440,6 +440,50 @@ export const DECORATIONS: Record<string, DecorationDef> = {
   ...TORTURE_DECORATIONS,
   ...CITY_DECORATIONS,
   ...NEW_DECOR_2026,
+  // Transversal Dungeon exit hexes (see WinCondition's "escape" doc and BattleEngine.evaluateEnd).
+  // A couple of blue hexes each, ground-layer so they read as a floor marking rather than an
+  // object; neither casts a shadow, same reasoning as the Parapeito props above (a raised
+  // shadow would fight the "flat marking on the ground" read).
+  //
+  // Per-decoration artScale/heightScale ONLY — drawDecorations/decorSize's shared sizing
+  // formula is untouched. A same-row DECO_PAIR falls into that formula's generic multi-hex
+  // branch: base box tile*(SQRT3*2.7) wide by tile*2.3 tall, then DECOR_ART_SCALE's global 1.6x
+  // boost on top. Solved backward from that exact box so the FINAL box is tile*(SQRT3+2) wide by
+  // tile*2 tall — two adjacent hexes' own combined width, one hex tall, matching how a terrain
+  // tile's own art is drawn into a tile*2 box per hex (see renderGround) — instead of the much
+  // bigger box that formula is tuned for (bridges, parapets, genuinely oversized props).
+  "escape-exit": {
+    id: "escape-exit",
+    name: "Saída de Fuga",
+    footprint: DECO_PAIR,
+    exitKind: "escape",
+    noShadow: true,
+    artScale: (Math.sqrt(3) + 2) / (Math.sqrt(3) * 2.7 * DECOR_ART_SCALE),
+    heightScale: (Math.sqrt(3) * 2.7 * 2) / (2.3 * (Math.sqrt(3) + 2)),
+  },
+  "dungeon-exit": {
+    id: "dungeon-exit",
+    name: "Saída da Masmorra",
+    footprint: DECO_PAIR,
+    exitKind: "dungeon",
+    noShadow: true,
+    artScale: (Math.sqrt(3) + 2) / (Math.sqrt(3) * 2.7 * DECOR_ART_SCALE),
+    heightScale: (Math.sqrt(3) * 2.7 * 2) / (2.3 * (Math.sqrt(3) + 2)),
+  },
+  // One red hex, placed on both ends of a floor connection — DecorationPlacement.targetMapId
+  // says which mission it leads to, DecorationPlacement.returnConnector picks its wording.
+  // Single-hex footprint falls into the formula's own "one" branch (base box tile*1.55 by
+  // tile*1.65); solved the same way as the pair above, target box tile*2 by tile*2 this time —
+  // one hex's own drawn box, since this marking covers exactly one hex.
+  "floor-connector": {
+    id: "floor-connector",
+    name: "Passagem de Andar",
+    footprint: DECO_ONE,
+    exitKind: "connector",
+    noShadow: true,
+    artScale: 2 / (1.55 * DECOR_ART_SCALE),
+    heightScale: 1.55 / 1.65,
+  },
 };
 
 /** Every lockable-chest decoration id. Both size variants block/open the same way
@@ -543,9 +587,9 @@ const DECORATION_ALPHA_CLEAN = new Set([
   "burnt-house-ruins",
 ]);
 
-export function decorationImage(id: string): string {
+function decorationImagePath(id: string, ext: "png" | "webp"): string {
   const file = DECORATION_ALPHA_CLEAN.has(id) ? `${id}-alpha-001` : id;
-  return `/game/decorations/${file}.png${
+  return `/game/decorations/${file}.${ext}${
     id === "locked-chest"
       ? "?v=4"
       : id === "dead-tree" ||
@@ -557,6 +601,28 @@ export function decorationImage(id: string): string {
         ? "?v=4"
         : ""
   }`;
+}
+
+/** Every decoration's art, PNG first — the format every existing prop ships as. */
+export function decorationImage(id: string): string {
+  return decorationImagePath(id, "png");
+}
+
+/** Attach to an <img>'s onerror right after pointing it at decorationImage(id): if the PNG
+ * 404s, retries once with the same id as a WebP instead — for a prop supplied straight from AI
+ * generation with real alpha baked in, which sometimes only exists as .webp (no re-exporting
+ * through a lossy conversion step needed). A PNG that loads normally never touches this. */
+export function decorationImageRetryWebp(img: HTMLImageElement, id: string): void {
+  img.onerror = () => {
+    img.onerror = null;
+    img.src = decorationImagePath(id, "webp");
+  };
+}
+
+/** Same fallback as decorationImageRetryWebp, for the Promise-based loader (see loadGameArt in
+ * assets.ts) instead of a live <img> element. */
+export function decorationImageWebp(id: string): string {
+  return decorationImagePath(id, "webp");
 }
 
 /** Every hex a placed decoration's footprint covers — impassable and blocks line of
@@ -1511,6 +1577,186 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     size: 1,
     init: 4,
   },
+  // Flavor civilians for random encounters and regular maps — deliberately weaker than any
+  // real combatant (the weakest existing class sits around hp 23-25) but not invulnerable:
+  // per direct instruction, they can be killed, just easily. Not for the (not yet built) city
+  // hubs — a hub instance would carry Spawn.dialog instead and never be attackable at all.
+  beberrao: {
+    id: "beberrao",
+    name: "Beberrão",
+    role: "Civil",
+    hp: 11,
+    atk: 1,
+    mag: 0,
+    def: 1,
+    res: 0,
+    mov: 3,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "beberrao",
+    size: 1,
+    init: 9,
+  },
+  breadLady: {
+    id: "breadLady",
+    name: "Padeira",
+    role: "Civil",
+    hp: 9,
+    atk: 1,
+    mag: 0,
+    def: 1,
+    res: 0,
+    mov: 4,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "breadLady",
+    size: 1,
+    init: 8,
+  },
+  brue: {
+    id: "brue",
+    name: "Brue",
+    role: "Civil — carcereiro",
+    hp: 13,
+    atk: 2,
+    mag: 0,
+    def: 2,
+    res: 1,
+    mov: 3,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "brue",
+    size: 1,
+    init: 8,
+  },
+  crazyLady: {
+    id: "crazyLady",
+    name: "Louca da Vela",
+    role: "Civil — errática",
+    hp: 7,
+    atk: 0,
+    mag: 1,
+    def: 0,
+    res: 2,
+    mov: 3,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "crazyLady",
+    size: 1,
+    init: 10,
+  },
+  mudinho: {
+    id: "mudinho",
+    name: "Mudinho",
+    role: "Civil — mudo",
+    hp: 8,
+    atk: 1,
+    mag: 0,
+    def: 1,
+    res: 1,
+    mov: 4,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "mudinho",
+    size: 1,
+    init: 8,
+  },
+  oldHealer: {
+    id: "oldHealer",
+    name: "Curandeiro Ancião",
+    role: "Civil — místico errante",
+    hp: 8,
+    atk: 0,
+    mag: 2,
+    def: 0,
+    res: 2,
+    mov: 3,
+    minRange: 1,
+    maxRange: 2,
+    sprite: "oldHealer",
+    size: 1,
+    init: 9,
+  },
+  peasant1: {
+    id: "peasant1",
+    name: "Camponês",
+    role: "Civil",
+    hp: 12,
+    atk: 2,
+    mag: 0,
+    def: 1,
+    res: 0,
+    mov: 4,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "peasant1",
+    size: 1,
+    init: 7,
+  },
+  shadyPatron: {
+    id: "shadyPatron",
+    name: "Cliente Suspeito",
+    role: "Civil — frequentador estranho",
+    hp: 9,
+    atk: 1,
+    mag: 0,
+    def: 1,
+    res: 1,
+    mov: 3,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "shadyPatron",
+    size: 1,
+    init: 8,
+  },
+  soupLady: {
+    id: "soupLady",
+    name: "Velha da Sopa",
+    role: "Civil",
+    hp: 7,
+    atk: 0,
+    mag: 0,
+    def: 1,
+    res: 1,
+    mov: 3,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "soupLady",
+    size: 1,
+    init: 9,
+  },
+  villagerF1: {
+    id: "villagerF1",
+    name: "Aldeã",
+    role: "Civil",
+    hp: 9,
+    atk: 1,
+    mag: 0,
+    def: 0,
+    res: 1,
+    mov: 4,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "villagerF1",
+    size: 1,
+    init: 8,
+  },
+  woodsman: {
+    id: "woodsman",
+    name: "Lenhador",
+    role: "Civil",
+    hp: 13,
+    atk: 2,
+    mag: 0,
+    def: 1,
+    res: 0,
+    mov: 4,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "woodsman",
+    size: 1,
+    init: 7,
+  },
 };
 
 export const HERO_NAMES = ["Kael", "Neera", "Voss", "Salazar"] as const;
@@ -1581,6 +1827,19 @@ export const GROWTH: Record<ClassId, { hp: number; atk: number; mag: number; def
   ranger: { hp: 3, atk: 2, mag: 0, def: 1, res: 1 },
   sentinel: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
   templar: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
+  // Flavor civilians (see CLASSES) — flat, minimal growth; nothing places one high-level
+  // enough for this to matter in practice, but every ClassId needs an entry here.
+  beberrao: { hp: 2, atk: 1, mag: 0, def: 1, res: 0 },
+  breadLady: { hp: 2, atk: 1, mag: 0, def: 1, res: 0 },
+  brue: { hp: 2, atk: 1, mag: 0, def: 1, res: 1 },
+  crazyLady: { hp: 1, atk: 0, mag: 1, def: 0, res: 1 },
+  mudinho: { hp: 2, atk: 1, mag: 0, def: 1, res: 1 },
+  oldHealer: { hp: 1, atk: 0, mag: 1, def: 0, res: 1 },
+  peasant1: { hp: 2, atk: 1, mag: 0, def: 1, res: 0 },
+  shadyPatron: { hp: 2, atk: 1, mag: 0, def: 1, res: 1 },
+  soupLady: { hp: 1, atk: 0, mag: 0, def: 1, res: 1 },
+  villagerF1: { hp: 2, atk: 1, mag: 0, def: 0, res: 1 },
+  woodsman: { hp: 2, atk: 1, mag: 0, def: 1, res: 0 },
 };
 
 export const MAX_LEVEL = 30;

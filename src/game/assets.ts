@@ -1,4 +1,4 @@
-import { DECORATIONS, decorationImage } from "./data";
+import { DECORATIONS, decorationImage, decorationImageWebp } from "./data";
 import type { GameArt, SpriteId, TerrainId } from "./types";
 
 // Number of art variants available per terrain, e.g. plains001.png / plains002.png.
@@ -91,7 +91,7 @@ export function portraitFor(sprite: SpriteId): { src: string; framed: boolean; p
 }
 
 const TILES = Object.keys(TILE_VARIANT_COUNT) as TerrainId[];
-const SPRITES: SpriteId[] = ["defaultWarrior", "neera", "voss", "salazar", "aldric", "malrec", "defaultLancer", "soldier", "brigand", "captain", "sorcerer", "horror", "Asherah", "pikeman", "wardog", "troll", "morvenian-wolf", "mordavian-wolf", "punisher", "theButcher", "birolho", "birolho2", "birolho3", "familiar", "familiar2", "familiar3", "swamp-blue-calf", "ancient-golem", "lancer", "sandoval", "kaelFinal", "kaelEarly", "conjurer", "cultist-v2", "archerRecruit", "mageRecruit", "healerRecruit"];
+const SPRITES: SpriteId[] = ["defaultWarrior", "neera", "voss", "salazar", "aldric", "malrec", "defaultLancer", "soldier", "brigand", "captain", "sorcerer", "horror", "Asherah", "pikeman", "wardog", "troll", "morvenian-wolf", "mordavian-wolf", "punisher", "theButcher", "birolho", "birolho2", "birolho3", "familiar", "familiar2", "familiar3", "swamp-blue-calf", "ancient-golem", "lancer", "sandoval", "kaelFinal", "kaelEarly", "conjurer", "cultist-v2", "archerRecruit", "mageRecruit", "healerRecruit", "beberrao", "breadLady", "brue", "crazyLady", "mudinho", "oldHealer", "peasant1", "shadyPatron", "soupLady", "villagerF1", "woodsman"];
 
 const LOAD_POOL = 8;
 let loadActive = 0;
@@ -184,7 +184,9 @@ export async function loadGameArt(): Promise<GameArt> {
   const decorations = {} as Record<string, HTMLImageElement>;
   await Promise.all(
     Object.keys(DECORATIONS).map(async (id) => {
-      decorations[id] = await loadImage(decorationImage(id));
+      // PNG first (every existing decoration ships as one); a prop supplied as WebP with real
+      // alpha baked in (see decorationImage's own note) falls back to that automatically.
+      decorations[id] = await loadImage(decorationImage(id)).catch(() => loadImage(decorationImageWebp(id)));
     }),
   );
   const sprites = {} as Record<SpriteId, HTMLImageElement[]>;

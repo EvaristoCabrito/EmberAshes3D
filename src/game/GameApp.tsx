@@ -13,7 +13,7 @@ import { InnScreen } from "./InnScreen";
 import { PartyInventoryOverlay, ItemTip } from "./InventoryScreens";
 import { DialogOverlay } from "./DialogOverlay";
 import { DialogEditor } from "./DialogEditor";
-import { BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, decorationImage, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
+import { BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, decorationImage, decorationImageWebp, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
 import { BattleEngine, heroSpriteFor } from "./engine";
 import { MapPreviewCanvas, type PreviewDecorationSelection, type PreviewUnitSelection } from "./MapPreviewCanvas";
 import { WorldMapScreen } from "./WorldMapScreen";
@@ -274,6 +274,7 @@ function hudBlank(): HudSnapshot {
     busy: false,
     result: null,
     winAvailable: false,
+    activeExit: null,
     canUndoMove: false,
     targetPrompt: null,
     zoom: 1,
@@ -746,7 +747,7 @@ export function GameApp() {
   // the editor itself is open and its "ember:locations-saved" event has fired this session.
   const [campaignLocations, setCampaignLocations] = useState<WorldLocation[]>(() => {
     const local = loadLocaisLocal();
-    return local ? locationsForOrder(local.order, local.locationOrder) : ALL_LOCATIONS;
+    return local ? locationsForOrder(local.order, local.locationOrder, local.submaps) : ALL_LOCATIONS;
   });
   const [campaignMissionRevision, setCampaignMissionRevision] = useState(0);
   useEffect(() => {
@@ -762,7 +763,11 @@ export function GameApp() {
             ? (rec as Record<string, string[]>)
             : null;
       const locationOrder = Array.isArray(rec.locationOrder) ? (rec.locationOrder as string[]) : undefined;
-      if (missionOrder) setCampaignLocations(locationsForOrder(missionOrder, locationOrder));
+      const submapsDetail =
+        rec.submaps && typeof rec.submaps === "object" && !Array.isArray(rec.submaps)
+          ? (rec.submaps as Record<string, { missionId: string; floor: number }[]>)
+          : undefined;
+      if (missionOrder) setCampaignLocations(locationsForOrder(missionOrder, locationOrder, submapsDetail));
     };
     window.addEventListener("ember:locations-saved", applySavedLocations);
     return () => window.removeEventListener("ember:locations-saved", applySavedLocations);
@@ -2045,7 +2050,26 @@ export function GameApp() {
         <ResultScreen
           win
           title={mission.title}
-          body="O campo ficou em silêncio."
+          body={
+            hud.activeExit?.id === "dungeon-exit"
+              ? "Vocês encontraram a saída da masmorra."
+              : hud.activeExit?.id === "escape-exit"
+                ? "Vocês escaparam a tempo."
+                : hud.activeExit?.id === "floor-connector"
+                  ? hud.activeExit.returnConnector
+                    ? "Vocês voltam ao andar anterior."
+                    : "Vocês seguem mais fundo na masmorra."
+                  : "O campo ficou em silêncio."
+          }
+          // Floor connector only: jumps straight into the linked floor (never listed in any
+          // Locais location, so onMap's normal campaign path can't reach it — see
+          // WorldLocation.submaps) instead of returning to the campaign map.
+          advanceLabel={hud.activeExit?.id === "floor-connector" ? (hud.activeExit.returnConnector ? "Voltar" : "Avançar") : undefined}
+          onAdvance={
+            hud.activeExit?.id === "floor-connector" && hud.activeExit.targetMapId
+              ? () => startBattle(hud.activeExit!.targetMapId!, save.unitHp)
+              : undefined
+          }
           turn={hud.turn}
           growth={lastGrowth}
           loot={lastLoot}
@@ -3443,7 +3467,7 @@ function MapEditorScreen({
   const [selectedPlacedDecoration, setSelectedPlacedDecoration] = useState<{ id: string; x: number; y: number; rot?: number } | null>(null);
   const [decoSection, setDecoSection] = useState("Todas");
   const [fxBrush, setFxBrush] = useState<PlaceableElementKind>("fire");
-  const [mode, setMode] = useState<"paint" | "player" | "enemy" | "summon" | "decoration" | "elementalFx">("paint");
+  const [mode, setMode] = useState<"paint" | "player" | "enemy" | "npc" | "summon" | "decoration" | "elementalFx">("paint");
   // Which summon class the "Invocação" brush drops. Summons live in playerSpawns alongside
   // the heroes — the class itself says which of the two a spawn is (isSummonClass), so
   // there is no third list to keep in sync and no saved map to migrate.
@@ -3494,6 +3518,10 @@ function MapEditorScreen({
   const [locationOrder, setLocationOrder] = useState<string[]>(
     () => locaisLocal?.locationOrder ?? ALL_LOCATIONS.map((location) => location.id),
   );
+  // Transversal Dungeon submaps per location (see WorldLocation.submaps) — purely authoring
+  // bookkeeping, so unlike order/slots it has no repo-file/dev-server write of its own; the
+  // guaranteed local save below is the only copy.
+  const [submaps, setSubmaps] = useState<Record<string, { missionId: string; floor: number }[]>>(() => locaisLocal?.submaps ?? {});
 
   /** Writes src/game/map-order.json through the dev server. Config, not a version — a new
    * order replaces the old one rather than adding a serial. */
@@ -3502,8 +3530,8 @@ function MapEditorScreen({
     // The guaranteed save — see saveLocaisLocal's doc comment in mapstore.ts. Written and
     // confirmed before the repo write is even attempted, so a missing/unreachable dev server
     // never costs the author their change, only the bonus copy in src/game/map-order.json.
-    const localOk = saveLocaisLocal({ order: next, slots, locationOrder });
-    window.dispatchEvent(new CustomEvent("ember:locations-saved", { detail: { missionOrder: next, locationOrder } }));
+    const localOk = saveLocaisLocal({ order: next, slots, locationOrder, submaps });
+    window.dispatchEvent(new CustomEvent("ember:locations-saved", { detail: { missionOrder: next, locationOrder, submaps } }));
     try {
       const res = await fetch("/__map-order", {
         method: "POST",
@@ -3669,6 +3697,14 @@ function MapEditorScreen({
     return [...known.values()].sort((a, b) => a.index - b.index || byName(a.title, b.title));
   }, [campaignIds]);
   const campaignLoadOptions = campaignMapReferences;
+  // Every saved map, campaign or reserve — a floor connector's target is picked from this
+  // full pool rather than either list alone, since a Transversal Dungeon submap is typically
+  // a reserve map (not assigned to any Local's missionIds — see WorldLocation.submaps) but
+  // nothing stops an author pointing a connector at a regular campaign mission instead.
+  const connectorTargetReferences = useMemo(
+    () => [...campaignMapReferences, ...randomEncounterReferences].sort((a, b) => byName(a.title, b.title)),
+    [campaignMapReferences, randomEncounterReferences],
+  );
   const [slots, setSlots] = useState<Record<string, number>>(() => locaisLocal?.slots ?? LOCATION_SLOTS);
 
   /** Declares how many missions a location is meant to hold, so the editor can show what
@@ -3676,7 +3712,7 @@ function MapEditorScreen({
    * not a version, so it replaces the previous count instead of adding a serial. */
   const doSaveSlots = async (next: Record<string, number>) => {
     setSlots(next);
-    const localOk = saveLocaisLocal({ order, slots: next, locationOrder });
+    const localOk = saveLocaisLocal({ order, slots: next, locationOrder, submaps });
     try {
       const res = await fetch("/__map-slots", {
         method: "POST",
@@ -3692,6 +3728,25 @@ function MapEditorScreen({
     } catch {
       setNote(localOk ? "Vagas salvas neste navegador (sem servidor de dev pro repositório)." : "NÃO SALVOU: nem localmente, nem no repositório.");
     }
+  };
+  /** Adds/replaces this location's floor entry for a mission (see WorldLocation.submaps) —
+   * authoring bookkeeping for which reserve map is which Transversal Dungeon floor, so a
+   * floor-connector's "Leva para" dropdown reads sensibly; it never touches missionIds, so it
+   * cannot make a submap appear as its own card in the campaign menu. */
+  const setLocationSubmap = (locationId: string, missionId: string, floor: number) => {
+    setSubmaps((prev) => {
+      const list = (prev[locationId] ?? []).filter((s) => s.missionId !== missionId);
+      const next = { ...prev, [locationId]: [...list, { missionId, floor }].sort((a, b) => a.floor - b.floor) };
+      saveLocaisLocal({ order, slots, locationOrder, submaps: next });
+      return next;
+    });
+  };
+  const removeLocationSubmap = (locationId: string, missionId: string) => {
+    setSubmaps((prev) => {
+      const next = { ...prev, [locationId]: (prev[locationId] ?? []).filter((s) => s.missionId !== missionId) };
+      saveLocaisLocal({ order, slots, locationOrder, submaps: next });
+      return next;
+    });
   };
   /** Re-reads the guaranteed-local Locais copy (see saveLocaisLocal in mapstore.ts) and
    * replaces order/slots/locationOrder with exactly that — called right as the Locais screen
@@ -3714,6 +3769,7 @@ function MapEditorScreen({
     setOrder(fresh.order);
     setSlots(fresh.slots);
     setLocationOrder(fresh.locationOrder);
+    setSubmaps(fresh.submaps ?? {});
   };
   /** Writes the Locais configuration — which missions each location holds, in what order,
    * and how many it is meant to hold. The local save (see saveLocaisLocal in mapstore.ts) is
@@ -3724,8 +3780,8 @@ function MapEditorScreen({
    * between "saved" and "NÃO SALVOU" the way it used to be. */
   const saveScenarios = async () => {
     setBigNote(null);
-    const localOk = saveLocaisLocal({ order, slots, locationOrder });
-    window.dispatchEvent(new CustomEvent("ember:locations-saved", { detail: { missionOrder: order, locationOrder } }));
+    const localOk = saveLocaisLocal({ order, slots, locationOrder, submaps });
+    window.dispatchEvent(new CustomEvent("ember:locations-saved", { detail: { missionOrder: order, locationOrder, submaps } }));
     if (!localOk) {
       setBigNote({
         ok: false,
@@ -3734,7 +3790,7 @@ function MapEditorScreen({
           "O navegador recusou gravar (modo privado, armazenamento bloqueado ou cheio).",
           "O texto abaixo é a sua configuração. Copie e guarde: cola numa conversa e eu gravo por você.",
         ],
-        dump: JSON.stringify({ order, locationOrder, slots }, null, 2),
+        dump: JSON.stringify({ order, locationOrder, slots, submaps }, null, 2),
       });
       return;
     }
@@ -3859,13 +3915,15 @@ function MapEditorScreen({
       const key: SpawnKey =
         mode === "enemy"
           ? "enemySpawns"
-          : mode === "summon"
-            ? summonSide === "enemy"
-              ? "enemySpawns"
-              : summonSide === "neutral"
-                ? "neutralSpawns"
-                : "playerSpawns"
-            : "playerSpawns";
+          : mode === "npc"
+            ? "neutralSpawns"
+            : mode === "summon"
+              ? summonSide === "enemy"
+                ? "enemySpawns"
+                : summonSide === "neutral"
+                  ? "neutralSpawns"
+                  : "playerSpawns"
+              : "playerSpawns";
       const list = d[key] ?? [];
       const existing = list.findIndex((s) => s.x === x && s.y === y);
       if (existing >= 0) {
@@ -3884,7 +3942,9 @@ function MapEditorScreen({
             }
           : mode === "player"
             ? { name: `Herói ${plain + 1}`, classId: "swordsman", x, y, level: DEFAULT_TEST_LEVEL }
-            : { name: `Inimigo ${plain + 1}`, classId: "soldier", x, y, level: enemyLevelFor(0) };
+            : mode === "npc"
+              ? { name: `Civil ${plain + 1}`, classId: "breadLady", x, y, level: enemyLevelFor(0) }
+              : { name: `Inimigo ${plain + 1}`, classId: "soldier", x, y, level: enemyLevelFor(0) };
       return { ...d, [key]: [...list, spawn] };
     });
   };
@@ -3974,6 +4034,35 @@ function MapEditorScreen({
     },
     [selectedPlacedDecoration, setNote],
   );
+
+  /** Floor-connector placements only (DecorationDef.exitKind === "connector"): which mission
+   * this specific hex leads to. Mirrors toggleDecorationRule's own find/replace pattern. */
+  const setConnectorTarget = useCallback(
+    (targetMapId: string) => {
+      const selected = selectedPlacedDecoration;
+      if (!selected) return;
+      setDraft((d) => {
+        const hit = d.decorations.find((p) => p.id === selected.id && p.x === selected.x && p.y === selected.y && (p.rot ?? 0) === (selected.rot ?? 0));
+        if (!hit) return d;
+        const next: DecorationPlacement = { ...hit, targetMapId: targetMapId || undefined };
+        return { ...d, decorations: d.decorations.map((p) => (p === hit ? next : p)) };
+      });
+    },
+    [selectedPlacedDecoration],
+  );
+
+  /** Floor-connector placements only: flips the result-screen wording/direction between
+   * "Avançar" (deeper) and "Voltar" (back up) — see DecorationPlacement.returnConnector. */
+  const toggleReturnConnector = useCallback(() => {
+    const selected = selectedPlacedDecoration;
+    if (!selected) return;
+    setDraft((d) => {
+      const hit = d.decorations.find((p) => p.id === selected.id && p.x === selected.x && p.y === selected.y && (p.rot ?? 0) === (selected.rot ?? 0));
+      if (!hit) return d;
+      const next: DecorationPlacement = { ...hit, returnConnector: hit.returnConnector ? undefined : true };
+      return { ...d, decorations: d.decorations.map((p) => (p === hit ? next : p)) };
+    });
+  }, [selectedPlacedDecoration]);
 
   const removeSelectedDecoration = useCallback(() => {
     const selected = selectedPlacedDecoration;
@@ -4803,6 +4892,7 @@ function MapEditorScreen({
             >
               <option value="rout">Derrote todos (rout)</option>
               <option value="boss">Derrube o chefe (boss)</option>
+              <option value="escape">Transversal — alcance a saída (escape)</option>
             </select>
           </label>
           <label className="flex flex-col gap-1">
@@ -5090,14 +5180,14 @@ function MapEditorScreen({
             ))}
           </div>
           <div className="flex rounded-md border border-border overflow-hidden text-xs">
-            {(["paint", "decoration", "player", "enemy", "summon"] as const).map((m) => (
+            {(["paint", "decoration", "player", "enemy", "npc", "summon"] as const).map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => setMode(m)}
                 className={`px-2.5 py-1.5 ${mode === m ? "bg-accent text-bg" : "bg-bg text-muted"}`}
               >
-                {m === "paint" ? "Terreno" : m === "decoration" ? "Decoração" : m === "player" ? "Herói" : m === "enemy" ? "Inimigo" : "Invocação"}
+                {m === "paint" ? "Terreno" : m === "decoration" ? "Decoração" : m === "player" ? "Herói" : m === "enemy" ? "Inimigo" : m === "npc" ? "NPC" : "Invocação"}
               </button>
             ))}
           </div>
@@ -5225,7 +5315,15 @@ function MapEditorScreen({
                         onClick={() => setDecoBrush(dec.id)}
                         className="flex items-center gap-1.5"
                       >
-                        <img src={decorationImage(dec.id)} alt="" className="size-6 rounded-sm object-cover bg-bg" />
+                        <img
+                          src={decorationImage(dec.id)}
+                          alt=""
+                          className="size-6 rounded-sm object-cover bg-bg"
+                          onError={(e) => {
+                            e.currentTarget.onerror = null;
+                            e.currentTarget.src = decorationImageWebp(dec.id);
+                          }}
+                        />
                         {dec.name}
                       </button>
                       <button
@@ -5285,6 +5383,34 @@ function MapEditorScreen({
                 segue intransponível com "Bloquear caminho" desligado, porque é a definição dela que a torna sólida.
               </p>
             </div>
+
+            {selectedPlacement && DECORATIONS[selectedPlacement.id]?.exitKind === "connector" && (
+              <div className="flex flex-col gap-1.5 border border-border rounded-md p-2 bg-bg/40">
+                <span className="text-xs uppercase tracking-wide text-muted">Passagem de andar</span>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="text-muted text-xs">Leva para</span>
+                  <select
+                    className="bg-bg border border-border rounded px-1.5 py-1 text-xs"
+                    value={selectedPlacement.targetMapId ?? ""}
+                    onChange={(e) => setConnectorTarget(e.target.value)}
+                  >
+                    <option value="">Escolha um mapa…</option>
+                    {connectorTargetReferences.map((map) => (
+                      <option key={map.id} value={map.id}>
+                        {map.title} · {map.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label
+                  className="flex items-center gap-2 text-sm"
+                  title='Desligado: o resultado da batalha mostra "Avançar" (mais fundo na masmorra). Ligado: mostra "Voltar" (andar anterior). Puramente o texto/sentido mostrado ao jogador — quem decide qual mapa liga a qual é o campo "Leva para" acima.'
+                >
+                  <input type="checkbox" checked={!!selectedPlacement.returnConnector} onChange={toggleReturnConnector} />
+                  <span className="text-muted">Volta para o andar anterior (em vez de avançar)</span>
+                </label>
+              </div>
+            )}
           </div>
         )}
         {(mode === "player" || mode === "enemy") && (
@@ -5579,7 +5705,15 @@ function MapEditorScreen({
             <p className="text-xs uppercase tracking-wide text-muted">Decorações ({draft.decorations.length})</p>
             {draft.decorations.map((p, i) => (
               <div key={i} className="flex items-center gap-1.5 text-xs bg-bg border border-border rounded-md px-2 py-1">
-                <img src={decorationImage(p.id)} alt="" className="size-6 rounded-sm object-cover" />
+                <img
+                  src={decorationImage(p.id)}
+                  alt=""
+                  className="size-6 rounded-sm object-cover"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = decorationImageWebp(p.id);
+                  }}
+                />
                 <span className="flex-1 min-w-0 truncate">{DECORATIONS[p.id]?.name ?? p.id}</span>
                 <span className="text-muted tabular-nums">{p.x},{p.y}</span>
                 <button
@@ -6064,6 +6198,64 @@ function MapEditorScreen({
                         })}
                       </div>
                     )}
+
+                    {/* Transversal Dungeon submaps (see WorldLocation.submaps): extra maps
+                        chained to this location as dungeon floors, reached only through a
+                        floor-connector decoration in-battle — never listed above, so they
+                        never get their own card in the campaign menu. Floor number is author
+                        bookkeeping only, for picking sensible connector targets in the map
+                        editor; it doesn't order or gate anything by itself. */}
+                    <div className="mt-2 pt-2 border-t border-border">
+                      <p className="text-[10px] uppercase tracking-wide text-muted mb-1">
+                        Submaps (andares extras, fora do menu de campanha)
+                      </p>
+                      {(submaps[loc.id] ?? []).length === 0 ? (
+                        <p className="text-xs text-muted mb-1.5">Nenhum submap ainda.</p>
+                      ) : (
+                        <div className="flex flex-col gap-1 mb-1.5">
+                          {(submaps[loc.id] ?? []).map((s) => {
+                            const m = missionById(s.missionId);
+                            return (
+                              <div key={s.missionId} className="flex items-center gap-1.5 text-xs bg-bg border border-border rounded-md px-2 py-1.5">
+                                <span className="tabular-nums text-muted w-14 shrink-0">Andar {s.floor}</span>
+                                <span className="flex-1 min-w-0 truncate">{m ? m.title : s.missionId}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeLocationSubmap(loc.id, s.missionId)}
+                                  className="px-1 rounded border border-border text-danger"
+                                  aria-label={`Tirar ${m ? m.title : s.missionId} dos submaps`}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          className="min-w-0 flex-1 bg-bg border border-border rounded px-1.5 py-1 text-xs"
+                          value=""
+                          title="Mapa seu já salvo, ainda fora da campanha, pra virar submap deste Local"
+                          onChange={(e) => {
+                            const missionId = e.target.value;
+                            e.target.value = "";
+                            if (!missionId) return;
+                            const nextFloor = Math.max(1, ...(submaps[loc.id] ?? []).map((s) => s.floor)) + 1;
+                            setLocationSubmap(loc.id, missionId, nextFloor);
+                          }}
+                        >
+                          <option value="">Adicionar submap…</option>
+                          {randomEncounterReferences
+                            .filter((map) => !(submaps[loc.id] ?? []).some((s) => s.missionId === map.id))
+                            .map((map) => (
+                              <option key={map.id} value={map.id}>
+                                {map.title} · {map.id}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
@@ -8018,6 +8210,8 @@ function ResultScreen({
   innOpen,
   retry,
   loot,
+  advanceLabel,
+  onAdvance,
 }: {
   win: boolean;
   title: string;
@@ -8034,6 +8228,12 @@ function ResultScreen({
   innOpen?: boolean;
   retry?: boolean;
   loot?: string[];
+  /** Transversal Dungeon floor connector only: "Avançar"/"Voltar" straight into the linked
+   * floor, shown above the usual Mapa/Estalagem buttons instead of the disabled hasNext path
+   * (see its own comment at the victory ResultScreen call site — this is a different, specific
+   * destination, not the "next mission by index" hasNext was turned off for). */
+  advanceLabel?: string;
+  onAdvance?: () => void;
 }) {
   return (
     <section className="relative h-dvh min-h-0 flex flex-col overflow-hidden bg-bg">
@@ -8099,6 +8299,11 @@ function ResultScreen({
         )}
       </div>
       <div className="relative z-10 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col gap-2">
+        {onAdvance && (
+          <Button size="xl" className="w-full" onClick={onAdvance}>
+            {advanceLabel ?? "Avançar"}
+          </Button>
+        )}
         {hasNext && (
           <Button size="xl" className="w-full" onClick={onNext}>
             {retry ? (

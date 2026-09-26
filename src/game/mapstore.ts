@@ -395,6 +395,10 @@ export interface LocaisLocal {
   order: Record<string, string[]>;
   slots: Record<string, number>;
   locationOrder: string[];
+  /** Transversal Dungeon submaps, keyed by location id — see WorldLocation.submaps. Optional:
+   * a Locais save made before this existed has no such key and reads as "no submaps anywhere",
+   * so nothing already saved changes. */
+  submaps?: Record<string, { missionId: string; floor: number }[]>;
 }
 
 export function loadLocaisLocal(): LocaisLocal | null {
@@ -404,9 +408,9 @@ export function loadLocaisLocal(): LocaisLocal | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object") return null;
-    const { order, slots, locationOrder } = parsed as Partial<LocaisLocal>;
+    const { order, slots, locationOrder, submaps } = parsed as Partial<LocaisLocal>;
     if (!order || typeof order !== "object" || !slots || typeof slots !== "object" || !Array.isArray(locationOrder)) return null;
-    return { order, slots, locationOrder };
+    return { order, slots, locationOrder, submaps: submaps && typeof submaps === "object" ? submaps : undefined };
   } catch {
     return null;
   }
@@ -581,13 +585,19 @@ export function missionsForLocation(loc: WorldLocation): Mission[] {
   return loc.missionIds.map((id) => missionById(id)).filter((m): m is Mission => !!m);
 }
 
-/** Applies an editor-saved Local order to the campaign that is already running. */
-export function locationsForOrder(order: Record<string, string[]>, locationOrder: string[] = LOCATION_ORDER): WorldLocation[] {
+/** Applies an editor-saved Local order to the campaign that is already running. `submaps`
+ * (see WorldLocation.submaps) is authoring bookkeeping only — it never touches missionIds, so
+ * omitting it here changes nothing about which missions a location plays. */
+export function locationsForOrder(
+  order: Record<string, string[]>,
+  locationOrder: string[] = LOCATION_ORDER,
+  submaps?: Record<string, { missionId: string; floor: number }[]>,
+): WorldLocation[] {
   const assigned = new Set(Object.values(order).flat());
   const locations = ALL_LOCATIONS.map((loc) => {
     const chosen = order[loc.id] ?? [];
     const unchanged = loc.missionIds.filter((id) => !assigned.has(id) && !chosen.includes(id));
-    return { ...loc, missionIds: [...chosen, ...unchanged] };
+    return { ...loc, missionIds: [...chosen, ...unchanged], submaps: submaps?.[loc.id] ?? loc.submaps };
   });
   return inLocationOrder(locations, locationOrder);
 }
