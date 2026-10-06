@@ -7288,13 +7288,6 @@
       },
       {
         "id": "wall-3d-dungeon",
-        "x": 25,
-        "y": 4,
-        "rot": 0,
-        "wallOrientation": "horizontal"
-      },
-      {
-        "id": "wall-3d-dungeon",
         "x": 26,
         "y": 4,
         "rot": 0,

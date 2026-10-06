@@ -1378,7 +1378,7 @@ export class ThreeBattleRenderer {
     }
     // Both cameras use the continuous ground fill around the outer hexes. In 2D it
     // sits beneath the original tiles, preserving their authored elevation steps.
-    const stamp = `continuous-atlas-v5:${JSON.stringify([...floorRects])}:${this.engine.tacticsCamera}:${this.engine.cols}:${this.engine.rows}:${tile}:${this.engine.fogged ? this.engine.visVersion : "clear"}:` + cells.map(c =>
+    const stamp = `continuous-atlas-v6:closed-edges:${JSON.stringify([...floorRects])}:${this.engine.tacticsCamera}:${this.engine.cols}:${this.engine.rows}:${tile}:${this.engine.fogged ? this.engine.visVersion : "clear"}:` + cells.map(c =>
       `${c.col},${c.row},${c.height},${c.entry.id},${c.entry.variant},${c.entry.rot}`).join(";");
     if (stamp !== this.terrainSolidKey && cells.length) {
       if (!this.cliffMaterial) {
@@ -1426,7 +1426,7 @@ export class ThreeBattleRenderer {
           return this.engine.explored(col, row) || this.engine.visible(col, row);
         }
         return true;
-      }, !this.engine.mission.id.startsWith("watchtower-"), {
+      }, true, {
         x: [...new Set([...floorRects.values()].flatMap(r => [r.minX * tile, r.maxX * tile]))],
         y: [...new Set([...floorRects.values()].flatMap(r => [-tile * (r.minY + BOARD_PAD_MUL + 0.25), -tile * (r.maxY + BOARD_PAD_MUL + 0.25)]))],
       });
@@ -1670,10 +1670,7 @@ export class ThreeBattleRenderer {
     const architectureCells = new Set(engine.decorations.filter(p => DECORATIONS[p.id]?.model3d && !DECORATIONS[p.id]?.rockStyle && !DECORATIONS[p.id]?.treeModel && !DECORATIONS[p.id]?.propModel).map(p => `${p.x},${p.y}`));
 
     for (const p of engine.decorations) {
-      const authoredDef = DECORATIONS[p.id];
-      const def = engine.mission.id.startsWith("watchtower-") && p.id === "wall-3d-dungeon"
-        ? { ...authoredDef, wallTexture: DECORATIONS["wall-3d-crypt"].wallTexture }
-        : authoredDef;
+      const def = DECORATIONS[p.id];
       if (!def) continue;
       if ((def.treeModel || def.propModel === "grey-outcrop" || def.propModel?.startsWith("tavern-")) && engine.tacticsCamera) {
         const mesh = this.trees.create(def.treeModel ?? (def.propModel as "grey-outcrop" | "tavern-barrel" | "tavern-chair" | "tavern-candlestick" | "tavern-mug" | "tavern-table"), tile);
