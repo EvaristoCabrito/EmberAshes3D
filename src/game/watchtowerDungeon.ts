@@ -3,6 +3,14 @@ import { buildDecorOverlay, hexDef } from "./hexprops";
 import type { DecorationPlacement, TerrainId } from "./types";
 export const WATCHTOWER_FLOORS: Record<string, number> = { "watchtower-gate-floor": 0, "watchtower-barracks": 1, "watchtower-command": 2, "watchtower-beacon": 3, "watchtower-undercroft": -1, "watchtower-prison": -2 };
 
+/** Placing an entrance replaces the wall records across both of its cells. */
+export function removeWallsUnderWatchtowerEntrances(placements: DecorationPlacement[]): DecorationPlacement[] {
+  const openings = new Set(placements.filter(p => p.id === "watchtower-stone-open-door-2hex")
+    .flatMap(p => placedFootprint(p).map(f => `${p.x + f.dx},${p.y + f.dy}`)));
+  return placements.filter(p => DECORATIONS[p.id]?.model3d !== "wall" ||
+    !placedFootprint(p).some(f => openings.has(`${p.x + f.dx},${p.y + f.dy}`)));
+}
+
 /** Complete the existing floor boundary, including older activated editor drafts. */
 export function closeWatchtowerWalls(id: string, tiles: TerrainId[], cols: number, rows: number, placements: DecorationPlacement[]): DecorationPlacement[] {
   if (!id.startsWith("watchtower-")) return placements;
@@ -20,7 +28,7 @@ export function closeWatchtowerWalls(id: string, tiles: TerrainId[], cols: numbe
   const cellsOf = (p: DecorationPlacement) => placedFootprint(p).map(c => ({ x: p.x + c.dx, y: p.y + c.dy }));
   const entranceCells = new Set(result.filter(p => p.id === "watchtower-stone-open-door-2hex").flatMap(p => cellsOf(p).map(c => `${c.x},${c.y}`)));
   // The open entrance replaces the generated perimeter pieces underneath its span.
-  result = result.filter(p => DECORATIONS[p.id]?.model3d !== "wall" || !cellsOf(p).some(c => entranceCells.has(`${c.x},${c.y}`)));
+  result = removeWallsUnderWatchtowerEntrances(result);
   const occupied = new Set(result.filter(p => DECORATIONS[p.id]?.model3d).map(p => `${p.x},${p.y}`));
   for (const cell of entranceCells) occupied.add(cell);
   const wallId = result.find(p => DECORATIONS[p.id]?.model3d === "wall")?.id ?? "wall-3d-dungeon";

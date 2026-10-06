@@ -1,4 +1,5 @@
 import { isFloorConnector, floorConnectorDirection } from "./data";
+import { removeWallsUnderWatchtowerEntrances } from "./watchtowerDungeon";
 import { applyPartyFormation, cleanPartyFormation, cleanPartyLeader, partyLeaderOf } from "./partyFormation";
 import { OptionsButton } from "./OptionsMenu";
 import { CUTSCENE_SUBTITLES, syncEnglishSubtitles } from "./cutsceneSubtitles";
@@ -3922,12 +3923,12 @@ function findPreviewDecoration(
 const WATCHTOWER_ENTRANCE_ID = "watchtower-stone-open-door-2hex";
 function previewDecorationCells(placements: DecorationPlacement[], candidate: DecorationPlacement): Set<string> {
   const candidateCells = new Set(placedFootprint(candidate).map(f => `${candidate.x + f.dx},${candidate.y + f.dy}`));
-  const isConnector = DECORATIONS[candidate.id]?.exitKind === "connector";
+  const isWaypoint = !!DECORATIONS[candidate.id]?.exitKind;
   return decorationCells(placements.filter((p) => {
     const overlaps = placedFootprint(p).some(f => candidateCells.has(`${p.x + f.dx},${p.y + f.dy}`));
     if (!overlaps) return true;
-    if (candidate.id === WATCHTOWER_ENTRANCE_ID && (DECORATIONS[p.id]?.model3d === "wall" || DECORATIONS[p.id]?.exitKind === "connector")) return false;
-    if (isConnector && p.id === WATCHTOWER_ENTRANCE_ID) return false;
+    if (candidate.id === WATCHTOWER_ENTRANCE_ID && (DECORATIONS[p.id]?.model3d === "wall" || !!DECORATIONS[p.id]?.exitKind)) return false;
+    if (isWaypoint && p.id === WATCHTOWER_ENTRANCE_ID) return false;
     return true;
   }));
 }
@@ -4051,7 +4052,7 @@ async function saveMapToRepo(draft: MapDraft): Promise<{ ok: true; serial: numbe
     const res = await fetch("/__map-save", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...draft, id: normalizeScenarioId(draft.id) }),
+      body: JSON.stringify({ ...draft, id: normalizeScenarioId(draft.id), decorations: removeWallsUnderWatchtowerEntrances(draft.decorations) }),
     });
     let body: { ok?: boolean; serial?: number; file?: string; error?: string };
     try {
@@ -4310,6 +4311,12 @@ export function MapEditorScreen({
   const [versionStore, setVersionStore] = useState<Record<string, MapVersion[]>>(() => loadVersionStore());
   const [activeVersions, setActiveVersions] = useState<Record<string, number>>(() => loadActiveVersions());
   const [draft, setDraft] = useState<MapDraft>(() => initialDraft ?? blankDraft());
+  useEffect(() => {
+    setDraft(d => {
+      const decorations = removeWallsUnderWatchtowerEntrances(d.decorations);
+      return decorations.length === d.decorations.length ? d : { ...d, decorations };
+    });
+  }, [removeWallsUnderWatchtowerEntrances]);
   // Undo/redo for the map editor, up to 10 steps each way. A burst of rapid changes (typing
   // in a text field, dragging a paint stroke across several hexes) is coalesced into a
   // single step by waiting for a short pause before committing one to history, so undo
@@ -4995,7 +5002,7 @@ export function MapEditorScreen({
       }
       setNote(`${def.name} em ${hit.x},${hit.y}: girada para ${(turned.rot ?? 0) * (def.model3d ? 90 : 60)}°${(turned.rot ?? 0) === 0 ? " (de volta ao original)" : ""}.`);
       if (def.model3d) setSelectedPlacedDecoration({ id: turned.id, x: turned.x, y: turned.y, rot: turned.rot });
-      return { ...d, tiles, tileVariants, tileRots, decorations: d.decorations.map((p) => (p === hit ? turned : p)) };
+      return { ...d, tiles, tileVariants, tileRots, decorations: removeWallsUnderWatchtowerEntrances(d.decorations.map((p) => (p === hit ? turned : p))) };
     });
   };
 
@@ -5016,9 +5023,9 @@ export function MapEditorScreen({
     setWallOrientation(orientation);
     if (!selectedPlacement || !selectedArchitecture) return;
     const rot = orientation === "vertical" ? 1 : 0;
-    setDraft(d => ({ ...d, decorations: d.decorations.map(p =>
+    setDraft(d => ({ ...d, decorations: removeWallsUnderWatchtowerEntrances(d.decorations.map(p =>
       p.id === selectedPlacement.id && p.x === selectedPlacement.x && p.y === selectedPlacement.y
-        ? { ...p, rot, wallOrientation: orientation } : p) }));
+        ? { ...p, rot, wallOrientation: orientation } : p)) }));
     setSelectedPlacedDecoration({ id: selectedPlacement.id, x: selectedPlacement.x, y: selectedPlacement.y, rot });
   };
 
@@ -5131,8 +5138,8 @@ export function MapEditorScreen({
         ...clicked, id: decoBrush, rot: wallOrientation === "vertical" ? 1 : 0, wallOrientation,
         blocksPath: undefined, yieldsHighGround: undefined,
       };
-      setDraft(d => ({ ...d, decorations: d.decorations.map(p =>
-        p.id === clicked.id && p.x === clicked.x && p.y === clicked.y ? replacement : p) }));
+      setDraft(d => ({ ...d, decorations: removeWallsUnderWatchtowerEntrances(d.decorations.map(p =>
+        p.id === clicked.id && p.x === clicked.x && p.y === clicked.y ? replacement : p)) }));
       setSelectedPlacedDecoration(null);
       setNote(`${DECORATIONS[decoBrush]?.name} colocada em ${clicked.x},${clicked.y}.`);
       return;
@@ -5147,7 +5154,8 @@ export function MapEditorScreen({
     // only a click that only reaches an existing Waypoint through its second/offset hex falls
     // through to placing a new one instead, which is the actual "clicking near it" case above.
     const brushIsWaypoint = !!DECORATIONS[decoBrush]?.exitKind;
-    if (clicked && (!brushIsWaypoint || (clicked.x === x && clicked.y === y))) {
+    const entranceOverWaypoint = decoBrush === WATCHTOWER_ENTRANCE_ID && !!DECORATIONS[clicked?.id ?? ""]?.exitKind;
+    if (clicked && !entranceOverWaypoint && (!brushIsWaypoint || (!!DECORATIONS[clicked.id]?.exitKind && clicked.x === x && clicked.y === y))) {
       const clickedDef = DECORATIONS[clicked.id];
       setSelectedPlacedDecoration({ id: clicked.id, x: clicked.x, y: clicked.y, rot: clicked.rot });
       setNote(`${clickedDef?.name ?? clicked.id} selecionada. Pressione Delete para remover.`);
@@ -5179,7 +5187,7 @@ export function MapEditorScreen({
       // No auto-selection of any sort, per direct instruction: placing stays on the current
       // brush so the author can keep placing more of the same thing; they select something
       // else (to inspect/delete/edit rules) only by clicking it themselves.
-      return { ...d, tiles, decorations: [...d.decorations, placed] };
+      return { ...d, tiles, decorations: removeWallsUnderWatchtowerEntrances([...d.decorations, placed]) };
     });
   };
   const toggleElementalFx = (x: number, y: number) => {
@@ -5467,7 +5475,7 @@ export function MapEditorScreen({
       }
       setSelectedPlacedDecoration(moved);
       setNote(`${def.name} movida para ${x},${y}.`);
-      return { ...d, tiles, tileVariants, tileRots, decorations: d.decorations.map((p) => (p === hit ? moved : p)) };
+      return { ...d, tiles, tileVariants, tileRots, decorations: removeWallsUnderWatchtowerEntrances(d.decorations.map((p) => (p === hit ? moved : p))) };
     });
   };
   /** Drops one hero or the whole party on the bottom row. Worked out from the current draft
@@ -6658,7 +6666,7 @@ export function MapEditorScreen({
                 />
                 <span className="text-muted">Alto terreno</span>
               </label></>}
-              {mode === "architecture" && (selectedArchitecture === "door" || selectedArchitecture === "doorway" || selectedArchitecture === "secretDoor") && selectedPlacement && (
+              {mode === "architecture" && (selectedArchitecture === "door" || selectedArchitecture === "doorway" || selectedArchitecture === "secretDoor") && selectedPlacement && selectedPlacement.id !== WATCHTOWER_ENTRANCE_ID && (
                 <Button size="sm" onClick={() => {
                   const style = DECORATIONS[selectedPlacement.id]?.doorStyle ?? "oak";
                   const pair = THREE_D_DOOR_VARIANTS[style];

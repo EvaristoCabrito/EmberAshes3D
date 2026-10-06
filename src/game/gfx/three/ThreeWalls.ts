@@ -55,7 +55,20 @@ export function createWallGeometry(def: DecorationDef, tile: number, rotation: n
   const height = tile * 0.75 * (def.heightScale ?? 1);
   let geometry: THREE.BufferGeometry;
   const referenceDoor = def.doorStyle === "stoneOak" || def.doorStyle === "dungeonOak";
-  if (referenceDoor) {
+  if (def.id === "watchtower-stone-open-door-2hex") {
+    // Cut an opening out of the same wall volume: identical top, base and depth.
+    const width = tile * ((rotation & 1) ? 1.5 : Math.sqrt(3)) * 2;
+    const depth = tile * 0.32 * (def.wallThicknessScale ?? 1);
+    const post = depth, lintel = height * 0.16;
+    const parts = [
+      new THREE.BoxGeometry(width, depth, lintel).translate(0, 0, height - lintel / 2),
+      ...[-1, 1].map(side => new THREE.BoxGeometry(post, depth, height - lintel)
+        .translate(side * (width - post) / 2, 0, (height - lintel) / 2)),
+    ];
+    geometry = mergeGeometries(parts)!;
+    parts.forEach(part => part.dispose());
+    geometry.rotateZ(-rotation * Math.PI / 2);
+  } else if (referenceDoor) {
     geometry = createReferenceDoorGeometry(def, tile, height, rotation);
   } else if (def.rockStyle) {
     geometry = createRockGeometry(def, tile, height, rotation);

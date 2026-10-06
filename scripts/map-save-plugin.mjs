@@ -335,6 +335,7 @@ export function mapSavePlugin() {
               reply(500, { ok: false, error: `não foi possível confirmar a gravação de ${file}` });
               return;
             }
+            invalidateMapstore(server);
             reply(200, { ok: true, serial, file: `${MAPS_DIR}/${file}`, bytes: statSync(full).size });
           })
           .catch((err) => reply(400, { ok: false, error: String(err?.message ?? err) }));

@@ -1641,8 +1641,11 @@ export class ThreeBattleRenderer {
     const engine = this.engine;
     const wallDefinition = (id: string) => {
       const def = DECORATIONS[id];
+      const wall = id === "watchtower-stone-open-door-2hex"
+        ? DECORATIONS[engine.decorations.find(p => DECORATIONS[p.id]?.model3d === "wall")?.id ?? "wall-3d-tower"]
+        : undefined;
       return engine.mission.id.startsWith("watchtower-") && (def?.model3d === "wall" || id === "watchtower-stone-open-door-2hex")
-        ? { ...def, wallTexture: engine.art.tiles[engine.mission.baseTile ?? "nave"]?.[engine.mission.baseVariant ?? 0]?.src ?? OUTER_WALL_TEXTURE }
+        ? { ...def, ...(wall ? { heightScale: wall.heightScale ?? 1, wallThicknessScale: wall.wallThicknessScale ?? 1 } : {}), wallTexture: engine.art.tiles[engine.mission.baseTile ?? "nave"]?.[engine.mission.baseVariant ?? 0]?.src ?? OUTER_WALL_TEXTURE }
         : def;
     };
     // Props can move or change visual treatment without changing the mission id/count
@@ -1686,7 +1689,8 @@ export class ThreeBattleRenderer {
     }
     this.decorEntries = [];
     this.builtDecorKey = key;
-    const architectureCells = new Set(engine.decorations.filter(p => DECORATIONS[p.id]?.model3d && !DECORATIONS[p.id]?.rockStyle && !DECORATIONS[p.id]?.treeModel && !DECORATIONS[p.id]?.propModel).map(p => `${p.x},${p.y}`));
+    const architectureCells = new Set(engine.decorations.filter(p => DECORATIONS[p.id]?.model3d && !DECORATIONS[p.id]?.rockStyle && !DECORATIONS[p.id]?.treeModel && !DECORATIONS[p.id]?.propModel).flatMap(p =>
+      p.id === "watchtower-stone-open-door-2hex" ? placedFootprint(p).map(f => `${p.x + f.dx},${p.y + f.dy}`) : [`${p.x},${p.y}`]));
 
     for (const p of engine.decorations) {
       const def = wallDefinition(p.id);

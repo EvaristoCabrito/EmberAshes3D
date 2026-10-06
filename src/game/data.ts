@@ -476,7 +476,7 @@ export const FOREST_DECOR_IDS = new Set([
 // Multi-hex terrain props: rendered as one image over their whole footprint instead of
 // clipped per hex (see DecorationDef). Cropped from LargeHexes1-3.jpg.
 export const DECORATIONS: Record<string, DecorationDef> = {
-  "watchtower-stone-open-door-2hex": { id: "watchtower-stone-open-door-2hex", name: "Vão de Pedra Aberto do Torreão 3D · 2 hexes", footprint: DECO_PAIR, architectureSpan: 2, blockingFootprint: [], model3d: "doorway", doorStyle: "watchtowerStone", wallThicknessScale: 1.55 },
+  "watchtower-stone-open-door-2hex": { id: "watchtower-stone-open-door-2hex", name: "Vão de Pedra Aberto do Torreão 3D · 2 hexes", footprint: DECO_PAIR, architectureSpan: 2, blockingFootprint: [], model3d: "doorway" },
   "door-3d-stone-oak": { id: "door-3d-stone-oak", name: "Porta de madeira em pedra clara 3D", footprint: [{ dx: -1, dy: 0 }, { dx: 0, dy: 0 }, { dx: 1, dy: 0 }], architectureSpan: 3, model3d: "door", doorStyle: "stoneOak", wallTexture: "/game/textures/doors/stone-oak-reference.jpg" },
   "door-3d-stone-oak-open": { id: "door-3d-stone-oak-open", name: "Vão de madeira em pedra clara 3D", footprint: [{ dx: -1, dy: 0 }, { dx: 0, dy: 0 }, { dx: 1, dy: 0 }], architectureSpan: 3, blockingFootprint: [{ dx: -1, dy: 0 }, { dx: 1, dy: 0 }], model3d: "doorway", doorStyle: "stoneOak", wallTexture: "/game/textures/doors/stone-oak-reference.jpg" },
   "door-3d-dungeon-oak": { id: "door-3d-dungeon-oak", name: "Porta espessa de masmorra com grade 3D", footprint: [{ dx: -1, dy: 0 }, { dx: 0, dy: 0 }, { dx: 1, dy: 0 }], architectureSpan: 3, model3d: "door", doorStyle: "dungeonOak", thickWall: true, wallTexture: "/game/textures/doors/dungeon-oak-reference.jpg" },

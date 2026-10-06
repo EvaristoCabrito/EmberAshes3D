@@ -335,7 +335,7 @@ export interface DecorationDef {
   /** Architecture meshes live in the editor's separate 3D Walls palette. */
   model3d?: "wall" | "doorway" | "door" | "secretDoor" | "tree" | "prop";
   /** Paired open/closed architecture variant, used to retain a door's appearance on opening. */
-  doorStyle?: "oak" | "reinforced" | "secretStone" | "iron" | "steel" | "castle" | "stoneOak" | "dungeonOak" | "watchtowerStone";
+  doorStyle?: "oak" | "reinforced" | "secretStone" | "iron" | "steel" | "castle" | "stoneOak" | "dungeonOak";
   castleStyle?: "battlement" | "ruined" | "gate" | "tower";
   thickWall?: boolean;
   architectureSpan?: number;
