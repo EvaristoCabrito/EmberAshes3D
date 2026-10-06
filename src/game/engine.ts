@@ -3,7 +3,7 @@ import { tacticalGridStyleQuiet as tacticalGridStyle, GRID_MOVE, GRID_ROUTE, GRI
 import { isHexGroundVariant, requestSpriteArt } from "./assets";
 import { drawGroundTexture, drawHexGround } from "./hexGround";
 import { vauBackdropBounds } from "./vauBackdrop";
-import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, MINOR_VENOM, DECOR_ART_SCALE, HOUSE_ART_SCALE, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expToLevel, expForHit, FIREBALL, FANTOM_FORCE, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, decorationImageRetryWebp, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower, BLESS, rulesClass } from "./data";
+import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, MINOR_VENOM, DECOR_ART_SCALE, HOUSE_ART_SCALE, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expToLevel, expForHit, FIREBALL, FANTOM_FORCE, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, decorationImageRetryWebp, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashPower, POISON_BREATH, poisonBreathFormula, poisonBreathPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower, BLESS, rulesClass } from "./data";
 import type { SpellTier } from "./data";
 import { weightedWeaponPick, shieldBashFormula, fantomForceChargesFor, fantomForceDice } from "./data";
 import { clearRockColumnTiles, placedBlockingFootprint, THREE_D_DOOR_VARIANTS } from "./data";
@@ -227,7 +227,7 @@ export type BlessVfxTimelineEvent = "bless_charge" | "bless_release" | "bless_wa
 export type BlessVfxEvent = { id: string; phase: "apply"; unitId: string } | { id: string; phase: "complete" } | { id: string; phase: "timeline"; event: BlessVfxTimelineEvent; unitId?: string };
 export interface MagicMissileV2VfxRequest { id: string; casterId: string; targetUnitId: string }
 export type MagicMissileV2VfxEvent = { id: string; phase: "impact"; index: number } | { id: string; phase: "complete" };
-export interface BurningHandsV2VfxRequest { id: string; casterId: string; tiles: Point[] }
+export interface BurningHandsV2VfxRequest { id: string; casterId: string; tiles: Point[]; poison?: boolean }
 export type BurningHandsV2VfxEvent = { id: string; phase: "release" | "complete" };
 export interface VarreduraVfxRequest { id: string; casterId: string; tiles: Point[]; targetIds: string[] }
 export interface CleaveVfxRequest { id: string; casterId: string; tiles: Point[]; targetIds: string[] }
@@ -655,6 +655,7 @@ function pub(u: Unit, restrained: boolean, movLeft: number): UnitPublic {
     size: u.size,
     diseased: u.diseased,
     poisoned: u.poisoned,
+    poisonFaces: u.poisonFaces,
     bleeding: u.bleeding,
     blessedHitBonusPct: u.blessedHitBonusPct,
     blessedRoundsLeft: u.blessedRoundsLeft,
@@ -752,7 +753,7 @@ interface Roster {
   /** Persistent illnesses contracted while travelling. */
   heroDiseases?: Record<string, boolean>;
   /** Poison that remained after the last battle. */
-  heroPoisons?: Record<string, boolean>;
+  heroPoisons?: Record<string, boolean | 4 | 10>;
 }
 
 /** True once a hero is starving badly enough to be benched outright rather than merely
@@ -853,7 +854,7 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
   const hungerPenaltyPct = side === "player" && heroIsStarving ? Math.min(0.9, Math.max(0, roster?.hungerPenaltyPct ?? 0)) : 0;
   const hungerKeep = 1 - hungerPenaltyPct;
   const diseased = side === "player" && roster?.heroDiseases?.[spawn.name] === true;
-  const poisoned = side === "player" && roster?.heroPoisons?.[spawn.name] === true;
+  const poisoned = side === "player" && !!roster?.heroPoisons?.[spawn.name];
   const diseaseKeep = diseased ? 1 - DISEASE.statPenalty : 1;
   const weapon = side === "player" ? (roster?.weapons?.[spawn.name] ?? { id: starterWeaponFor(classId), enh: 0 }) : null;
   // Range is a weapon property (D&D-weapon-style), not a class stat — falls back to the
@@ -891,7 +892,7 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
     initiative: initiativeBonus(cls.id),
     initiativeRoll: 0,
     statPointAllocation,
-    mov: diseased ? Math.max(1, Math.round((st.mov + gearBonus.mov) * diseaseKeep)) : st.mov + gearBonus.mov,
+    mov: spawn.holdsPosition ? 0 : diseased ? Math.max(1, Math.round((st.mov + gearBonus.mov) * diseaseKeep)) : st.mov + gearBonus.mov,
     gear,
     minRange,
     maxRange,
@@ -918,8 +919,12 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
       // Cultist and Birolho are enemy-only, so this never competes with a player roster's own
       // tier1/tier2/tier4 uses — see cultistSpellUses/brigandSpellUses/birolhoSpellUses and
       // runAiFor's cultist/brigand/birolho branches.
+      // Carnivorous Plant: tier1 = 2 Poison Breath, tier3 = 2 Veneno Cáustico (kept in its own
+      // slot because Caustic and Minor Venom normally share tier4), tier4 = 3 Veneno Menor.
       tier1:
-        cls.id === "swampBlueCalf"
+        cls.id === "carnivorousPlant"
+          ? 2
+          : cls.id === "swampBlueCalf"
           ? tierUses(cls.id, 1, level)
           : cls.id === "bigBlueCalf"
           ? 3
@@ -947,9 +952,11 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
             : cls.id === "birolho" || cls.id === "birolho2" || cls.id === "birolho3" || cls.id === "birolhoLegs" || cls.id === "birolhoLegs2"
               ? birolhoSpellUses(level).lightning
               : remainingTier(cls.id, 2, "tier2", level, side, roster, spawn.name),
-      tier3: remainingTier(cls.id, 3, "tier3", level, side, roster, spawn.name),
+      tier3: cls.id === "carnivorousPlant" ? 2 : remainingTier(cls.id, 3, "tier3", level, side, roster, spawn.name),
       tier4:
-        cls.id === "birolho" || cls.id === "birolho2" || cls.id === "birolho3" || cls.id === "birolhoLegs" || cls.id === "birolhoLegs2"
+        cls.id === "carnivorousPlant"
+          ? 3
+          : cls.id === "birolho" || cls.id === "birolho2" || cls.id === "birolho3" || cls.id === "birolhoLegs" || cls.id === "birolhoLegs2"
           ? birolhoSpellUses(level).causticVenom
           // Undead Ox: 2 Veneno Cáustico per battle (it joins runAiFor's birolho branch).
           : cls.id === "undeadOx" || cls.id === "plagueBearingCattle"
@@ -982,6 +989,7 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
         }
       : null,
     poisoned,
+    poisonFaces: roster?.heroPoisons?.[spawn.name] === 10 ? 10 : 4,
     bleeding: false,
     bleedMovedThisTurn: false,
     stunned: false,
@@ -1064,6 +1072,7 @@ function unitFromSnap(snap: BattleUnitSnap): Unit {
     diseased: snap.diseased,
     diseaseBase: snap.diseaseBase ? { ...snap.diseaseBase } : null,
     poisoned: snap.poisoned,
+    poisonFaces: snap.poisonFaces,
     bleeding: snap.bleeding ?? false,
     bleedMovedThisTurn: false,
     stunned: snap.stunned,
@@ -1331,6 +1340,8 @@ export class BattleEngine {
   /** Queue steps whose long-sheet wind-up already played (see startSeq), with how many
    * seconds of the sheet it covered — the step picks the pose up from there. */
   private woundUp = new WeakMap<Seq, number>();
+  /** Carnivorous Plant hit/death cues already played, per unit (see tick). */
+  private plantSoundCues = new WeakMap<Unit, { hitAt?: number; death?: boolean }>();
   /** Work a queued step defers until it really starts (after any wind-up) — e.g. a summon's
    * familiar appearing. Run once, then dropped. */
   private onSeqStart = new WeakMap<Seq, () => void>();
@@ -1886,6 +1897,7 @@ export class BattleEngine {
         diseased: u.diseased,
         diseaseBase: u.diseaseBase ? { ...u.diseaseBase } : null,
         poisoned: u.poisoned,
+    poisonFaces: u.poisonFaces,
         bleeding: u.bleeding,
         stunned: u.stunned,
         stunTurns: u.stunTurns,
@@ -2075,6 +2087,20 @@ export class BattleEngine {
       // A freshly summoned unit starts at fade 0 (see castSummonFamiliar) and eases back in
       // while its portal plays, rather than popping fully opaque the instant it's added.
       else if (u.alive && u.fade < 1) u.fade = Math.min(1, u.fade + cap * 2.4);
+      // Carnivorous Plant's hit and death sounds start with their sheets: the hit sheet at
+      // hitAt, the death sheet HIT_ANIM_SECONDS after diedAt (it plays after the hit sheet).
+      if (u.sprite === "carnivorous-plant-001") {
+        let cue = this.plantSoundCues.get(u);
+        if (!cue) this.plantSoundCues.set(u, (cue = { hitAt: u.hitAt }));
+        if (u.hitAt != null && u.hitAt !== cue.hitAt) {
+          cue.hitAt = u.hitAt;
+          sfxPlay.carnivorousPlantHit();
+        }
+        if (!u.alive && u.diedAt != null && !cue.death && this.time - u.diedAt >= HIT_ANIM_SECONDS) {
+          cue.death = true;
+          sfxPlay.carnivorousPlantDeath();
+        }
+      }
       if (u.alive) {
         const haste =
           u.classId === "wardog" ? 1.4 : u.size >= 4 ? 0.58 : u.classId === "mage" || u.classId === "cultist" || u.classId === "cultistV2" ? 0.8 : 1;
@@ -2289,9 +2315,11 @@ export class BattleEngine {
         const arrowSpell = step.spellKind === "longShot" || step.spellKind === "multiShot" || step.spellKind === "piercing";
         const meleeSkill = step.spellKind === "cleave" || step.spellKind === "sweep" || step.spellKind === "shoulderSmash" || step.spellKind === "stampede" || step.spellKind === "piercingThrust" || step.spellKind === "trip" || step.spellKind === "doubleStrike";
         if (arrowSpell) sfxPlay.arrowAttack(caster?.sprite === "neera");
+        else if (step.spellKind === "tendrilSwipe") sfxPlay.carnivorousPlantAttack();
         else if (meleeSkill) sfxPlay.meleeAttack(!!caster && this.isBladeAttack(caster));
         else if (step.spellKind !== "webOfDreams" && step.spellKind !== "bless" && !meleeSkill) {
           if (caster?.sprite === "minor-horror-001") sfxPlay.minorHorrorCast();
+          else if (caster?.sprite === "carnivorous-plant-001") sfxPlay.carnivorousPlantCast();
           else if (caster?.sprite === "cultist-v2") sfxPlay.cultistV2Spellcast();
           else sfxPlay.spell();
         }
@@ -2305,6 +2333,7 @@ export class BattleEngine {
         } else if (attacker && !this.isArcaneCaster(attacker) && (attacker.sprite !== "kaelFinal" || !!step.customDice)) {
           // Kael's long main-hand swing is cued at its strike instead (see stepCombat's lunge end).
           if (attacker.sprite === "minor-horror-001") sfxPlay.minorHorrorAttack();
+          else if (attacker.sprite === "carnivorous-plant-001") sfxPlay.carnivorousPlantAttack();
           else sfxPlay.meleeAttack(step.spellKind !== "shieldBash" && this.isBladeAttack(attacker, !!step.customDice));
         }
       } else if (step.type === "heal" || step.type === "cureDisease") {
@@ -2328,7 +2357,7 @@ export class BattleEngine {
       // melee-skill list stepSpell's hit cue uses).
       const meleeSkill =
         step.type === "spell" &&
-        (step.spellKind === "doubleStrike" || step.spellKind === "cleave" || step.spellKind === "piercingThrust" || step.spellKind === "sweep" || step.spellKind === "trip" || step.spellKind === "shoulderSmash" || step.spellKind === "stampede");
+        (step.spellKind === "doubleStrike" || step.spellKind === "cleave" || step.spellKind === "piercingThrust" || step.spellKind === "sweep" || step.spellKind === "trip" || step.spellKind === "shoulderSmash" || step.spellKind === "stampede" || step.spellKind === "tendrilSwipe");
       const ranged = !meleeSkill && (step.type !== "combat" || (!!actor && !step.customDice && (this.isArrowAttack(actor) || this.isArcaneCaster(actor))));
       const arrowSkill = step.type === "spell" && (step.spellKind === "longShot" || step.spellKind === "multiShot" || step.spellKind === "piercing");
       const neeraArrowSkill = !!actor && actor.sprite === "neera" && arrowSkill;
@@ -2899,6 +2928,7 @@ export class BattleEngine {
               if (def.sprite === "cultist-v2") sfxPlay.cultistV2Attack();
               else sfxPlay.magicAttack();
             } else if (def.sprite === "minor-horror-001") sfxPlay.minorHorrorAttack();
+            else if (def.sprite === "carnivorous-plant-001") sfxPlay.carnivorousPlantAttack();
             else if (def.sprite !== "kaelFinal" || a.counterCustomDice) sfxPlay.meleeAttack(this.isBladeAttack(def, !!a.counterCustomDice));
             a.stage = "counterLunge";
           }
@@ -2985,7 +3015,7 @@ export class BattleEngine {
     const syncFireballVfx = a.spellKind === "fireball" && this.fireballVfxAvailable && !this.reducedMotion && !!a.projectileTo;
     const syncCausticVenomVfx = a.spellKind === "causticVenom" && this.causticVenomVfxAvailable && !this.reducedMotion && !!a.projectileTo;
     const syncPhantasmalVfx = a.spellKind === "phantasmalForce" && this.phantasmalForceVfxAvailable && !this.reducedMotion;
-    const syncBurningHandsVfx = a.spellKind === "burningHands" && this.burningHandsV2VfxAvailable && !this.reducedMotion;
+    const syncBurningHandsVfx = (a.spellKind === "burningHands" || a.spellKind === "poisonBreath") && this.burningHandsV2VfxAvailable && !this.reducedMotion;
     if (a.spellKind === "cleave" && !a.cleaveVfxQueued && a.t >= 0.18 && !this.reducedMotion) {
       a.cleaveVfxQueued = true;
       this.cleaveVfxRequests.push({ id: `cleave-sweep-${++this.cleaveVfxSequence}`, casterId: att.id, tiles: a.tiles.map((tile) => ({ ...tile })), targetIds: [...a.ids] });
@@ -2998,7 +3028,7 @@ export class BattleEngine {
       if (!a.burningHandsVfxId) {
         const id = `burning-hands-v2-${++this.burningHandsV2VfxSequence}`;
         a.burningHandsVfxId = id;
-        this.burningHandsV2VfxRequests.push({ id, casterId: att.id, tiles: a.tiles.map((tile) => ({ ...tile })) });
+        this.burningHandsV2VfxRequests.push({ id, casterId: att.id, tiles: a.tiles.map((tile) => ({ ...tile })), poison: a.spellKind === "poisonBreath" });
       }
       for (let index = this.burningHandsV2VfxEvents.length - 1; index >= 0; index--) {
         const event = this.burningHandsV2VfxEvents[index]!;
@@ -3179,7 +3209,11 @@ export class BattleEngine {
         foe.flash = 1;
         foe.hitAt = this.time;
         this.provoke(foe, att);
-        if (a.poison) foe.poisoned = true;
+        if (a.poison) {
+          const faces = a.spellKind === "causticVenom" ? 10 : 4;
+          foe.poisonFaces = foe.poisoned && foe.poisonFaces === 10 ? 10 : faces;
+          foe.poisoned = true;
+        }
         // Dreno de Vida: heals the familiar's own summoning conjurer for a share of the
         // damage it just dealt (see lifeDrainHealMul) — off the real rolled damage, not a
         // separate estimate, same reasoning as every other on-hit effect in this loop.
@@ -3227,7 +3261,7 @@ export class BattleEngine {
             a.spellKind === "divineWrath" ||
             a.spellKind === "shoulderSmash" ||
             a.spellKind === "stampede" ||
-            a.spellKind === "burningHands";
+            a.spellKind === "burningHands" || a.spellKind === "poisonBreath" || a.spellKind === "tendrilSwipe";
           const xpMul =
             foe.hp <= 0 && !isAoeSpell && (att.classId === "mage" || att.classId === "voss" || att.classId === "conjurer" || a.spellKind === "longShot")
               ? 2
@@ -3240,7 +3274,7 @@ export class BattleEngine {
           // per-target share, it applies in addition to whichever of those already fired.
           this.gainExp(att, foe.level, dmg, xpMul, foe.hp <= 0);
         }
-        const meleeSkill = a.spellKind === "doubleStrike" || a.spellKind === "cleave" || a.spellKind === "piercingThrust" || a.spellKind === "sweep" || a.spellKind === "trip" || a.spellKind === "shoulderSmash" || a.spellKind === "stampede";
+        const meleeSkill = a.spellKind === "doubleStrike" || a.spellKind === "cleave" || a.spellKind === "piercingThrust" || a.spellKind === "sweep" || a.spellKind === "trip" || a.spellKind === "shoulderSmash" || a.spellKind === "stampede" || a.spellKind === "tendrilSwipe";
         this.spawnHit(foe, dmg, crit, meleeSkill);
         const large = a.spellKind === "cleave" && cleaveDoublesVs(foe);
         this.pushLog(
@@ -3258,6 +3292,7 @@ export class BattleEngine {
         }
       }
       // Veneno Menor keeps the original venom impact: the green burst on every splash hex.
+      if (a.spellKind === "poisonBreath" && !syncBurningHandsVfx) this.emitFireballBurstFx(a.tiles, "causticVenom");
       if (a.spellKind === "minorVenom") this.emitFireballBurstFx(a.tiles, "causticVenom");
       const elementFx = a.spellKind ? SPELL_ELEMENT_FX[a.spellKind] : undefined;
       if (elementFx && !(a.spellKind === "burningHands" && syncBurningHandsVfx) && !(a.spellKind === "causticVenom" && syncCausticVenomVfx)) this.queueElementalFx(elementFx.kind, a.tiles, elementFx.duration);
@@ -3529,6 +3564,7 @@ export class BattleEngine {
 
   private curePlayerDisease(u: Unit): void {
     u.poisoned = false;
+    u.poisonFaces = undefined;
     if (!u.diseaseBase) {
       u.diseased = false;
       return;
@@ -3761,12 +3797,12 @@ export class BattleEngine {
       }
     }
     if (u.alive && u.poisoned) {
-      const dmg = rollDice(1, 4, 0, this.rng);
+      const dmg = rollDice(1, u.poisonFaces ?? 4, 0, this.rng);
       u.hp = Math.max(0, u.hp - dmg);
       u.flash = 1;
       u.hitAt = this.time;
       this.spawnHit(u, dmg, false);
-      this.tip = `Veneno · 1D4 dano`;
+      this.tip = `Veneno ${u.poisonFaces === 10 ? "Médio" : "Menor"} · 1D${u.poisonFaces ?? 4} dano`;
       this.pushLog(`Veneno consome ${u.name}: ${dmg} dano`);
       sfxPlay.hit();
       if (u.hp <= 0) {
@@ -4469,7 +4505,7 @@ export class BattleEngine {
       unit.classId === "troll" || unit.classId === "troll2" ? " · parte barricadas" : ""
     }${
       unit.shock ? ` · Relâmpago ${diceFormula(unit.shock.dice, unit.shock.faces, unit.shock.bonus)} − RES no turno` : ""
-    }${unit.diseased ? " · Doente (−10% em todos os stats)" : ""}${unit.poisoned ? " · Envenenado (1D4 dano por turno)" : ""}`;
+    }${unit.diseased ? " · Doente (−10% em todos os stats)" : ""}${unit.poisoned ? ` · Veneno ${unit.poisonFaces === 10 ? "Médio" : "Menor"} (1D${unit.poisonFaces ?? 4} dano por turno)` : ""}`;
     this.ensureVisible(unit.x, unit.y);
     sfxPlay.ui();
   }
@@ -5561,8 +5597,8 @@ export class BattleEngine {
       this.castShieldBash(u, cell);
       return;
     }
-    if (this.spellKind === "burningHands") {
-      this.castBurningHands(u, cell);
+    if (this.spellKind === "burningHands" || this.spellKind === "poisonBreath") {
+      this.castBurningHands(u, cell, this.spellKind);
       return;
     }
     // instant, resolved directly by their own startX() — never reaches here
@@ -5603,6 +5639,18 @@ export class BattleEngine {
     sfxPlay.ui();
   }
 
+  startPoisonBreath(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    if (!u || u.acted || this.tierRemaining(u, "poisonBreath") <= 0) return;
+    this.mode = "awaitSpell";
+    this.spellKind = "poisonBreath";
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.hover = null;
+    this.tip = `${POISON_BREATH.name}: cone curto à frente, ${poisonBreathFormula(u.level, u.mag)} contra RES; Veneno Menor (1D4 por turno). Atinge aliados também — mire com cuidado. Toque para mirar.`;
+    sfxPlay.ui();
+  }
+
   startCureDisease(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || u.acted || this.tierRemaining(u, "cureDisease") <= 0) return;
@@ -5627,6 +5675,7 @@ export class BattleEngine {
   }
 
   private tierRemaining(u: Unit, kind: SpellKind): number {
+    if (kind === "poisonBreath" && u.level < POISON_BREATH.unlockLevel) return 0;
     if (kind === "burningHands" && u.level < 5) return 0;
     const tier = spellTier(kind);
     return tier ? u.spells[tierKey(tier)] : 0;
@@ -5707,6 +5756,9 @@ export class BattleEngine {
   }
 
   private effectiveUnitForReach(u: Unit): Unit {
+    // A rooted encounter enemy keeps its authored position even after a status
+    // effect or a loaded snapshot recalculates its movement stat.
+    if (u.side === "enemy" && this.mission.enemySpawns.some((s, i) => s.holdsPosition && u.id === `enemy-${s.name}-${i}`)) return { ...u, mov: 0 };
     // Free roam: any reachable hex is one click away, however far.
     if (this.mission.explore) return { ...u, mov: this.cols * this.rows };
     const remaining = Math.max(0, u.mov - u.moveBudgetUsed);
@@ -5829,7 +5881,7 @@ export class BattleEngine {
     }
     if (kind === "cleave" || kind === "shoulderSmash") return "Escolha um hex vizinho ao personagem.";
     if (kind === "sweep") return `Escolha uma casa dentro do raio ${SWEEP.radius}.`;
-    if (kind === "piercing" || kind === "piercingThrust" || kind === "burningHands" || kind === "divineWrath" || kind === "stampede") {
+    if (kind === "piercing" || kind === "piercingThrust" || kind === "burningHands" || kind === "poisonBreath" || kind === "divineWrath" || kind === "stampede") {
       return "Escolha uma linha reta válida dentro do alcance da habilidade.";
     }
     if (kind === "bullRush") return "Não há um caminho livre com espaço para concluir a investida nesse alvo.";
@@ -6126,8 +6178,8 @@ export class BattleEngine {
     if (this.spellKind === "bullRush") {
       return this.bullRushCharge(caster, cell) !== null;
     }
-    if (this.spellKind === "burningHands") {
-      return this.wrathRay(caster, cell, burningHandsPower(caster.level).range) !== null;
+    if (this.spellKind === "burningHands" || this.spellKind === "poisonBreath") {
+      return this.wrathRay(caster, cell, (this.spellKind === "poisonBreath" ? poisonBreathPower : burningHandsPower)(caster.level).range) !== null;
     }
     if (this.spellKind === "multiShot") {
       const d = manhattan(caster, cell);
@@ -7005,8 +7057,8 @@ export class BattleEngine {
   /** Priest tier 2: derives a facing axis from the aimed cell (wrathRay's first step is
    * always one exact hex-neighbor away, so it maps 1:1 onto one of the 6 CUBE_DIRS), then
    * hits every unit in the resulting wedge — no side filter, friendly fire is intentional. */
-  private castBurningHands(unit: Unit, cell: Point): void {
-    const power = burningHandsPower(unit.level);
+  private castBurningHands(unit: Unit, cell: Point, kind: "burningHands" | "poisonBreath" = "burningHands"): void {
+    const power = (kind === "poisonBreath" ? poisonBreathPower : burningHandsPower)(unit.level);
     const ray = this.wrathRay(unit, cell, power.range);
     const dir = ray && ray[0] ? axisDir(unit, ray[0]) : null;
     if (!dir) {
@@ -7020,7 +7072,7 @@ export class BattleEngine {
       const who = this.units.find((x) => x.alive && occupies(x, t.x, t.y));
       if (who && who.id !== unit.id && !ids.includes(who.id)) ids.push(who.id);
     }
-    this.spendTier(unit, "burningHands");
+    this.spendTier(unit, kind);
     this.spellKind = null;
     this.missileTargets = [];
     this.tip = null;
@@ -7033,9 +7085,10 @@ export class BattleEngine {
       dice: power.dice,
       faces: power.faces,
       bonus: 0,
-      label: BURNING_HANDS.name,
+      label: kind === "poisonBreath" ? POISON_BREATH.name : BURNING_HANDS.name,
       spellMul: power.mul,
-      spellKind: "burningHands",
+      spellKind: kind,
+      poison: kind === "poisonBreath",
     });
   }
 
@@ -7877,6 +7930,15 @@ export class BattleEngine {
     // Undead Ox — its tier4 Veneno Menor (2 per battle), then plain melee.
     if ((next.classId === "undeadOx" || next.classId === "plagueBearingCattle") && this.tryAiMinorVenom(next, reach, walkReach, players)) return;
 
+    // Carnivorous Plant — more than one character in reach of her tendril swipe: swipe instead
+    // of casting. Otherwise Veneno Cáustico, then Poison Breath, then Veneno Menor, then plain melee.
+    if (next.classId === "carnivorousPlant") {
+      if (this.tryAiPlantSwipe(next, reach, walkReach)) return;
+      if (this.tryAiPlantCausticVenom(next, reach, walkReach, players)) return;
+      if (this.tryAiPlantPoisonBreath(next, reach, walkReach)) return;
+      if (this.tryAiMinorVenom(next, reach, walkReach, players)) return;
+    }
+
     // Birolho (and Birolho2) — Relâmpago outranks Caustic Venom outranks Choque outranks Magic Missile.
     if ((next.classId === "birolho" || next.classId === "birolho2" || next.classId === "birolho3" || next.classId === "birolhoLegs" || next.classId === "birolhoLegs2") && (next.spells.tier1 > 0 || next.spells.tier2 > 0 || next.spells.tier4 > 0 || next.shockCharges > 0)) {
       if (next.spells.tier2 > 0) {
@@ -8630,6 +8692,161 @@ export class BattleEngine {
     }
     this.spendTier(next, "minorVenom");
     this.queueMinorVenom(next, best.at);
+    this.queue.push({ type: "delay", dur: 0.12 });
+    return true;
+  }
+
+  /** Carnivorous Plant's tendril swipe area with her anchor at `at`: every hex touching her
+   * Type 7 body (front and both flanks), except the row behind her head. */
+  private plantSwipeTiles(next: Unit, at: Point): Point[] {
+    const body = footprint({ ...next, x: at.x, y: at.y });
+    const inBody = (p: Point) => body.some((b) => b.x === p.x && b.y === p.y);
+    const out: Point[] = [];
+    for (const b of body) {
+      for (const p of hexNeighbors(b.x, b.y)) {
+        if (p.y < at.y - 2 || !inBounds(p.x, p.y, this.cols, this.rows) || inBody(p)) continue;
+        if (!out.some((o) => o.x === p.x && o.y === p.y)) out.push(p);
+      }
+    }
+    return out;
+  }
+
+  /** Carnivorous Plant: with more than one foe in reach of her swipe (from any cell she can
+   * reach this turn), she swipes them all with a weapon hit on her ATT sheet. */
+  private tryAiPlantSwipe(
+    next: Unit,
+    reach: ReturnType<typeof computeReachable>,
+    walkReach: ReturnType<typeof computeReachable>,
+  ): boolean {
+    let best: { tiles: Point[]; ids: string[]; from: Point; score: number } | null = null;
+    for (const cell of reach.values()) {
+      const tiles = this.plantSwipeTiles(next, cell);
+      const ids: string[] = [];
+      let score = 0;
+      for (const t of tiles) {
+        const who = this.units.find((x) => x.alive && occupies(x, t.x, t.y));
+        if (!who || who.id === next.id || who.side === next.side || ids.includes(who.id)) continue;
+        ids.push(who.id);
+        score += 10 + (who.maxHp - who.hp) * 3 + (who.hp <= 8 ? 20 : 0);
+      }
+      if (ids.length < 2) continue;
+      if (!best || score > best.score) best = { tiles, ids, from: { x: cell.x, y: cell.y }, score };
+    }
+    if (!best) return false;
+    if (best.from.x !== next.x || best.from.y !== next.y) {
+      this.queue.push({ type: "move", id: next.id, path: reconstructPath(walkReach, best.from) });
+    }
+    this.queue.push({ type: "spell", att: next.id, tiles: best.tiles, ids: best.ids, label: "Chicote de Gavinhas", spellKind: "tendrilSwipe" });
+    this.queue.push({ type: "delay", dur: 0.12 });
+    return true;
+  }
+
+  /** Carnivorous Plant's 2 Veneno Cáustico: the Birolho branch's venom targeting, spending
+   * her own tier3 slot (her tier4 holds Veneno Menor). */
+  private tryAiPlantCausticVenom(
+    next: Unit,
+    reach: ReturnType<typeof computeReachable>,
+    walkReach: ReturnType<typeof computeReachable>,
+    players: Unit[],
+  ): boolean {
+    if (next.spells.tier3 <= 0) return false;
+    let best: { at: Point; from: Point; score: number } | null = null;
+    for (const cell of reach.values()) {
+      for (const foe of players) {
+        if (manhattan(cell, foe) > CAUSTIC_VENOM.range) continue;
+        if (!clearShot(cell, { x: foe.x, y: foe.y }, this.tiles, this.cols, "bolt", this.decorOverlay)) continue;
+        let hits = 0;
+        let score = 0;
+        for (const t of hexAreaTiles({ x: foe.x, y: foe.y }, CAUSTIC_VENOM.size, this.cols, this.rows)) {
+          const hit = players.find((p) => p.x === t.x && p.y === t.y);
+          if (!hit) continue;
+          hits += 1;
+          score += (hit.maxHp - hit.hp) + (hit.hp <= 8 ? 15 : 0);
+        }
+        if (hits === 0) continue;
+        score += hits * 10;
+        if (!best || score > best.score) best = { at: { x: foe.x, y: foe.y }, from: { x: cell.x, y: cell.y }, score };
+      }
+    }
+    if (!best) return false;
+    if (best.from.x !== next.x || best.from.y !== next.y) {
+      this.queue.push({ type: "move", id: next.id, path: reconstructPath(walkReach, best.from) });
+    }
+    next.spells.tier3 -= 1;
+    const tiles = hexAreaTiles(best.at, CAUSTIC_VENOM.size, this.cols, this.rows);
+    const ids: string[] = [];
+    for (const t of tiles) {
+      const u = this.units.find((x) => x.alive && occupies(x, t.x, t.y));
+      if (u && !ids.includes(u.id)) ids.push(u.id);
+    }
+    const center = this.units.find((x) => x.alive && occupies(x, best.at.x, best.at.y));
+    this.queue.push({
+      type: "spell",
+      att: next.id,
+      tiles,
+      ids,
+      dice: CAUSTIC_VENOM.splashDice,
+      faces: CAUSTIC_VENOM.splashFaces,
+      bonus: CAUSTIC_VENOM.splashBonus,
+      centerId: center?.id,
+      centerDice: CAUSTIC_VENOM.centerDice,
+      centerFaces: CAUSTIC_VENOM.centerFaces,
+      centerBonus: CAUSTIC_VENOM.centerBonus,
+      poison: true,
+      label: CAUSTIC_VENOM.name,
+      spellMul: CAUSTIC_VENOM.splashMul,
+      centerMul: CAUSTIC_VENOM.centerMul,
+      spellKind: "causticVenom",
+    });
+    this.queue.push({ type: "delay", dur: 0.12 });
+    return true;
+  }
+
+  /** Carnivorous Plant's 2 Poison Breath: Rocco's Burning Beak cone targeting (never aimed
+   * where it would also hit one of her allies), with Poison Breath's power and poison. */
+  private tryAiPlantPoisonBreath(
+    next: Unit,
+    reach: ReturnType<typeof computeReachable>,
+    walkReach: ReturnType<typeof computeReachable>,
+  ): boolean {
+    if (next.spells.tier1 <= 0) return false;
+    const power = poisonBreathPower(next.level);
+    let best: { tiles: Point[]; ids: string[]; from: Point; score: number } | null = null;
+    for (const cell of reach.values()) {
+      for (const dir of CUBE_DIRS) {
+        const tiles = coneSector(cell, dir, power.radius, this.cols, this.rows);
+        const ids: string[] = [];
+        let score = 0;
+        let hitsAlly = false;
+        for (const t of tiles) {
+          const who = this.units.find((x) => x.alive && occupies(x, t.x, t.y));
+          if (!who || who.id === next.id || ids.includes(who.id)) continue;
+          if (who.side === next.side) hitsAlly = true;
+          ids.push(who.id);
+          score += 10 + (who.maxHp - who.hp) * 3 + (who.hp <= 8 ? 20 : 0);
+        }
+        if (hitsAlly || !ids.length) continue;
+        if (!best || score > best.score) best = { tiles, ids, from: { x: cell.x, y: cell.y }, score };
+      }
+    }
+    if (!best) return false;
+    if (best.from.x !== next.x || best.from.y !== next.y) {
+      this.queue.push({ type: "move", id: next.id, path: reconstructPath(walkReach, best.from) });
+    }
+    this.spendTier(next, "poisonBreath");
+    this.queue.push({
+      type: "spell",
+      att: next.id,
+      tiles: best.tiles,
+      ids: best.ids,
+      dice: power.dice,
+      faces: power.faces,
+      bonus: 0,
+      label: POISON_BREATH.name,
+      spellMul: power.mul,
+      spellKind: "poisonBreath",
+      poison: true,
+    });
     this.queue.push({ type: "delay", dur: 0.12 });
     return true;
   }
@@ -9497,7 +9714,8 @@ export class BattleEngine {
     // frame count into the other.
     if ((a.type === "spell" || a.type === "heal") && a.att === u.id) {
       const neeraArrowSkill = u.sprite === "neera" && a.type === "spell" && (a.spellKind === "longShot" || a.spellKind === "multiShot" || a.spellKind === "piercing");
-      const castFrames = neeraArrowSkill ? (this.art.attacks2[u.sprite] ?? this.art.attacks[u.sprite]) : this.art.casts[u.sprite] ?? this.art.attacks[u.sprite];
+      // The Carnivorous Plant's tendril swipe is her ATT, not a cast: it plays her attack sheet.
+      const castFrames = neeraArrowSkill ? (this.art.attacks2[u.sprite] ?? this.art.attacks[u.sprite]) : a.type === "spell" && a.spellKind === "tendrilSwipe" ? this.art.attacks[u.sprite] : this.art.casts[u.sprite] ?? this.art.attacks[u.sprite];
       if (!castFrames || castFrames.length < 3) return null;
       const n = castFrames.length;
       // Familiar Titã goes back to his idle loop once his cast sheet has played, instead of
@@ -9669,7 +9887,7 @@ export class BattleEngine {
     // to mirror that same choice or the index lands in the wrong array.
     const casting =
       this.active &&
-      (((this.active.type === "spell" || this.active.type === "heal") && this.active.att === u.id) ||
+      (((this.active.type === "spell" || this.active.type === "heal") && this.active.att === u.id && !(this.active.type === "spell" && this.active.spellKind === "tendrilSwipe")) ||
         (this.active.type === "windup" && (this.active.pose === "cast" || this.active.pose === "specialAttack") && this.active.id === u.id));
     const castPool = neeraArrowSkill
       ? faceRight
@@ -9785,6 +10003,10 @@ export class BattleEngine {
     // height (same Type 7 body), with the wide canvas's own aspect kept.
     const roccoHeightScale = u.sprite === "RoccoTheBird" ? 1.22 : 1;
     const roccoWidthScale = u.sprite === "RoccoTheBird" ? 2.55 : 1;
+    // Carnivorous Plant (640x360 canvas, figure ~93.6% of its height): Rocco's on-screen figure
+    // height (same Type 7 body), with the wide canvas's own aspect kept.
+    const plantHeightScale = u.sprite === "carnivorous-plant-001" ? 1.03 : 1;
+    const plantWidthScale = u.sprite === "carnivorous-plant-001" ? 2.15 : 1;
     // familiar4 (1302x620 canvas, figure ~90% of its height): Familiar Maior's on-screen
     // height, with the wide canvas's own aspect kept.
     const familiar4HeightScale = u.sprite === "familiar4" ? 0.97 : 1;
@@ -9821,6 +10043,7 @@ export class BattleEngine {
       zombieDogHeightScale *
       undeadOxHeightScale *
       roccoHeightScale *
+      plantHeightScale *
       familiar4HeightScale *
       kaelFinalAtkScale *
       neeraAtkScale *
@@ -9848,6 +10071,7 @@ export class BattleEngine {
       zombieDogWidthScale *
       zombieDogWideSheetScale *
       roccoWidthScale *
+      plantWidthScale *
       familiar4WidthScale *
       wolfFinalWidthScale *
       zombieWidthScale *
@@ -10493,13 +10717,13 @@ export class BattleEngine {
         push(this.healRangeTiles(selected, selected.maxRange), "rgba(220,120,80,0.45)");
         const cell = this.hover ?? this.spellAim;
         if (cell && this.spellAimValid(selected, cell)) push([cell], "rgba(235,120,80,0.55)");
-      } else if (selected && this.spellKind === "burningHands") {
-        const power = burningHandsPower(selected.level);
-        push(allAxisRays(selected, this.cols, this.rows).filter((p) => hexDist(selected, p) <= power.range), "rgba(235,140,70,0.35)");
+      } else if (selected && (this.spellKind === "burningHands" || this.spellKind === "poisonBreath")) {
+        const power = (this.spellKind === "poisonBreath" ? poisonBreathPower : burningHandsPower)(selected.level);
+        push(allAxisRays(selected, this.cols, this.rows).filter((p) => hexDist(selected, p) <= power.range), this.spellKind === "poisonBreath" ? "rgba(100,200,60,0.35)" : "rgba(235,140,70,0.35)");
         const cell = this.hover ?? this.spellAim;
         const ray = cell ? this.wrathRay(selected, cell, power.range) : null;
         const dir = ray && ray[0] ? axisDir(selected, ray[0]) : null;
-        if (dir) push(coneSector(selected, dir, power.radius, this.cols, this.rows), "rgba(235,140,70,0.55)");
+        if (dir) push(coneSector(selected, dir, power.radius, this.cols, this.rows), this.spellKind === "poisonBreath" ? "rgba(100,200,60,0.55)" : "rgba(235,140,70,0.55)");
       }
     }
 

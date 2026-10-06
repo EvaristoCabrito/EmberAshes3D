@@ -72,6 +72,9 @@ export type ClassId = import("./encounter-npcs").EncounterNpcId
   | "birolho3"
   | "birolhoLegs"
   | "birolhoLegs2"
+  // Big boss (Type 7 body) with the Birolho spell kit and much higher stats — see
+  // CLASSES.carnivorousPlant.
+  | "carnivorousPlant"
   | "swampBlueCalf"
   | "bigBlueCalf"
   // Weak, killable flavor civilians (see SpriteId's own note) — random encounters and regular
@@ -131,6 +134,9 @@ export type ClassId = import("./encounter-npcs").EncounterNpcId
   | "zombieDog"
   | "travelingMerchant";
 export type SpriteId = "defaultWarrior" | "neera" | "voss" | "salazar" | "aldric" | "malrec" | "defaultLancer" | "soldier" | "brigand" | "captain" | "sorcerer" | "horror" | "minor-horror-001" | "Asherah" | "pikeman" | "wardog" | "wardog2" | "EmberedWraith" | "zombie" | "zombie2" | "undeadOx" | "plague-bearing-cattle" | "troll" | "troll2" | "RoccoTheBird" | "morvenian-wolf" | "mordavian-wolf" | "mordavian-wolf-final" | "punisher" | "theButcher" | "birolho" | "birolho2" | "birolho3" | "BirolhoLegs" | "BirolhoLegs2" | "familiar" | "familiar2" | "familiar3" | "familiar4" | "zombieDog" | "swamp-blue-calf" | "cobalt-blue-deer" | "big-blue-ox-002" | "ancient-golem" | "lancer" | "sandoval" | "kaelFinal" | "kaelEarly" | "conjurer" | "cultist-v2"
+  // Carnivorous Plant: idle/atk/cast/hit/death, 36 frames each, cut with the TEK from the
+  // user's videos (see work/carnivorous-plant/build.py).
+  | "carnivorous-plant-001"
   | import("./encounter-npcs").EncounterNpcId
   // Generic-enemy "alter" sprites, split off so a plain Archer/Mage/Healer enemy (and their
   // own promotions) never renders as literally the same SpriteId as Neera/Voss/Salazar the
@@ -194,6 +200,10 @@ export type SpellKind =
   | "bullRush"
   | "executionerStrike"
   | "shieldBash"
+  | "poisonBreath"
+  // Carnivorous Plant's AI-only tendril swipe: a weapon hit on every foe touching the front
+  // and flanks of her Type 7 body, played on her ATT sheet.
+  | "tendrilSwipe"
   | "burningHands"
   | "createFoodAndWater";
 export type ScreenId = "boot" | "title" | "saveSlots" | "campaign" | "mapChoice" | "vauIntro" | "wispForestIntro" | "innArrivalIntro" | "worldMap" | "overworldMap" | "briefing" | "cutscene" | "epilogue" | "battle" | "victory" | "defeat" | "inn" | "testMenu" | "mapEditor" | "devControls";
@@ -297,6 +307,8 @@ export interface DialogTree {
 }
 
 export interface Spawn {
+  /** This authored enemy stays at its spawn, e.g. a rooted plant guarding a clearing. */
+  holdsPosition?: true;
   name: string;
   classId: ClassId;
   x: number;
@@ -765,10 +777,11 @@ export interface Unit {
   summonerId?: string;
   diseased: boolean;
   diseaseBase: { atk: number; mag: number; def: number; res: number; mov: number } | null;
-  /** Caustic Venom residue: 1D4 damage at the start of every one of this unit's own turns
+  /** Poison: minor 1D4 or medium 1D10 at the start of each of this unit's own turns
    * (see startOfTurnEffects) until cured — same cure trigger as diseased (Cure Disease
    * spell or the disease potion), but no stat penalty of its own. */
   poisoned: boolean;
+  poisonFaces?: 4 | 10;
   /** Rasteira wound: suffers 1D8 whenever acting; movement only once each own turn. */
   bleeding: boolean;
   bleedMovedThisTurn: boolean;
@@ -858,6 +871,7 @@ export interface UnitPublic {
   size: number;
   diseased: boolean;
   poisoned: boolean;
+  poisonFaces?: 4 | 10;
   bleeding: boolean;
   blessedHitBonusPct?: number;
   blessedRoundsLeft?: number;
@@ -1183,6 +1197,7 @@ export interface BattleUnitSnap {
   diseased: boolean;
   diseaseBase: { atk: number; mag: number; def: number; res: number; mov: number } | null;
   poisoned: boolean;
+  poisonFaces?: 4 | 10;
   bleeding?: boolean;
   stunned: boolean;
   stunTurns: number;
@@ -1340,7 +1355,7 @@ export interface SaveData {
    * potion or the Curar Doença spell. Missing heroes are healthy for old saves. */
   heroDiseases: Record<string, boolean>;
   /** Poison residue that survives between battles until cured. Older saves default to none. */
-  heroPoisons: Record<string, boolean>;
+  heroPoisons: Record<string, boolean | 4 | 10>;
   /** Party-wide ration stock. One ration refills one character's fullness to 100%; inn
    * meals are bought separately. A real backpack item that stacks by RATION_STACK_MAX. */
   rations: number;

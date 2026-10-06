@@ -187,6 +187,7 @@ function preloadExclusiveSfx(file: string): void {
 for (const file of ["ShortArrowsDraw.mp3", "ShortArrowsRelease.mp3", "NeeraBowRelease.mp3"]) preloadExclusiveSfx(file);
 // Every other attack/cast cue is warmed too, so none of them loads on its first use.
 for (const file of ["ATT01Blunt.mp3", "BladeSlash1Dagger.mp3", "Spellcast01.mp3"]) preloadExclusiveSfx(file);
+for (const file of ["CarnivorousPlantATT001.mp3", "CarnivorousPlantCast001.mp3", "CarnivorousPlantHit001.mp3", "CarnivorousPlantDeath001.mp3"]) preloadExclusiveSfx(file);
 if (typeof Audio !== "undefined") {
   for (const file of ["CultistV2Attack.mp3", "CultistV2Spellcast.mp3", "MinorHorrorATT001.mp3", "MinorHorrorCasting001.mp3"]) sfxTemplate(file);
 }
@@ -232,6 +233,12 @@ export const sfxPlay = {
   minorHorrorAttack: () => playSfxFileExclusive("MinorHorrorATT001.mp3", 0.55),
   minorHorrorCast: () => playSfxFileExclusive("MinorHorrorCasting001.mp3", 0.55),
   minorHorrorWalk: () => playSfxFileExclusive("MinorHorrorWalk001.mp3", 0.45),
+  // Carnivorous Plant: each clip is cut from the same 3 s window as its 36-frame sheet, so it
+  // starts with the sheet and stays in sync. Idle has no sound on purpose.
+  carnivorousPlantAttack: () => playSfxFileExclusive("CarnivorousPlantATT001.mp3", 0.55),
+  carnivorousPlantCast: () => playSfxFileExclusive("CarnivorousPlantCast001.mp3", 0.55),
+  carnivorousPlantHit: () => playSfxFileExclusive("CarnivorousPlantHit001.mp3", 0.55),
+  carnivorousPlantDeath: () => playSfxFileExclusive("CarnivorousPlantDeath001.mp3", 0.55),
   cultistV2Attack: () => playSfxFile("CultistV2Attack.mp3", 0.55),
   cultistV2Spellcast: () => playSfxFile("CultistV2Spellcast.mp3", 0.55),
   cultistV2WalkLeft: () => playSfxFile("CultistV2WalkLeft.mp3", 0.45),

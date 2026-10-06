@@ -3638,6 +3638,7 @@ export class ThreeBattleRenderer {
       halfWidth = Math.max(halfWidth, Math.abs(-direction.y * relX + direction.x * relY));
     }
     const effect = new BurningHandsV2VFX(this.spellVfxScene, {
+      poison: request.poison,
       id: request.id,
       origin,
       direction,

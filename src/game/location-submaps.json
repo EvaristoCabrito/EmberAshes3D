@@ -1,4 +1,10 @@
 {
+  "wisp-forest": [
+    {
+      "missionId": "wisp-forest-crossing-boss",
+      "floor": 1
+    }
+  ],
   "watchtower": [
     {
       "missionId": "watchtower-beacon",

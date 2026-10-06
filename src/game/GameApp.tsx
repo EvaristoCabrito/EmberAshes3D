@@ -1,4 +1,5 @@
 import { isFloorConnector, floorConnectorDirection } from "./data";
+import { WISP_BOSS_ID, WISP_CROSSING_ID, wispCrossingCompleted, routeWispCrossing, completedAfterWispVictory } from "./wispCrossing";
 import { removeWallsUnderWatchtowerEntrances } from "./watchtowerDungeon";
 import { applyPartyFormation, cleanPartyFormation, cleanPartyLeader, partyLeaderOf } from "./partyFormation";
 import { OptionsButton } from "./OptionsMenu";
@@ -32,7 +33,7 @@ import { resolveCompanionReply } from "./companionDialogues";
 import { AFFINITY_HEROES } from "./affinity";
 import { LIGHT_DEFS } from "./lighting";
 import { DialogEditor } from "./DialogEditor";
-import { BLESS, BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, SOLID_ROCK_DECOR_IDS, CAUSTIC_VENOM, MINOR_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, FOREST_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, expToLevel, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, placedBlockingFootprint, decorationImage, decorationImageWebp, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, heroRecruited, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
+import { BLESS, BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, SOLID_ROCK_DECOR_IDS, CAUSTIC_VENOM, MINOR_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, FOREST_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, expToLevel, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, placedBlockingFootprint, decorationImage, decorationImageWebp, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, heroRecruited, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, POISON_BREATH, poisonBreathPower, poisonBreathFormula, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
 import { QUESTS, activePickupsFor, questById, questProgress, questStatus, questsFor } from "./quests";
 import { advanceProgression, evaluate, isGatedMission, missionAccess, type MissionAccess, type ProgressExtras } from "./progression";
 import { BattleEngine, heroSpriteFor } from "./engine";
@@ -430,6 +431,7 @@ const BRIEF_ART: Record<string, string> = {
   "wisp-forest": "/game/assets/brief-wisp-forest.jpg",
   "wisp-forest-2": "/game/assets/brief-wisp-forest.jpg",
   "wisp-forest-crossing": "/game/assets/brief-wisp-forest.jpg",
+  "wisp-forest-crossing-boss": "/game/assets/brief-wisp-forest.jpg",
   // Original file names kept as supplied, so the paths are percent-encoded.
   "cemiterio-esquecidos": encodeURI("/game/assets/Xemitery Briefing.jpg"),
   "cemiterio-esquecidos-cripta-2": encodeURI("/game/assets/2Cemitério dos Esquecidos — Câmara Profunda✕.jpg"),
@@ -474,7 +476,7 @@ function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY): SpellK
       case "swordsman":
         return ["doubleStrike", "bullRush", "cleave", "shieldBash", "executionerStrike"];
       case "mage":
-        return ["magicMissile", "lightning", "fireball", "causticVenom"];
+        return ["magicMissile", "poisonBreath", "lightning", "fireball", "causticVenom"];
       case "conjurer":
         // Summon Swarm (tiers 3-4) joins this list as it's built — see SPELL_TIER for the
         // intended tier assignment. Phantasmal Force is tier 1's own second spell (see
@@ -515,6 +517,7 @@ function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY): SpellK
   return [...base, ...(PRESTIGE_SPELLS[classId] ?? [])].filter((spell) =>
     (spell !== "bullRush" || level >= BULL_RUSH_UNLOCK_LEVEL) &&
     (spell !== "bless" || level >= BLESS.unlockLevel) &&
+    (spell !== "poisonBreath" || level >= POISON_BREATH.unlockLevel) &&
     (spell !== "burningHands" || level >= 5),
   );
 }
@@ -627,6 +630,11 @@ function slotIcon(action: SlotAction): string {
       return spellIcon("executioner-strike");
     case "shieldBash":
       return spellIcon("shield-bash");
+    case "poisonBreath":
+      return spellIcon("poison-breath");
+    // Carnivorous Plant's AI-only swipe; never on a hotbar, listed to keep the switch exhaustive.
+    case "tendrilSwipe":
+      return spellIcon("sweep");
     case "burningHands":
       return spellIcon("burning-hands");
     case "createFoodAndWater":
@@ -714,6 +722,10 @@ function slotLabel(action: SlotAction): string {
       return EXECUTIONER_STRIKE.name;
     case "shieldBash":
       return SHIELD_BASH.name;
+    case "poisonBreath":
+      return POISON_BREATH.name;
+    case "tendrilSwipe":
+      return "Chicote de Gavinhas";
     case "burningHands":
       return BURNING_HANDS.name;
     case "createFoodAndWater":
@@ -745,6 +757,7 @@ function slotCount(action: SlotAction, unit: UnitPublic): number {
   // BattleEngine.startPhantasmalForce/startSummonFamiliar2.
   if (action.spell === "phantasmalForce" && unit.level < PHANTASMAL_FORCE_UNLOCK_LEVEL) return 0;
   if (action.spell === "bless" && unit.level < BLESS.unlockLevel) return 0;
+  if (action.spell === "poisonBreath" && unit.level < POISON_BREATH.unlockLevel) return 0;
   if (action.spell === "summonFamiliar2" && unit.level < SUMMON_FAMILIAR2_UNLOCK_LEVEL) return 0;
   const tier = spellTier(action.spell);
   return tier ? unit.spells[tierKey(tier)] : 0;
@@ -784,7 +797,7 @@ function mapStatusUnit(save: SaveData, hero: string): UnitPublic {
     initiative: cls.init ?? 0, initiativeRoll: cls.init ?? 0, mov: Math.max(1, Math.round((stats.mov + gearBonus.mov) * diseaseKeep)), movLeft: Math.max(1, Math.round((stats.mov + gearBonus.mov) * diseaseKeep)), minRange: cls.minRange, maxRange: cls.maxRange,
     moved: false, acted: false, x: save.overworldPos.col, y: save.overworldPos.row, level, xp: save.xp[hero] ?? 0,
     bag: save.bags[hero] ?? { mid: 0, weak: 0, potent: 0, disease: 0, manaSmall: 0, manaMid: 0, manaLarge: 0, lockpick: 0 },
-    spells: emptySpells, weaponId: save.equipped[hero] ?? null, weaponEnh: 0, size: cls.size, diseased: save.heroDiseases[hero] === true, poisoned: save.heroPoisons[hero] === true, bleeding: false, shock: null,
+    spells: emptySpells, weaponId: save.equipped[hero] ?? null, weaponEnh: 0, size: cls.size, diseased: save.heroDiseases[hero] === true, poisoned: !!save.heroPoisons[hero], poisonFaces: save.heroPoisons[hero] === 10 ? 10 : 4, bleeding: false, shock: null,
     hungry: hungerPenaltyPct > 0, hungerPct: Math.round(hungerPenaltyPct * 100), fullness: save.heroHunger[hero], stunned: false, crippled: false, offHandId: null, summoned: false, asleep: false, restrained: false,
     gear,
   };
@@ -802,11 +815,11 @@ function mergeBattleDiseases(existing: Record<string, boolean>, engine: BattleEn
   return heroDiseases;
 }
 
-function mergeBattlePoisons(existing: Record<string, boolean>, engine: BattleEngine): Record<string, boolean> {
+function mergeBattlePoisons(existing: Record<string, boolean | 4 | 10>, engine: BattleEngine): Record<string, boolean | 4 | 10> {
   const heroPoisons = { ...existing };
   for (const unit of engine.units) {
     if (unit.side !== "player" || unit.summoned) continue;
-    if (unit.poisoned) heroPoisons[unit.name] = true;
+    if (unit.poisoned) heroPoisons[unit.name] = unit.poisonFaces ?? 4;
     else delete heroPoisons[unit.name];
   }
   return heroPoisons;
@@ -1145,10 +1158,40 @@ export function GameApp() {
     if (art && engine) releaseSpriteArt(art, [...battleSpriteIds(engine), ...(partyHasConjurer ? FAMILIAR_SPRITES : [])]);
   }, [art, engine, partyHasConjurer]);
 
+  /** The base to start a fresh test-mode overworld/Inn session from: current roster/stats
+   * (so party composition still matches whatever test mode has going) with every
+   * overworld/Inn field reset to a brand-new save's defaults — the western ford, full
+   * rations, no exploration. See testOverworld above. */
+  const freshTestOverworld = useCallback((): SaveData => {
+    const fresh = emptySave(muted);
+    return {
+      ...fresh,
+      overworldPos: fresh.overworldPos,
+      gameClock: fresh.gameClock,
+      overworldMoveBudgetUsed: fresh.overworldMoveBudgetUsed,
+      heroHunger: fresh.heroHunger,
+      heroDiseases: fresh.heroDiseases,
+      heroPoisons: fresh.heroPoisons,
+      rations: fresh.rations,
+      hungerStreak: fresh.hungerStreak,
+      exploredHexes: fresh.exploredHexes,
+      // Gear starts as a brand-new save's: each hero's starter weapon in hand, nothing else
+      // owned — never the real slot's collected weapons/equipment.
+      weapons: fresh.weapons,
+      equipped: fresh.equipped,
+      equipment: fresh.equipment,
+      looseEquipment: fresh.looseEquipment,
+      // Test mode always starts the party at DEFAULT_TEST_LEVEL, never whatever the real
+      // save slot's own progression happens to be (a fresh/new real game reads level 1 here
+      // otherwise, since this spreads ...save above) — the whole point of testing is having
+      // enough level to actually reach higher-tier spells/gear without grinding first.
+      levels: { Kael: DEFAULT_TEST_LEVEL, Neera: DEFAULT_TEST_LEVEL, Voss: DEFAULT_TEST_LEVEL, Salazar: DEFAULT_TEST_LEVEL, Aldric: DEFAULT_TEST_LEVEL, Malrec: DEFAULT_TEST_LEVEL },
+    };
+  }, [save, muted]);
   const startBattle = useCallback(
     (
       id: string,
-      carried = save.unitHp,
+      carried?: Record<string, number>,
       override?: Mission,
       playerLevels?: Record<string, number>,
       enemyLevels?: Record<number, number>,
@@ -1158,6 +1201,8 @@ export function GameApp() {
       arrivedFrom?: string,
     ) => {
       if (!art) return;
+      const save = testMode ? (testOverworld ?? freshTestOverworld()) : activeSave(bank);
+      const carriedHp = carried ?? save.unitHp;
       // A real mission start (no override) always clears any leftover playtest identity —
       // otherwise a stale customMission from an earlier Map Editor session can collide
       // with a real campaign mission of the same id (missionToDraft now targets the real
@@ -1165,7 +1210,9 @@ export function GameApp() {
       if (!override) {
         setCustomMission(null);
       }
-      const resolved = override ?? missionById(id);
+      if (!testMode && !override && id === WISP_BOSS_ID && wispCrossingCompleted(save.completed)) return;
+      const sourceMission = override ?? missionById(id);
+      const resolved = sourceMission ? routeWispCrossing(sourceMission, testMode ? [] : save.completed) : undefined;
       if (!resolved) return;
       const load = ++battleLoadRef.current;
       setBattleLoading(true);
@@ -1195,9 +1242,9 @@ export function GameApp() {
           : freedAldric;
       // A free-roam map is walked by the party leader alone. A leader other than Kael takes the
       // authored walker's place (Kael waits with the rest of the party) and isn't also seated.
-      const leaderName = partyLeaderOf(save.partyLeader, (hero) => heroRecruited(hero, save.completed, save.flags));
+      const leaderName = partyLeaderOf(testMode ? (testOverworld?.partyLeader ?? save.partyLeader) : save.partyLeader, (hero) => testMode || heroRecruited(hero, save.completed, save.flags));
       const led =
-        seated.explore && !testMode && leaderName !== "Kael" && seated.playerSpawns[0]
+        seated.explore && leaderName !== "Kael" && seated.playerSpawns[0]
           ? {
               ...seated,
               playerSpawns: [{ ...seated.playerSpawns[0], name: leaderName, classId: TEST_PARTY_CLASS[leaderName] }, ...seated.playerSpawns.slice(1)],
@@ -1213,10 +1260,10 @@ export function GameApp() {
       // the previous floor stay out of the next one instead of respawning at full HP
       // because zero was treated like a missing HP value.
       if (preserveKnockouts) {
-        m = { ...m, playerSpawns: m.playerSpawns.filter((spawn) => carried[spawn.name] !== 0) };
+        m = { ...m, playerSpawns: m.playerSpawns.filter((spawn) => carriedHp[spawn.name] !== 0) };
       }
       if (arrivedFrom && !resume) m = arriveAtConnector(m, arrivedFrom);
-      if (!testMode && !resume) {
+      if (!resume) {
         const heroes = m.playerSpawns.filter(spawn => spawn.name in TEST_PARTY_CLASS);
         const protectedStart = tutorialMap || heroes.some(a => heroes.some(b => hexDist(a, b) > 4))
           || heroes.some(hero => (CLASSES[hero.classId].size ?? 1) > 1)
@@ -1234,14 +1281,14 @@ export function GameApp() {
           ? Object.fromEntries(m.playerSpawns.map((s) => [s.name, playerLevels?.[s.name] ?? DEFAULT_TEST_LEVEL]))
           : Object.fromEntries(m.playerSpawns.map((s) => [s.name, DEFAULT_TEST_LEVEL]))
         : save.levels;
-      const bags = testMode ? startingBags() : save.bags;
+      const bags = save.bags;
       // Partial progress toward the next level (not enough to level up yet) has to carry
       // into the battle same as levels/bags do — otherwise every mission start quietly
       // zeroes out whatever XP was left over from the previous one, most visibly when
       // replaying an already-completed mission with nothing left to kill.
       const xp = testMode ? undefined : save.xp;
       // Test mode always starts at full HP — half-HP carry-over only makes sense for real runs.
-      const hp = testMode ? {} : { ...carried };
+      const hp = { ...carriedHp };
       if (!testMode) {
         const snapshot: SaveData = {
           ...save,
@@ -1257,35 +1304,29 @@ export function GameApp() {
         // save with whatever slot was active on the previous render.
         if (!resume) persistCurrent(snapshot);
       }
-      const promotions = testMode ? {} : save.promotions;
-      const weapons = testMode
-        ? undefined
-        : Object.fromEntries(Object.entries(save.equipped).map(([hero, id]) => [hero, { id, enh: save.weapons[id] ?? 0 }]));
+      const promotions = save.promotions;
+      const weapons = Object.fromEntries(Object.entries(save.equipped).map(([hero, id]) => [hero, { id, enh: save.weapons[id] ?? 0 }]));
       // Test mode fights with the same starting off-hand kit as a new game (Neera's dagger).
       const offHand = Object.fromEntries(
-            Object.entries(testMode ? emptySave().equipment : save.equipment)
+            Object.entries(save.equipment)
               .map(([hero, e]) => [hero, e.offHand] as const)
               .filter((entry): entry is [string, string] => !!entry[1]),
           );
       // Every worn slot, not just the off-hand: gear contributes stats now (gearStatBonus),
       // so the battle needs the whole map rather than the one slot combat already read.
-      const equipment = testMode ? undefined : save.equipment;
-      const statPointAllocations = testMode ? undefined : save.statPointAllocations;
-      const ownedWeaponIds = testMode ? undefined : Object.keys(save.weapons);
+      const equipment = save.equipment;
+      const statPointAllocations = save.statPointAllocations;
+      const ownedWeaponIds = Object.keys(save.weapons);
       // Loading or re-entering a mission must carry saved expenditure, including
       // first missions and the tutorial. Replenishment happens at explicit rest/reset events.
       const spellSpent = testMode ? undefined : save.spellUses;
-      // Test mode is god mode (same as promotions/weapons/equipment above) — a real save's
-      // starved party must never bleed into a debug fight. Left ungated, a real save with
-      // heroHunger at 0 and a maxed hungerStreak benches every hero via heroUnconscious,
-      // leaving no player units and an instant defeat the moment the battle evaluates.
-      const hungerPenaltyPct = testMode ? 0 : hungerPenaltyFor(save.hungerStreak);
-      const heroHunger = testMode ? undefined : save.heroHunger;
-      const heroDiseases = testMode ? undefined : save.heroDiseases;
-      const heroPoisons = testMode ? undefined : save.heroPoisons;
+      const hungerPenaltyPct = hungerPenaltyFor(save.hungerStreak);
+      const heroHunger = save.heroHunger;
+      const heroDiseases = save.heroDiseases;
+      const heroPoisons = save.heroPoisons;
       const crossingDefeatedSpawns = !testMode && keepsDefeatedSpawns(m) ? save.crossingDefeatedSpawns[m.id] ?? [] : [];
       const questPickups = testMode ? undefined : activePickupsFor(save, m.id);
-      const battle = new BattleEngine(m, art, { hp, levels, bags, xp, promotions, weapons, offHand, equipment, statPointAllocations, enemyLevels, neutralLevels, ownedWeaponIds, affinityScores: save.affinityScores, partyLeader: testMode ? undefined : leaderName, spellSpent, hungerPenaltyPct, heroHunger, heroDiseases, heroPoisons, crossingDefeatedSpawns, questPickups }, Date.now() % 100000, testMode);
+      const battle = new BattleEngine(m, art, { hp, levels, bags, xp, promotions, weapons, offHand, equipment, statPointAllocations, enemyLevels, neutralLevels, ownedWeaponIds, affinityScores: save.affinityScores, partyLeader: leaderName, spellSpent, hungerPenaltyPct, heroHunger, heroDiseases, heroPoisons, crossingDefeatedSpawns, questPickups }, Date.now() % 100000, testMode);
       if (resume && resume.missionId === m.id) battle.applySnapshot(resume);
       if (typeof window !== "undefined" && window.innerWidth < 720) battle.zoom = 0;
       // Sprites load per battle (see ensureSpriteArt): the board opens once this battle's own
@@ -1312,7 +1353,7 @@ export function GameApp() {
         setScreen("battle");
       });
     },
-    [art, save, testMode, muted, bank, campaignLocations, partyHasConjurer, reportBattleAssetProgress],
+    [art, save, testMode, testOverworld, freshTestOverworld, muted, bank, campaignLocations, partyHasConjurer, reportBattleAssetProgress],
   );
 
   useEffect(() => {
@@ -1414,7 +1455,7 @@ export function GameApp() {
     awardedRef.current = mission.id;
     setLastGrowth(growth);
     if (newPromotions.length > 0) setPendingPromotions(newPromotions);
-    const completed = save.completed.includes(mission.id) ? save.completed : [...save.completed, mission.id];
+    const completed = completedAfterWispVictory(mission.id, save.completed);
     if (!testMode) {
       const crossingDefeatedSpawns = keepsDefeatedSpawns(mission)
         ? {
@@ -1734,36 +1775,6 @@ export function GameApp() {
     setTestEmber(TEST_EMBER);
   }, []);
 
-  /** The base to start a fresh test-mode overworld/Inn session from: current roster/stats
-   * (so party composition still matches whatever test mode has going) with every
-   * overworld/Inn field reset to a brand-new save's defaults — the western ford, full
-   * rations, no exploration. See testOverworld above. */
-  const freshTestOverworld = useCallback((): SaveData => {
-    const fresh = emptySave(muted);
-    return {
-      ...save,
-      overworldPos: fresh.overworldPos,
-      gameClock: fresh.gameClock,
-      overworldMoveBudgetUsed: fresh.overworldMoveBudgetUsed,
-      heroHunger: fresh.heroHunger,
-      heroDiseases: fresh.heroDiseases,
-      heroPoisons: fresh.heroPoisons,
-      rations: fresh.rations,
-      hungerStreak: fresh.hungerStreak,
-      exploredHexes: fresh.exploredHexes,
-      // Gear starts as a brand-new save's: each hero's starter weapon in hand, nothing else
-      // owned — never the real slot's collected weapons/equipment.
-      weapons: fresh.weapons,
-      equipped: fresh.equipped,
-      equipment: fresh.equipment,
-      looseEquipment: fresh.looseEquipment,
-      // Test mode always starts the party at DEFAULT_TEST_LEVEL, never whatever the real
-      // save slot's own progression happens to be (a fresh/new real game reads level 1 here
-      // otherwise, since this spreads ...save above) — the whole point of testing is having
-      // enough level to actually reach higher-tier spells/gear without grinding first.
-      levels: { Kael: DEFAULT_TEST_LEVEL, Neera: DEFAULT_TEST_LEVEL, Voss: DEFAULT_TEST_LEVEL, Salazar: DEFAULT_TEST_LEVEL, Aldric: DEFAULT_TEST_LEVEL, Malrec: DEFAULT_TEST_LEVEL },
-    };
-  }, [save, muted]);
   /** The save every map/Inn handler below reads: the real bank normally, or test mode's
    * own ephemeral overworld snapshot — never the real bank — while testing. */
   const readMapSave = useCallback(
@@ -2098,7 +2109,7 @@ export function GameApp() {
             return { ok: JSON.stringify(stored) === JSON.stringify(formation), test: false };
           }}
           onSaveLeader={hero => {
-            if (!testMode) persistCurrent({ ...readMapSave(), partyLeader: cleanPartyLeader(hero) });
+            writeMapSave({ ...readMapSave(), partyLeader: cleanPartyLeader(hero) });
           }}
           locations={mapVisibleLocations}
           status={(loc) => locationStatus(loc, save.completed, testMode, campaignLocations, missionAccessFor)}
@@ -2712,7 +2723,9 @@ export function GameApp() {
           win
           title={mission.title}
           body={
-            hud.activeExit?.id === "dungeon-exit"
+            mission.id === WISP_CROSSING_ID && hud.activeExit?.targetMapId === WISP_BOSS_ID
+              ? "A trilha leva ao covil da Planta Carnívora. Derrotem-na para concluir a travessia."
+              : DECORATIONS[hud.activeExit?.id ?? ""]?.exitKind === "dungeon"
               ? "Vocês encontraram a saída da masmorra."
               : hud.activeExit?.id === "escape-exit"
                 ? "Vocês escaparam a tempo."
@@ -2731,7 +2744,7 @@ export function GameApp() {
           // Floor connector only: jumps straight into the linked floor (never listed in any
           // Locais location, so onMap's normal campaign path can't reach it — see
           // WorldLocation.submaps) instead of returning to the campaign map.
-          advanceLabel={isFloorConnector(hud.activeExit) ? (floorConnectorDirection(hud.activeExit) ? floorConnectorDirection(hud.activeExit) === "up" ? "Subir" : "Descer" : hud.activeExit.returnConnector ? "Voltar" : "Avançar") : undefined}
+          advanceLabel={hud.activeExit?.targetMapId === WISP_BOSS_ID ? "Enfrentar a Planta" : isFloorConnector(hud.activeExit) ? (floorConnectorDirection(hud.activeExit) ? floorConnectorDirection(hud.activeExit) === "up" ? "Subir" : "Descer" : hud.activeExit.returnConnector ? "Voltar" : "Avançar") : undefined}
           onAdvance={
             isFloorConnector(hud.activeExit) && hud.activeExit.targetMapId
               ? () => startBattle(hud.activeExit!.targetMapId!, save.unitHp, undefined, undefined, undefined, undefined, undefined, true, mission.id)
@@ -2759,8 +2772,8 @@ export function GameApp() {
             }
             // Recomputed rather than read off save.completed directly — testMode never
             // persists, so save.completed wouldn't yet include this mission there.
-            const completed = save.completed.includes(mission.id) ? save.completed : [...save.completed, mission.id];
-            const loc = campaignLocations.find((location) => location.missionIds.includes(mission.id));
+            const completed = completedAfterWispVictory(mission.id, save.completed);
+            const loc = campaignLocations.find((location) => location.missionIds.includes(mission.id) || location.submaps?.some(s => s.missionId === mission.id));
             const scenarioDone = !loc || loc.missionIds.every((id) => completed.includes(id));
             // Mid-scenario: reopen the world map straight onto this mission's location so
             // its list pops open immediately — a multi-mission location plays as one
@@ -2890,10 +2903,10 @@ export function GameApp() {
         <button type="button" className="absolute bottom-4 right-4 z-30 ember-btn ember-btn-sm" onClick={() => setCompanionConversationsOpen(true)}>Conversations</button>
         {companionConversationsOpen && <CompanionConversations
           save={save}
-          leader={partyLeaderOf(save.partyLeader, h => heroRecruited(h, save.completed, save.flags))}
-          heroes={AFFINITY_HEROES.filter(h => heroRecruited(h, save.completed, save.flags))}
+          leader={partyLeaderOf(overworldSave.partyLeader, h => testMode || heroRecruited(h, overworldSave.completed, overworldSave.flags))}
+          heroes={AFFINITY_HEROES.filter(h => testMode || heroRecruited(h, overworldSave.completed, overworldSave.flags))}
           onClose={() => setCompanionConversationsOpen(false)}
-          onLeader={hero => persistCurrent({ ...readMapSave(), partyLeader: hero })}
+          onLeader={hero => writeMapSave({ ...readMapSave(), partyLeader: cleanPartyLeader(hero) })}
           onReply={(reply, leader) => {
             const rec = readMapSave();
             const resolved = resolveCompanionReply(rec.affinityScores, rec.companionConversations, reply, leader);
@@ -3214,6 +3227,7 @@ const SKILL_CLASS: Partial<Record<SpellKind, ClassId>> = {
   lightningTier3: "elementalist",
   fireball: "mage",
   causticVenom: "mage",
+  poisonBreath: "mage",
   summonFamiliar: "conjurer",
   summonFamiliar2: "conjurer",
   summonFamiliar3: "conjurer",
@@ -3311,6 +3325,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     formula: (mag: number) => fireballFormula(mag),
     note: `Área de raio ${FIREBALL.size}.`,
   },
+  { name: POISON_BREATH.name, cls: SKILL_CLASS.poisonBreath!, tier: spellTier("poisonBreath")!, formula: (mag: number) => poisonBreathFormula(POISON_BREATH.unlockLevel, mag), note: "Aprendido no nível 2; progressão começa no nível 2. Cone de raio 1–5. Progressão de dano de Mãos Flamejantes atrasada em 2 níveis. Veneno Menor: 1D4 por turno; atinge aliados também." },
   { name: CURE_DISEASE.name, cls: SKILL_CLASS.cureDisease!, tier: spellTier("cureDisease")!, formula: "—", note: "Clériga T3. Cura doença e veneno. Luz teal." },
   {
     name: CAUSTIC_VENOM.name,
@@ -3318,7 +3333,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     tier: spellTier("causticVenom")!,
     formula: (mag: number) =>
       `centro ${spellFormula(mag, CAUSTIC_VENOM.centerMul, CAUSTIC_VENOM.centerDice, CAUSTIC_VENOM.centerFaces, CAUSTIC_VENOM.centerBonus)} · respingo ${spellFormula(mag, CAUSTIC_VENOM.splashMul, CAUSTIC_VENOM.splashDice, CAUSTIC_VENOM.splashFaces, CAUSTIC_VENOM.splashBonus)}`,
-    note: `Alcance ${CAUSTIC_VENOM.range}. Envenena: 1D4 no início de cada turno do alvo, até curado. Área de raio ${CAUSTIC_VENOM.size}, pega os dois lados.`,
+    note: `Alcance ${CAUSTIC_VENOM.range}. Veneno Médio: 1D10 no início de cada turno do alvo, até curado. Área de raio ${CAUSTIC_VENOM.size}, pega os dois lados.`,
   },
   {
     name: MULTI_SHOT.name,
@@ -3409,7 +3424,7 @@ const SKILL_DAMAGE_NOTES_EN: Record<string, string> = {
   [TRIP.name]: `Causes Bleeding (1D8 at the start of each action); −${Math.round(TRIP.statPenalty * 100)}% to stats for the rest of the battle.`,
   [FIREBALL.name]: `Area radius ${FIREBALL.size}.`,
   [CURE_DISEASE.name]: "Cleric T3. Cures disease and poison. Teal light.",
-  [CAUSTIC_VENOM.name]: `Range ${CAUSTIC_VENOM.range}. Poisons the target: 1D4 at the start of each turn until cured. Radius ${CAUSTIC_VENOM.size}; affects both sides.`,
+  [CAUSTIC_VENOM.name]: `Range ${CAUSTIC_VENOM.range}. Medium Poison: 1D10 at the start of each turn until cured. Radius ${CAUSTIC_VENOM.size}; affects both sides.`,
   [MULTI_SHOT.name]: "2 targets (3 at level 11), range 6. Damage die increases at levels 8 and 13.",
   [SECOND_WIND.name]: `Passive: automatically heals when HP falls to ${Math.round(SECOND_WIND.badlyWoundedPct * 100)}% or lower. It is not an action-bar attack.`,
   [CURES.cureLight.name]: "Between Minor and Medium Heal; exclusive uses for the Paladin.",
@@ -3914,7 +3929,13 @@ function findPreviewDecoration(
   const exact = placements.find((p) =>
     p.id === selected.id && p.x === selected.x && p.y === selected.y && (p.rot ?? 0) === (selected.rot ?? 0),
   );
-  if (exact || DECORATIONS[selected.id]?.exitKind !== "connector") return exact;
+  if (exact) return exact;
+  if (DECORATIONS[selected.id]?.exitKind !== "connector") {
+    // A preview built before the position repair was removed can still contain
+    // the relocated exit. Only resolve by ID when there is no ambiguity.
+    const matches = placements.filter(p => p.id === selected.id);
+    return DECORATIONS[selected.id]?.exitKind && matches.length === 1 ? matches[0] : undefined;
+  }
   return placements.find((p) =>
     p.x === selected.x && p.y === selected.y && DECORATIONS[p.id]?.exitKind === "connector",
   );
@@ -8214,6 +8235,9 @@ function BattleScreen({
       case "shieldBash":
         engine.startShieldBash();
         break;
+      case "poisonBreath":
+        engine.startPoisonBreath();
+        break;
       case "burningHands":
         engine.startBurningHands();
         break;
@@ -8454,9 +8478,11 @@ function BattleScreen({
           <div className="pointer-events-none absolute inset-x-2 bottom-2 flex justify-center">
             <div className="pointer-events-auto ember-plate is-accent px-3 py-2 flex items-center gap-3 flex-wrap justify-center">
               <p className="text-sm">
-                {hud.activeExit?.id === "escape-exit"
+                {hud.activeExit?.targetMapId === WISP_BOSS_ID
+                  ? "A passagem leva à Planta Carnívora. Desejam avançar para o encontro?"
+                  : hud.activeExit?.id === "escape-exit"
                   ? "Encontraram uma rota de fuga. Desejam tentar escapar? (60% de chance)"
-                  : hud.activeExit?.id === "dungeon-exit"
+                  : DECORATIONS[hud.activeExit?.id ?? ""]?.exitKind === "dungeon"
                     ? "Encontraram a saída da masmorra. Desejam sair?"
                     : isFloorConnector(hud.activeExit)
                       ? floorConnectorDirection(hud.activeExit)
@@ -8572,7 +8598,7 @@ function BattleScreen({
                       <p className={`text-xs ${unit.side === "enemy" ? "text-danger" : "text-muted"}`}>
                         {unit.className}
                         {unit.diseased && <span className="text-danger"> · Doente</span>}
-                        {unit.poisoned && <span className="text-danger"> · Envenenado</span>}
+                        {unit.poisoned && <span className="text-danger"> · Veneno {unit.poisonFaces === 10 ? "Médio" : "Menor"} (1D{unit.poisonFaces ?? 4})</span>}
                       </p>
                     </div>
                     <div className="mt-0.5 flex items-center gap-2">
@@ -9056,7 +9082,7 @@ function SlotPicker({
 }
 
 type CharacterCondition = {
-  title: "Saudável" | "Abençoado" | "Envenenado" | "Doente" | "Atordoado" | "Dormindo" | "Eletrificado" | "Sangrando" | "Com fome" | "Inconsciente";
+  title: string;
   detail: string;
   icon: "healthy" | "poisoned" | "diseased" | "stunned" | "asleep" | "shocked" | "bleeding" | "hungry";
   tone: "ok" | "danger" | "warn";
@@ -9097,8 +9123,8 @@ function characterCondition(unit: UnitPublic): CharacterCondition {
   }
   if (unit.poisoned) {
     return {
-      title: "Envenenado",
-      detail: "Veneno cáustico · sofre 1D4 de dano no início de cada turno. Use Curar Doença ou uma Poção de Curar Doenças para removê-lo.",
+      title: `Veneno ${unit.poisonFaces === 10 ? "Médio" : "Menor"} · 1D${unit.poisonFaces ?? 4}`,
+      detail: `Veneno ${unit.poisonFaces === 10 ? "Médio" : "Menor"} · sofre 1D${unit.poisonFaces ?? 4} de dano no início de cada turno. Use Curar Doença ou uma Poção de Curar Doenças para removê-lo.`,
       icon: "poisoned",
       tone: "danger",
     };
@@ -9401,6 +9427,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                   )}
                   {mage && (
                     <>
+                      {unit.level >= POISON_BREATH.unlockLevel && spellStatusRow("poisonBreath", `${POISON_BREATH.name} · ${poisonBreathFormula(unit.level, unit.mag)} · raio ${poisonBreathPower(unit.level).radius} · Veneno Menor 1D4/turno`)}
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={slotIcon({ kind: "spell", spell: "magicMissile" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">

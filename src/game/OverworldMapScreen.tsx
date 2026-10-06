@@ -599,7 +599,7 @@ export function OverworldMapScreen({
 
       <div
         ref={viewportRef}
-        className="relative z-10 flex-1 min-h-0 overflow-auto overscroll-contain touch-pan-x touch-pan-y select-none cursor-default"
+        className={`relative z-10 flex-1 min-h-0 overflow-auto overscroll-contain touch-pan-x touch-pan-y select-none${dragging ? " world-map-pan-grab" : " cursor-default"}`}
         style={{ WebkitOverflowScrolling: "touch" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -768,10 +768,10 @@ export function OverworldMapScreen({
                 <section aria-label="Líder do grupo">
                   <h3 className="mb-2 text-sm ember-kicker">Líder do grupo</h3>
                   <div className="ember-slot p-3">
-                    <p className="mb-3 text-sm text-muted">O líder anda pelo mapa e pelas áreas livres. Em conversas e outras situações, a afinidade do líder com o grupo cresce mais rápido quanto mais baixa ela estiver.</p>
+                    <p className="mb-3 text-sm text-muted">O líder anda pelo mapa e pelas áreas livres.</p>
                     <div className="flex flex-wrap gap-2">
                       {partyHeroes.map(hero => (
-                        <button key={hero} type="button" disabled={test} aria-pressed={leader === hero} onClick={() => onSaveLeader?.(hero)}
+                        <button key={hero} type="button" disabled={!onSaveLeader} aria-pressed={leader === hero} onClick={() => onSaveLeader?.(hero)}
                           className={`ember-slot flex w-16 flex-col items-center gap-1 p-1.5 text-xs disabled:opacity-60 ${leader === hero ? "is-last text-accent" : ""}`}>
                           <img src={portraitFor(HERO_PORTRAIT_SPRITE[hero]).src} alt="" style={{ objectPosition: portraitFor(HERO_PORTRAIT_SPRITE[hero]).position }} className="h-12 w-10 rounded object-cover" />
                           {hero}

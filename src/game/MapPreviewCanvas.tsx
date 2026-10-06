@@ -125,7 +125,8 @@ export function MapPreviewCanvas({
     return null;
   };
   const decorationAt = (x: number, y: number): PreviewDecorationSelection | null => {
-    const hit = (mission.decorations ?? []).find((p) => placedFootprint(p).some((f) => p.x + f.dx === x && p.y + f.dy === y));
+    const hits = (mission.decorations ?? []).filter((p) => placedFootprint(p).some((f) => p.x + f.dx === x && p.y + f.dy === y));
+    const hit = hits.find(p => !!DECORATIONS[p.id]?.exitKind) ?? hits[0];
     return hit ? { id: hit.id, x: hit.x, y: hit.y, rot: hit.rot } : null;
   };
 
@@ -492,7 +493,9 @@ export function MapPreviewCanvas({
         return;
       }
       const architecture = architectureRendererRef.current?.pickArchitecture(px, py, canvas.clientWidth / scale, canvas.clientHeight / scale);
-      const decoration = architecture ?? (cell ? decorationAt(cell.x, cell.y) : null);
+      const groundDecoration = cell ? decorationAt(cell.x, cell.y) : null;
+      const decoration = groundDecoration && DECORATIONS[groundDecoration.id]?.exitKind
+        ? groundDecoration : architecture ?? groundDecoration;
       if (event.button === 0 && decoration &&
           DECORATIONS[highlightRef.current.selectedDecorationId ?? ""]?.model3d &&
           DECORATIONS[decoration.id]?.model3d &&

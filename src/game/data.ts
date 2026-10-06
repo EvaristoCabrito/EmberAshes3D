@@ -615,6 +615,13 @@ export const DECORATIONS: Record<string, DecorationDef> = {
     exitKind: "escape",
     noShadow: true,
   },
+  "dungeon-exit-single": {
+    id: "dungeon-exit-single",
+    name: "Saída da Masmorra · Porta · 1 hex",
+    footprint: DECO_ONE,
+    exitKind: "dungeon",
+    noShadow: true,
+  },
   "dungeon-exit": {
     id: "dungeon-exit",
     name: "Saída da Masmorra",
@@ -722,7 +729,7 @@ export const BARRICADE_LIKE_DECOR = new Set([
 ]);
 
 /** These packs are editor art only: scenario generation never places them by accident. */
-const MANUAL_DECORATION_IDS = new Set(["stone-stairs-up-001", "stone-stairs-down-001", ...Object.keys(WILDS_DECORATIONS), ...Object.keys(TORTURE_DECORATIONS), ...Object.keys(CITY_DECORATIONS), ...Object.keys(NEW_DECOR_2026)]);
+const MANUAL_DECORATION_IDS = new Set(["dungeon-exit-single", "stone-stairs-up-001", "stone-stairs-down-001", ...Object.keys(WILDS_DECORATIONS), ...Object.keys(TORTURE_DECORATIONS), ...Object.keys(CITY_DECORATIONS), ...Object.keys(NEW_DECOR_2026)]);
 
 /** Every track in public/game/MUSIC, by file name, A-Z.
  *
@@ -1322,6 +1329,29 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     size: 4,
     footprintOffsets: FOOTPRINT_TYPE_7,
     init: 6,
+  },
+  // Carnivorous Plant — a big boss (Type 7 body), a much stronger Birolho. Per battle:
+  // 3 Veneno Menor, 2 Veneno Cáustico, 2 Poison Breath. With more than one character in
+  // reach her AI sweeps the whole front of her body with a tendril swipe (her ATT sheet)
+  // instead of casting — see runAiFor's carnivorousPlant branch. Her basic attack is a melee
+  // tendril lash, so she is not an arcane (bolt) caster.
+  carnivorousPlant: {
+    id: "carnivorousPlant",
+    name: "Planta Carnívora",
+    role: "Chefe",
+    hp: 140,
+    atk: 22,
+    mag: 14,
+    def: 12,
+    res: 12,
+    mov: 5,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "carnivorous-plant-001",
+    size: 4,
+    footprintOffsets: FOOTPRINT_TYPE_7,
+    init: 7,
+    boss: true,
   },
   cultist: {
     id: "cultist",
@@ -2334,6 +2364,8 @@ export const GROWTH: Record<ClassId, { hp: number; atk: number; mag: number; def
   birolho3: { hp: 4, atk: 2, mag: 0, def: 2, res: 2 },
   birolhoLegs: { hp: 4, atk: 2, mag: 0, def: 2, res: 2 },
   birolhoLegs2: { hp: 4, atk: 2, mag: 0, def: 2, res: 2 },
+  // Boss growth, ~1.5x the Birolho's.
+  carnivorousPlant: { hp: 6, atk: 3, mag: 2, def: 3, res: 3 },
   cultist: { hp: 3, atk: 0, mag: 2, def: 1, res: 2 },
   cultistV2: { hp: 3, atk: 0, mag: 2, def: 1, res: 2 },
   minorHorror: { hp: 3, atk: 1, mag: 1, def: 1, res: 1 },
@@ -2913,6 +2945,7 @@ export function spellIcon(id: string): string {
   if (id === "executioner-strike") return "/game/icons/executioner-strike.png";
   if (id === "burning-hands") return "/game/icons/burning-hands.png";
   if (id === "shield-bash") return "/game/icons/shield-bash.png";
+  if (id === "poison-breath") return "/game/icons/poison-breath.png";
   if (id === "create-food-and-water") return "/game/icons/create-food-and-water.png";
   if (id === "multi-shot") return "/game/icons/refresh-006/combat/multi-shot-006.png";
   if (id === "cure-light") return "/game/icons/refresh-006/healing/cure-light-new-006.png";
@@ -3541,6 +3574,7 @@ export const EMBER_DROP: Partial<Record<ClassId, number>> = {
   birolho3: 9,
   birolhoLegs: 9,
   birolhoLegs2: 9,
+  carnivorousPlant: 14,
   swampBlueCalf: 2,
   bigBlueCalf: 2,
   cultist: 4,
@@ -3646,7 +3680,7 @@ export const CAUSTIC_VENOM = {
   // FIREBALL.size, so venom had no radius of its own to change — the
   // clicked point takes the bigger centerDice roll, every other unit caught in the splash
   // (either side — it spares no one) takes the smaller splashDice roll, and every landed
-  // hit poisons its target: 1D4 at the start of each of their own turns until cured by
+  // hit applies medium poison to its target: 1D10 at the start of each of their own turns until cured by
   // Cure Disease or the disease potion (see startOfTurnEffects/curePlayerDisease).
   size: 3,
   range: 7,
@@ -4386,6 +4420,18 @@ export function spellFormula(mag: number, mul: number, dice: number, faces: numb
  * direction (see startBurningHands's wrathRay use) — the cone's own footprint is governed
  * by `wide` (see coneWedge in pathfinding.ts): false = the 3-hex front rank only, true =
  * that rank plus a second, wider rank further out (the "5-hex cone" tiers). */
+export const POISON_BREATH = { name: "Poison Breath", unlockLevel: 2 };
+/** Tier 1 cone: scaling starts at level 2, with damage delayed two progression levels. */
+export function poisonBreathPower(level: number) {
+  const progressionLevel = Math.max(1, level - POISON_BREATH.unlockLevel + 1);
+  const power = burningHandsPower(Math.max(1, progressionLevel - 2));
+  const radius = Math.max(1, burningHandsRadius(progressionLevel) - 1);
+  return { ...power, range: radius, radius };
+}
+export function poisonBreathFormula(level: number, mag: number): string {
+  const p = poisonBreathPower(level);
+  return spellFormula(mag, p.mul, p.dice, p.faces, 0);
+}
 export const BURNING_HANDS = { name: "Mãos Flamejantes" };
 export const BLESS = {
   name: "Bless",
@@ -4714,6 +4760,7 @@ export const SPELL_TIER: Partial<Record<SpellKind, SpellTier>> = {
   bullRush: 1,
   shieldBash: 2,
   executionerStrike: 3,
+  poisonBreath: 1,
   burningHands: 2,
   createFoodAndWater: 3,
 };

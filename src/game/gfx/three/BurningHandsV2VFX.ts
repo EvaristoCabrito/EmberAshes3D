@@ -56,6 +56,8 @@ export function setActiveBurningHandsV2Settings(settings: BurningHandsV2Settings
 }
 
 export interface BurningHandsV2Cast {
+  /** Use the poison smoke atlas and green lights for Poison Breath. */
+  poison?: boolean;
   id: string;
   origin: THREE.Vector3;
   direction: THREE.Vector2;
@@ -120,7 +122,15 @@ export class BurningHandsV2VFX {
       this.group.add(light);
     }
 
-    void loadFireFlipbook().then((texture) => {
+    const atlas = cast.poison
+      ? new THREE.TextureLoader().loadAsync("/game/fx/poison-v2-main-flipbook-4x4.png").then(texture => {
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+          return texture;
+        })
+      : loadFireFlipbook();
+    void atlas.then((texture) => {
       if (this.disposed) { texture.dispose(); return; }
       this.texture = texture;
       this.createFlameEmitters();
@@ -194,6 +204,11 @@ export class BurningHandsV2VFX {
       intensity: DEFAULT_FIRE_EMITTER.coreIntensity,
     });
     emitter.setSeed(this.seedFor("spray", 0));
+    if (this.cast.poison) {
+      emitter.curves.color = (t, color) => color.setRGB(0.28 + t * 0.12, 0.7 - t * 0.2, 0.12);
+      emitter.curves.emissive = () => 0.35;
+      emitter.material.blending = THREE.NormalBlending;
+    }
     emitter.mesh.position.set(0, 0, this.tile * 0.2);
     emitter.mesh.scale.setScalar(this.tile);
     emitter.mesh.renderOrder = 90;
@@ -244,7 +259,8 @@ export class BurningHandsV2VFX {
       const y = this.direction.y * forward + this.sideways.y * sideways;
       light.position.set(x, y, this.tile * 0.22);
       const heat = 0.2 - Math.abs(index - 2) * 0.045;
-      light.color.setRGB(1, 0.48 + heat, 0.16 + heat * 0.35);
+      if (this.cast.poison) light.color.setRGB(0.32, 0.8, 0.12);
+      else light.color.setRGB(1, 0.48 + heat, 0.16 + heat * 0.35);
       light.distance = Math.max(0.1, this.settings.lightRadius * this.tile);
       light.intensity = this.settings.lights ? this.settings.lightIntensity * sourceWeights[index]! * fadeOut * flicker : 0;
       light.visible = this.settings.lights && fadeOut > 0.01;

@@ -365,6 +365,7 @@ function cleanBattleUnit(raw: unknown): BattleUnitSnap | null {
     diseased: u.diseased === true,
     diseaseBase,
     poisoned: u.poisoned === true,
+    poisonFaces: u.poisonFaces === 10 ? 10 : 4,
     stunned: u.stunned === true,
     stunTurns: clampInt(u.stunTurns, 0, 9),
     crippled: u.crippled === true,
@@ -489,6 +490,16 @@ function cleanHp(raw: unknown): Record<string, number> {
     const n = Math.floor(Number(v));
     if (!Number.isFinite(n) || n < 0) continue;
     out[k] = n;
+  }
+  return out;
+}
+
+function cleanHeroPoisons(raw: unknown): Record<string, boolean | 4 | 10> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, boolean | 4 | 10> = {};
+  for (const hero of [...HEROES, ...Object.keys(LATE_HERO_BASE_CLASS)]) {
+    const value = (raw as Record<string, unknown>)[hero];
+    if (value === true || value === 4 || value === 10) out[hero] = value === true ? 4 : value;
   }
   return out;
 }
@@ -729,7 +740,7 @@ function migrateRecord(raw: Record<string, unknown>, muted: boolean): SaveData {
     overworldMoveBudgetUsed: clampInt(raw.overworldMoveBudgetUsed ?? raw.gameClock, 0, 999999),
     heroHunger: cleanHunger(raw.heroHunger),
     heroDiseases: cleanHeroDiseases(raw.heroDiseases),
-    heroPoisons: cleanHeroDiseases(raw.heroPoisons),
+    heroPoisons: cleanHeroPoisons(raw.heroPoisons),
     rations: typeof raw.rations === "number" ? clampInt(raw.rations, 0, 999999) : STARTING_RATIONS,
     hungerStreak: clampInt(raw.hungerStreak, 0, 999999),
     hungerHours: typeof raw.hungerHours === "number" && Number.isFinite(raw.hungerHours) ? Math.max(0, raw.hungerHours) : undefined,

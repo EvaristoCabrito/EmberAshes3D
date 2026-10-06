@@ -109,7 +109,8 @@
     cursor: url("/game/cursors/medieval-gauntlet-grab-small.svg") 13 13, grabbing !important;
   }
 
-  .world-map-pan-grab {
+  .world-map-pan-grab,
+  .world-map-pan-grab * {
     cursor: url("/game/cursors/medieval-gauntlet-grab-small.svg") 13 13, grabbing !important;
   }
 
