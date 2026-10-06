@@ -188,6 +188,8 @@ for (const file of ["ShortArrowsDraw.mp3", "ShortArrowsRelease.mp3", "NeeraBowRe
 // Every other attack/cast cue is warmed too, so none of them loads on its first use.
 for (const file of ["ATT01Blunt.mp3", "BladeSlash1Dagger.mp3", "Spellcast01.mp3"]) preloadExclusiveSfx(file);
 for (const file of ["CarnivorousPlantATT001.mp3", "CarnivorousPlantCast001.mp3", "CarnivorousPlantHit001.mp3", "CarnivorousPlantDeath001.mp3"]) preloadExclusiveSfx(file);
+for (const file of ["SaplingATT001.mp3", "SaplingCast001.mp3", "SaplingHit001.mp3", "SaplingDeath001.mp3", "SaplingWalk001.mp3"]) preloadExclusiveSfx(file);
+for (const file of ["PlagueCattleATT001.mp3", "PlagueCattleCast001.mp3", "PlagueCattleDeath001.mp3", "PlagueCattleWalk001.mp3"]) preloadExclusiveSfx(file);
 if (typeof Audio !== "undefined") {
   for (const file of ["CultistV2Attack.mp3", "CultistV2Spellcast.mp3", "MinorHorrorATT001.mp3", "MinorHorrorCasting001.mp3"]) sfxTemplate(file);
 }
@@ -206,6 +208,34 @@ function playSfxFileExclusive(file: string, volume = 0.55, startAt = 0): void {
   el.currentTime = startAt;
   el.muted = muted;
   el.play().catch(() => {});
+}
+
+/** Monsters whose sounds are cut from their own source videos (work/monster-sfx/cut.py): each
+ * clip is time-warped to play in step with its sheet the way the game plays it, and starts on
+ * the sheet's first frame. Only videos without a music bed were used; idle never has sound.
+ * Keyed by sprite id. A sprite/kind absent here keeps the game's generic cue. */
+export type MonsterSfxKind = "attack" | "cast" | "walk" | "hit" | "death" | "death2";
+const MONSTER_SFX: Record<string, Partial<Record<MonsterSfxKind, string>>> = {};
+for (const cues of Object.values(MONSTER_SFX)) for (const file of Object.values(cues)) preloadExclusiveSfx(file);
+
+/** Whether a sprite has its own cue of this kind (see MONSTER_SFX). */
+export function hasMonsterSfx(sprite: string | undefined, kind: MonsterSfxKind): boolean {
+  return !!sprite && !!MONSTER_SFX[sprite]?.[kind];
+}
+
+/** Stops an exclusive cue early with a short fade, so cutting it off never clicks. */
+function stopSfxFileExclusive(file: string, fadeMs = 120): void {
+  const el = exclusiveSfxEls.get(file);
+  if (!el || el.paused) return;
+  const from = el.volume;
+  const started = performance.now();
+  const step = () => {
+    const k = Math.min(1, (performance.now() - started) / fadeMs);
+    el.volume = from * (1 - k);
+    if (k < 1) requestAnimationFrame(step);
+    else el.pause();
+  };
+  requestAnimationFrame(step);
 }
 
 // Sound cues without a supplied recording stay silent until a real asset is authored.
@@ -239,6 +269,34 @@ export const sfxPlay = {
   carnivorousPlantCast: () => playSfxFileExclusive("CarnivorousPlantCast001.mp3", 0.55),
   carnivorousPlantHit: () => playSfxFileExclusive("CarnivorousPlantHit001.mp3", 0.55),
   carnivorousPlantDeath: () => playSfxFileExclusive("CarnivorousPlantDeath001.mp3", 0.55),
+  // Sapling: same scheme — each clip starts on the first frame of its sheet. The walk clip runs
+  // 3 s (two passes of the 1.5 s walk loop) so a normal move keeps its footsteps.
+  saplingAttack: () => playSfxFileExclusive("SaplingATT001.mp3", 0.55),
+  saplingCast: () => playSfxFileExclusive("SaplingCast001.mp3", 0.55),
+  saplingHit: () => playSfxFileExclusive("SaplingHit001.mp3", 0.55),
+  saplingDeath: () => playSfxFileExclusive("SaplingDeath001.mp3", 0.55),
+  saplingWalk: () => playSfxFileExclusive("SaplingWalk001.mp3", 0.45),
+  // Plague Bearing Cattle: each clip is cut from its sheet's own video window and stretched to
+  // the sheet's in-game length (3 s actions, 1.5 s walk loop x2), starting on its first frame.
+  // The walk is stopped when the move ends (its moves are short). Idle has no sound on purpose.
+  plagueCattleAttack: () => playSfxFileExclusive("PlagueCattleATT001.mp3", 0.55),
+  plagueCattleCast: () => playSfxFileExclusive("PlagueCattleCast001.mp3", 0.55),
+  plagueCattleDeath: () => playSfxFileExclusive("PlagueCattleDeath001.mp3", 0.55),
+  plagueCattleWalk: () => playSfxFileExclusive("PlagueCattleWalk001.mp3", 0.45),
+  plagueCattleWalkStop: () => stopSfxFileExclusive("PlagueCattleWalk001.mp3"),
+  /** A monster's own cue from MONSTER_SFX; returns false (and plays nothing) when it has none,
+   * so the caller can fall back to the generic cue. */
+  monster: (sprite: string | undefined, kind: MonsterSfxKind): boolean => {
+    const file = sprite ? MONSTER_SFX[sprite]?.[kind] : undefined;
+    if (!file) return false;
+    playSfxFileExclusive(file, kind === "walk" ? 0.45 : 0.55);
+    return true;
+  },
+  /** Fades out a monster's walk cue when its move ends (moves are shorter than the clip). */
+  monsterWalkStop: (sprite: string | undefined) => {
+    const file = sprite ? MONSTER_SFX[sprite]?.walk : undefined;
+    if (file) stopSfxFileExclusive(file);
+  },
   cultistV2Attack: () => playSfxFile("CultistV2Attack.mp3", 0.55),
   cultistV2Spellcast: () => playSfxFile("CultistV2Spellcast.mp3", 0.55),
   cultistV2WalkLeft: () => playSfxFile("CultistV2WalkLeft.mp3", 0.45),

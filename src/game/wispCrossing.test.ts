@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { DECORATIONS, CLASSES, placedBlockingFootprint } from "./data.ts";
+import { DECORATIONS, CLASSES, CAUSTIC_VENOM, placedBlockingFootprint } from "./data.ts";
 import { buildDecorOverlay, hexDef } from "./hexprops.ts";
-import { footprint, hexNeighbors } from "./pathfinding.ts";
+import { footprint, hexNeighbors, hexDist, clearShot } from "./pathfinding.ts";
 import { WISP_CROSSING_ID, WISP_BOSS_ID, completedAfterWispVictory, routeWispCrossing, wispCrossingCompleted } from "./wispCrossing.ts";
 import type { Mission, TerrainId } from "./types.ts";
 
 const readDraft = (name: string) => JSON.parse(readFileSync(new URL(`./maps/${name}`, import.meta.url), "utf8")).draft;
 const crossing = readDraft("wisp-forest-crossing007.json") as Mission;
-const room = readDraft("wisp-forest-crossing-boss001.json");
+const room = readDraft("wisp-forest-crossing-boss002.json");
 
 test("all forward exits lead to the boss only until the crossing is completed", () => {
   const first = routeWispCrossing(crossing, []);
@@ -34,8 +34,9 @@ test("only the boss victory completes the first crossing", () => {
 
 test("the rooted boss is reachable only at the front sweep, with a closed tree barrier behind", () => {
   assert.equal(room.win, "boss");
-  assert.equal(room.enemySpawns.length, 1);
-  const plant = room.enemySpawns[0];
+  const bosses = room.enemySpawns.filter((p: { classId: string }) => p.classId === "carnivorousPlant");
+  assert.equal(bosses.length, 1);
+  const plant = bosses[0];
   assert.equal(plant.classId, "carnivorousPlant");
   assert.equal(plant.holdsPosition, true);
   assert.ok(CLASSES.carnivorousPlant.boss);
@@ -61,4 +62,28 @@ test("the rooted boss is reachable only at the front sweep, with a closed tree b
   const accessible = [...adjacent].filter(([key]) => seen.has(key)).map(([,p]) => p);
   assert.equal(accessible.length, 2, "only the two front approach hexes are reachable");
   assert.ok(accessible.every(p => p.y > plant.y && p.y >= plant.y - 2), "approaches lie in her sweep area");
+});
+
+test("the long decorated approach leaves ranged sight and room for sapling defenders", () => {
+  const plant = room.enemySpawns.find((p: { classId: string }) => p.classId === "carnivorousPlant");
+  const saplings = room.enemySpawns.filter((p: { classId: string }) => p.classId === "sapling");
+  const overlay = buildDecorOverlay(room.decorations, room.cols, room.rows, placedBlockingFootprint);
+  assert.equal(saplings.length, 8);
+  assert.ok(room.waterLevels.every((level: number | null) => level === null), "the entire boss clearing is dry ground");
+  assert.ok(!room.tiles.includes("water"));
+  for (const key of ["tiles", "tileVariants", "tileRots", "terrainElevations", "waterLevels"]) {
+    assert.equal(room[key].length, room.cols * room.rows, key);
+  }
+  for (const spawn of room.playerSpawns) assert.ok(hexDist(spawn, plant) >= 12);
+  for (const spawn of saplings) {
+    assert.ok(hexDef(room.tiles, room.cols, spawn.x, spawn.y, overlay).passable);
+    assert.ok(spawn.y > plant.y && spawn.y < room.playerSpawns[0].y);
+  }
+  // The central advance stays open, with two exposed lanes aligned to the boss's front.
+  for (let y = 9; y <= 13; y++) for (let x = 14; x <= 16; x++) {
+    const cell = { x, y };
+    assert.ok(hexDef(room.tiles, room.cols, x, y, overlay).passable);
+    assert.ok(hexDist(plant, cell) <= CAUSTIC_VENOM.range);
+    if (x >= 15) assert.ok(clearShot(plant, cell, room.tiles, room.cols, "bolt", overlay));
+  }
 });

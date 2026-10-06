@@ -53,7 +53,7 @@ import { decorationAnchor } from "./gfx/decorationAnchor";
 import { buildDecorOverlay, hexDef, type DecorOverlay } from "./hexprops";
 import { ACTION_HUNGER_COST, drainHunger, fullness } from "./hunger";
 import { HUNGER_PENALTY_MAX } from "./overworld";
-import { sfxPlay } from "./audio";
+import { hasMonsterSfx, sfxPlay } from "./audio";
 import { NOTORIOUS_LEVEL_BONUS } from "./quests";
 // Shadows the DOM global of the same name: the WebGL2DRenderer used for the battle canvas
 // (see BattleCanvas.tsx) implements this instead of a real Path2D, and every `new Path2D()`
@@ -924,6 +924,9 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
       tier1:
         cls.id === "carnivorousPlant"
           ? 2
+          // Sapling: 1 Poison Breath.
+          : cls.id === "sapling"
+          ? 1
           : cls.id === "swampBlueCalf"
           ? tierUses(cls.id, 1, level)
           : cls.id === "bigBlueCalf"
@@ -1340,6 +1343,10 @@ export class BattleEngine {
   /** Queue steps whose long-sheet wind-up already played (see startSeq), with how many
    * seconds of the sheet it covered — the step picks the pose up from there. */
   private woundUp = new WeakMap<Seq, number>();
+  /** Monster hit/death cues already played, per unit (see tick and audio.ts MONSTER_SFX). */
+  private readonly monsterSoundCues = new WeakMap<Unit, { hitAt?: number; death?: boolean }>();
+  /** Plague Bearing Cattle death cues already played (see tick). */
+  private readonly cattleDeathCued = new WeakSet<Unit>();
   /** Carnivorous Plant hit/death cues already played, per unit (see tick). */
   private plantSoundCues = new WeakMap<Unit, { hitAt?: number; death?: boolean }>();
   /** Work a queued step defers until it really starts (after any wind-up) — e.g. a summon's
@@ -2087,18 +2094,43 @@ export class BattleEngine {
       // A freshly summoned unit starts at fade 0 (see castSummonFamiliar) and eases back in
       // while its portal plays, rather than popping fully opaque the instant it's added.
       else if (u.alive && u.fade < 1) u.fade = Math.min(1, u.fade + cap * 2.4);
-      // Carnivorous Plant's hit and death sounds start with their sheets: the hit sheet at
-      // hitAt, the death sheet HIT_ANIM_SECONDS after diedAt (it plays after the hit sheet).
-      if (u.sprite === "carnivorous-plant-001") {
+      // Carnivorous Plant's and Sapling's hit and death sounds start with their sheets: the hit
+      // sheet at hitAt, the death sheet HIT_ANIM_SECONDS after diedAt (it plays after the hit sheet).
+      if (u.sprite === "carnivorous-plant-001" || u.sprite === "sapling-001") {
+        const sapling = u.sprite === "sapling-001";
         let cue = this.plantSoundCues.get(u);
         if (!cue) this.plantSoundCues.set(u, (cue = { hitAt: u.hitAt }));
         if (u.hitAt != null && u.hitAt !== cue.hitAt) {
           cue.hitAt = u.hitAt;
-          sfxPlay.carnivorousPlantHit();
+          if (sapling) sfxPlay.saplingHit();
+          else sfxPlay.carnivorousPlantHit();
         }
         if (!u.alive && u.diedAt != null && !cue.death && this.time - u.diedAt >= HIT_ANIM_SECONDS) {
           cue.death = true;
-          sfxPlay.carnivorousPlantDeath();
+          if (sapling) sfxPlay.saplingDeath();
+          else sfxPlay.carnivorousPlantDeath();
+        }
+      }
+      // Plague Bearing Cattle has no hit sheet: its death sheet starts at diedAt, and so does its sound.
+      if (u.sprite === "plague-bearing-cattle" && !u.alive && u.diedAt != null && !this.cattleDeathCued.has(u)) {
+        this.cattleDeathCued.add(u);
+        sfxPlay.plagueCattleDeath();
+      }
+      // Monsters with their own hit/death cues (audio.ts MONSTER_SFX): the hit cue starts with the
+      // hit sheet at hitAt, the death cue with the death sheet — after the hit sheet when the
+      // monster has one, straight away for the Big Blue Ox (it skips its hit sheet on death).
+      if (hasMonsterSfx(u.sprite, "hit") || hasMonsterSfx(u.sprite, "death")) {
+        let cue = this.monsterSoundCues.get(u);
+        if (!cue) this.monsterSoundCues.set(u, (cue = { hitAt: u.hitAt }));
+        if (u.hitAt != null && u.hitAt !== cue.hitAt) {
+          cue.hitAt = u.hitAt;
+          if (u.alive || u.classId !== "bigBlueCalf") sfxPlay.monster(u.sprite, "hit");
+        }
+        const hitLead = u.classId !== "bigBlueCalf" && this.art.hits[u.sprite] ? HIT_ANIM_SECONDS : 0;
+        if (!u.alive && u.diedAt != null && !cue.death && this.time - u.diedAt >= hitLead) {
+          cue.death = true;
+          const alt = u.deathAlt && !!this.art.deaths2[u.sprite];
+          if (!(alt && sfxPlay.monster(u.sprite, "death2"))) sfxPlay.monster(u.sprite, "death");
         }
       }
       if (u.alive) {
@@ -2320,6 +2352,11 @@ export class BattleEngine {
         else if (step.spellKind !== "webOfDreams" && step.spellKind !== "bless" && !meleeSkill) {
           if (caster?.sprite === "minor-horror-001") sfxPlay.minorHorrorCast();
           else if (caster?.sprite === "carnivorous-plant-001") sfxPlay.carnivorousPlantCast();
+          else if (caster?.sprite === "sapling-001") sfxPlay.saplingCast();
+          else if (caster?.sprite === "plague-bearing-cattle") sfxPlay.plagueCattleCast();
+          else if (sfxPlay.monster(caster?.sprite, "cast")) {
+            // A monster's own cast cue (audio.ts MONSTER_SFX).
+          }
           else if (caster?.sprite === "cultist-v2") sfxPlay.cultistV2Spellcast();
           else sfxPlay.spell();
         }
@@ -2329,11 +2366,16 @@ export class BattleEngine {
           sfxPlay.arrowAttack(attacker.sprite === "neera");
         } else if (attacker && !step.customDice && this.isArcaneCaster(attacker)) {
           if (attacker.sprite === "cultist-v2") sfxPlay.cultistV2Attack();
-          else sfxPlay.magicAttack();
+          else if (!sfxPlay.monster(attacker.sprite, "attack")) sfxPlay.magicAttack();
         } else if (attacker && !this.isArcaneCaster(attacker) && (attacker.sprite !== "kaelFinal" || !!step.customDice)) {
           // Kael's long main-hand swing is cued at its strike instead (see stepCombat's lunge end).
           if (attacker.sprite === "minor-horror-001") sfxPlay.minorHorrorAttack();
           else if (attacker.sprite === "carnivorous-plant-001") sfxPlay.carnivorousPlantAttack();
+          else if (attacker.sprite === "sapling-001") sfxPlay.saplingAttack();
+          else if (attacker.sprite === "plague-bearing-cattle") sfxPlay.plagueCattleAttack();
+          else if (sfxPlay.monster(attacker.sprite, "attack")) {
+            // A monster's own attack cue (audio.ts MONSTER_SFX).
+          }
           else sfxPlay.meleeAttack(step.spellKind !== "shieldBash" && this.isBladeAttack(attacker, !!step.customDice));
         }
       } else if (step.type === "heal" || step.type === "cureDisease") {
@@ -2423,6 +2465,12 @@ export class BattleEngine {
       const mover = this.units.find((u) => u.id === step.id);
       if (mover?.sprite === "minor-horror-001") {
         sfxPlay.minorHorrorWalk();
+      } else if (mover?.sprite === "sapling-001") {
+        sfxPlay.saplingWalk();
+      } else if (mover?.sprite === "plague-bearing-cattle") {
+        sfxPlay.plagueCattleWalk();
+      } else if (sfxPlay.monster(mover?.sprite, "walk")) {
+        // A monster's own walk cue (audio.ts MONSTER_SFX), faded out when the move ends.
       } else if (mover?.sprite === "cultist-v2" && step.path.length >= 2) {
         if (step.path[1]!.x < step.path[0]!.x) sfxPlay.cultistV2WalkLeft();
         else sfxPlay.cultistV2WalkRight();
@@ -2536,7 +2584,7 @@ export class BattleEngine {
       if (step.spellKind === "causticVenom") {
         const caster = this.units.find((u) => u.id === step.att);
         const target = step.projectileTo ?? null;
-        if (caster && target) this.emitMissileFx(caster.x, caster.y, target.x, target.y, step.spellKind);
+        if (caster && target) this.emitMissileFx(caster.x, caster.y, target.x, target.y, caster.classId === "carnivorousPlant" ? "minorVenom" : step.spellKind);
       }
       // Veneno Menor always flies the original 2D venom bolt (the 3D V2 smoke is Caustic only).
       if (step.spellKind === "minorVenom") {
@@ -2620,6 +2668,8 @@ export class BattleEngine {
         // A Bull Rush dash leaves its golden streak behind, fading out (see rushTrail).
         const origin = a.path[0];
         if (a.charge && origin) this.emitBladeFx("rushTrail", origin.x, origin.y, { toX: from.x, toY: from.y });
+        if (unit.sprite === "plague-bearing-cattle") sfxPlay.plagueCattleWalkStop();
+        sfxPlay.monsterWalkStop(unit.sprite);
         this.active = null;
         return;
       }
@@ -2668,6 +2718,8 @@ export class BattleEngine {
         this.applyTileHazard(unit, to);
         if (unit.hp !== hpBefore || this.decorations.length !== propsBefore) this.moveSpoiled = true;
         if (!unit.alive) {
+          if (unit.sprite === "plague-bearing-cattle") sfxPlay.plagueCattleWalkStop();
+          sfxPlay.monsterWalkStop(unit.sprite);
           this.active = null;
           this.selectedId = null;
           this.pendingFoeId = null;
@@ -2926,9 +2978,14 @@ export class BattleEngine {
             if (!a.counterCustomDice && this.isArrowAttack(def)) sfxPlay.arrowAttack(def.sprite === "neera");
             else if (this.isArcaneCaster(def)) {
               if (def.sprite === "cultist-v2") sfxPlay.cultistV2Attack();
-              else sfxPlay.magicAttack();
+              else if (!sfxPlay.monster(def.sprite, "attack")) sfxPlay.magicAttack();
             } else if (def.sprite === "minor-horror-001") sfxPlay.minorHorrorAttack();
             else if (def.sprite === "carnivorous-plant-001") sfxPlay.carnivorousPlantAttack();
+            else if (def.sprite === "sapling-001") sfxPlay.saplingAttack();
+            else if (def.sprite === "plague-bearing-cattle") sfxPlay.plagueCattleAttack();
+            else if (sfxPlay.monster(def.sprite, "attack")) {
+              // A monster's own attack cue (audio.ts MONSTER_SFX).
+            }
             else if (def.sprite !== "kaelFinal" || a.counterCustomDice) sfxPlay.meleeAttack(this.isBladeAttack(def, !!a.counterCustomDice));
             a.stage = "counterLunge";
           }
@@ -3013,7 +3070,7 @@ export class BattleEngine {
       return;
     }
     const syncFireballVfx = a.spellKind === "fireball" && this.fireballVfxAvailable && !this.reducedMotion && !!a.projectileTo;
-    const syncCausticVenomVfx = a.spellKind === "causticVenom" && this.causticVenomVfxAvailable && !this.reducedMotion && !!a.projectileTo;
+    const syncCausticVenomVfx = a.spellKind === "causticVenom" && att.classId !== "carnivorousPlant" && this.causticVenomVfxAvailable && !this.reducedMotion && !!a.projectileTo;
     const syncPhantasmalVfx = a.spellKind === "phantasmalForce" && this.phantasmalForceVfxAvailable && !this.reducedMotion;
     const syncBurningHandsVfx = (a.spellKind === "burningHands" || a.spellKind === "poisonBreath") && this.burningHandsV2VfxAvailable && !this.reducedMotion;
     if (a.spellKind === "cleave" && !a.cleaveVfxQueued && a.t >= 0.18 && !this.reducedMotion) {
@@ -3294,6 +3351,7 @@ export class BattleEngine {
       // Veneno Menor keeps the original venom impact: the green burst on every splash hex.
       if (a.spellKind === "poisonBreath" && !syncBurningHandsVfx) this.emitFireballBurstFx(a.tiles, "causticVenom");
       if (a.spellKind === "minorVenom") this.emitFireballBurstFx(a.tiles, "causticVenom");
+      if (a.spellKind === "causticVenom" && att.classId === "carnivorousPlant") this.emitFireballBurstFx(a.tiles, "causticVenom");
       const elementFx = a.spellKind ? SPELL_ELEMENT_FX[a.spellKind] : undefined;
       if (elementFx && !(a.spellKind === "burningHands" && syncBurningHandsVfx) && !(a.spellKind === "causticVenom" && syncCausticVenomVfx)) this.queueElementalFx(elementFx.kind, a.tiles, elementFx.duration);
       if (((a.spellKind === "cleave" && !a.cleaveVfxQueued) || a.spellKind === "shoulderSmash") && a.tiles.length > 0) {
@@ -7939,6 +7997,9 @@ export class BattleEngine {
       if (this.tryAiMinorVenom(next, reach, walkReach, players)) return;
     }
 
+    // Sapling — its 1 Poison Breath (same cone targeting as the Carnivorous Plant's), then melee.
+    if (next.classId === "sapling" && this.tryAiPlantPoisonBreath(next, reach, walkReach)) return;
+
     // Birolho (and Birolho2) — Relâmpago outranks Caustic Venom outranks Choque outranks Magic Missile.
     if ((next.classId === "birolho" || next.classId === "birolho2" || next.classId === "birolho3" || next.classId === "birolhoLegs" || next.classId === "birolhoLegs2") && (next.spells.tier1 > 0 || next.spells.tier2 > 0 || next.spells.tier4 > 0 || next.shockCharges > 0)) {
       if (next.spells.tier2 > 0) {
@@ -10007,6 +10068,10 @@ export class BattleEngine {
     // height (same Type 7 body), with the wide canvas's own aspect kept.
     const plantHeightScale = u.sprite === "carnivorous-plant-001" ? 1.03 : 1;
     const plantWidthScale = u.sprite === "carnivorous-plant-001" ? 2.15 : 1;
+    // Sapling (611x360 canvas, standing figure 363 px wide): one hex, drawn filling its whole hex
+    // (figure width = one hex width), with the canvas's own aspect kept.
+    const saplingHeightScale = u.sprite === "sapling-001" ? 0.582 : 1;
+    const saplingWidthScale = u.sprite === "sapling-001" ? 1.264 : 1;
     // familiar4 (1302x620 canvas, figure ~90% of its height): Familiar Maior's on-screen
     // height, with the wide canvas's own aspect kept.
     const familiar4HeightScale = u.sprite === "familiar4" ? 0.97 : 1;
@@ -10044,6 +10109,7 @@ export class BattleEngine {
       undeadOxHeightScale *
       roccoHeightScale *
       plantHeightScale *
+      saplingHeightScale *
       familiar4HeightScale *
       kaelFinalAtkScale *
       neeraAtkScale *
@@ -10072,6 +10138,7 @@ export class BattleEngine {
       zombieDogWideSheetScale *
       roccoWidthScale *
       plantWidthScale *
+      saplingWidthScale *
       familiar4WidthScale *
       wolfFinalWidthScale *
       zombieWidthScale *

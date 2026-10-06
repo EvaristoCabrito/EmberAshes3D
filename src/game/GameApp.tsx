@@ -3158,7 +3158,7 @@ function TitleLoader({ progress, ready }: { progress: number; ready: boolean }) 
   return (
     <div className={`title-loader${ready ? " is-ready" : ""}${leaving ? " is-leaving" : ""}`} role="progressbar" aria-label="Carregando" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
       <div className="title-loader-label">
-        <span>{ready ? "As cinzas despertaram" : "Despertando as cinzas"}</span>
+        <span>{ready ? "" : "Despertando as cinzas"}</span>
         <span className="title-loader-pct">{pct}%</span>
       </div>
       <div className="title-loader-frame">
@@ -8446,7 +8446,7 @@ function BattleScreen({
           </div>
         </div>
         {hud.banner && (
-          <div className="pointer-events-none absolute inset-x-0 top-14 flex justify-center">
+          <div className="pointer-events-none absolute inset-x-0 bottom-12 flex justify-center">
             <div className="ember-plate px-4 py-1.5 font-display text-lg tracking-wide ember-title">
               {hud.banner}
             </div>

@@ -75,6 +75,8 @@ export type ClassId = import("./encounter-npcs").EncounterNpcId
   // Big boss (Type 7 body) with the Birolho spell kit and much higher stats — see
   // CLASSES.carnivorousPlant.
   | "carnivorousPlant"
+  // One-hex creature drawn filling its whole hex — see CLASSES.sapling.
+  | "sapling"
   | "swampBlueCalf"
   | "bigBlueCalf"
   // Weak, killable flavor civilians (see SpriteId's own note) — random encounters and regular
@@ -137,6 +139,9 @@ export type SpriteId = "defaultWarrior" | "neera" | "voss" | "salazar" | "aldric
   // Carnivorous Plant: idle/atk/cast/hit/death, 36 frames each, cut with the TEK from the
   // user's videos (see work/carnivorous-plant/build.py).
   | "carnivorous-plant-001"
+  // Sapling: idle/move/atk/cast/hit/death, 36 frames each, cut with the TEK from the user's
+  // videos (see work/sapling/build.py).
+  | "sapling-001"
   | import("./encounter-npcs").EncounterNpcId
   // Generic-enemy "alter" sprites, split off so a plain Archer/Mage/Healer enemy (and their
   // own promotions) never renders as literally the same SpriteId as Neera/Voss/Salazar the
