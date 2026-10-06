@@ -58,6 +58,10 @@ export class GroundAO {
     groundAoSize: { value: new THREE.Vector2(1, 1) },
     groundAoStrength: { value: GROUND_AO_STRENGTH },
     groundAoDirect: { value: GROUND_AO_DIRECT },
+    /** Prevent local point lights from making individual hexes read as bright decals. */
+    groundLightCap: { value: 10 },
+    /** Ground-only close-contact comparison. Never changes bias on the lights/model surfaces. */
+    groundContactStrength: { value: 1 },
   };
   private texture: THREE.DataTexture | null = null;
   private key = "";
@@ -76,10 +80,29 @@ export class GroundAO {
           "#include <project_vertex>",
           "#include <project_vertex>\nvGroundAoWorld = (modelMatrix * vec4(transformed, 1.0)).xy;",
         );
+      // Keep complete shadow-map silhouettes. A receiver-side comparison closes the
+      // large bias gap without clipping caster triangles or drawing a second dark shape.
+      const lighting = THREE.ShaderChunk.lights_fragment_begin
+        .replaceAll("directionalLightShadow.shadowBias", "mix(directionalLightShadow.shadowBias, max(-0.00005, directionalLightShadow.shadowBias * 0.03), groundContactStrength)")
+        .replaceAll("pointLightShadow.shadowBias", "mix(pointLightShadow.shadowBias, max(-0.00005, pointLightShadow.shadowBias * 0.03), groundContactStrength)");
       shader.fragmentShader = shader.fragmentShader
+        .replace("#include <lights_fragment_begin>", lighting)
         .replace(
           "#include <common>",
-          "#include <common>\nvarying vec2 vGroundAoWorld;\nuniform sampler2D groundAoMap;\nuniform vec2 groundAoSize;\nuniform float groundAoStrength;\nuniform float groundAoDirect;",
+          "#include <common>\nvarying vec2 vGroundAoWorld;\nuniform sampler2D groundAoMap;\nuniform vec2 groundAoSize;\nuniform float groundAoStrength;\nuniform float groundAoDirect;\nuniform float groundLightCap;\nuniform float groundContactStrength;",
+        )
+        .replace(
+          "#include <output_fragment>",
+          // Soft shoulder instead of a hard min(): unchanged up to half the cap, then eases
+          // toward the cap, so a lamp's bright center keeps a gradient instead of flattening
+          // into a uniform disc with a hard edge.
+          [
+            "vec3 gLim = sampledDiffuseColor.rgb * groundLightCap;",
+            "vec3 gKnee = gLim * 0.5;",
+            "vec3 gSpan = max(gLim - gKnee, vec3(1e-4));",
+            "outgoingLight = min(outgoingLight, gKnee) + gSpan * (1.0 - exp(-max(outgoingLight - gKnee, vec3(0.0)) / gSpan));",
+            "#include <output_fragment>",
+          ].join("\n"),
         )
         .replace(
           "#include <aomap_fragment>",
@@ -91,7 +114,7 @@ export class GroundAO {
           ].join("\n"),
         );
     };
-    mat.customProgramCacheKey = () => "groundAO";
+    mat.customProgramCacheKey = () => "groundAO-groundContact-v1";
     mat.needsUpdate = true;
   }
 

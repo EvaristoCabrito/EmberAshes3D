@@ -1,16 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CUTSCENE_SUBTITLES, syncEnglishSubtitles } from "./cutsceneSubtitles";
 import { ChevronLeft, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { BAG_MAX, CLASSES, EQUIPMENT, HERO_NAMES, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_ICON, RATIONS_PRICE, WEAPON_MAX_ENH, WEAPONS, equipmentIcon, equipmentTooltip, equipmentTypeSlotName, heroRecruited, isPlayableClassForDisplay, isPouch, lockpickTooltip, partyBagHasRoom, partyPouchId, potionTooltip, pouchIcon, weaponDiceLabel, weaponEnhCost, weaponIcon, weaponPower, weaponRangeLabel, weaponSellValue, weaponTooltip, potionLabel } from "./data";
+import { ALL_HERO_NAMES, BAG_MAX, CLASSES, EQUIPMENT, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_ICON, RATIONS_PRICE, WEAPON_MAX_ENH, WEAPONS, equipmentIcon, equipmentTooltip, equipmentTypeSlotName, heroRecruited, isPlayableClassForDisplay, isPouch, lockpickTooltip, partyBagHasRoom, partyPouchId, potionTooltip, pouchIcon, weaponDiceLabel, weaponEnhCost, weaponIcon, weaponPower, weaponRangeLabel, weaponSellValue, weaponTooltip, potionLabel } from "./data";
 import { ItemTip, PartyInventoryOverlay } from "./InventoryScreens";
-import type { Bag, ClassId, EquipSlot, PotionId, SaveData } from "./types";
+import { portraitFor } from "./assets";
+import type { Bag, ClassId, EquipSlot, PotionId, SaveData, SpriteId } from "./types";
 import { GoldAmount } from "./GoldAmount";
 import { playTheme, sfxPlay, stopMusic, unlockAudio } from "./audio";
 import { fullness, INN_MEAL_PRICE } from "./hunger";
 import { HungerBar } from "./HungerBar";
 import { questProgress, questStatus, questsFor } from "./quests";
+import { useGamePreferences } from "./gamePreferences";
 
 const BAG_ICON = pouchIcon(null);
+export const HEALER_CAST_PRICE = 5;
+export const HEALER_AILMENT_PRICE = 7;
+export const NIGHT_REST_PRICE = 8;
+
+interface HealerTarget {
+  name: string;
+  hp: number;
+  maxHp: number;
+  sprite: SpriteId;
+  diseased: boolean;
+  poisoned: boolean;
+}
 
 const NPCS = [
   {
@@ -30,6 +45,14 @@ const NPCS = [
     shop: false,
   },
   {
+    id: "suspicious",
+    name: "Cliente Suspeito",
+    role: "Viajante",
+    portrait: "/game/portraits/1beca9c9-789c-4b44-8930-c53b88c982ac.jpg",
+    talk: "Ele mantém o rosto meio escondido e observa quem entra e quem sai. Parece escolher cada palavra antes de pronunciá-la.",
+    shop: false,
+  },
+  {
     id: "porao",
     name: "A Hóspede",
     role: "Porão",
@@ -37,9 +60,18 @@ const NPCS = [
     talk: "Não subo. O chão me conhece. Tragam histórias, não luz. Se Brue ainda mede Gold, o mundo não acabou.",
     shop: false,
   },
+  {
+    id: "merchant",
+    name: "Rambarton",
+    role: "Mercador Itinerante",
+    portrait: "/game/portraits/traveling-merchant.png",
+    talk: "Poções, rações e gazuas. Levo pouco, mas escolhi bem.",
+    shop: true,
+  },
 ] as const;
 
 const POTION_ORDER: PotionId[] = ["weak", "mid", "potent", "disease", "manaSmall", "manaMid", "manaLarge"];
+const MERCHANT_POTION_ORDER: PotionId[] = ["weak", "mid", "manaSmall"];
 
 const ICONS: Record<PotionId, string> = {
   weak: "/game/icons/potion-weak.png",
@@ -52,11 +84,6 @@ const ICONS: Record<PotionId, string> = {
 };
 
 const EMPTY_CART: Record<PotionId, number> = { weak: 0, mid: 0, potent: 0, disease: 0, manaSmall: 0, manaMid: 0, manaLarge: 0 };
-
-/** Aldric and Malrec join later in the story but aren't in HERO_NAMES yet, so they normally
- * never appear in the Inn/Smith. Test mode appends them so their gear/weapon compatibility
- * can be reviewed ahead of that. */
-const TEST_EXTRA_HERO_NAMES = ["Aldric", "Malrec"] as const;
 
 export function InnScreen({
   onUseRation,
@@ -91,8 +118,16 @@ export function InnScreen({
   onAcceptQuest,
   onTurnInQuest,
   onTalkToNpc,
+  onPassNight,
   questOffered,
   startInSmith = false,
+  startInHealer = false,
+  startInMerchant = false,
+  startInMerchantGear = false,
+  merchantBackdrop,
+  healerTargets = [],
+  onHealerCast,
+  onHealerCureAilments,
 }: {
   /** Inn quests (see quests.ts): accept an offered quest / hand in a finished one for its
    * Gold reward. Each returns whether it actually applied. */
@@ -101,12 +136,27 @@ export function InnScreen({
   /** Called whenever an NPC is opened, so progression can note who has been talked to and
    * which of their quests have been learned of (see progression.ts). */
   onTalkToNpc?: (npcId: string) => void;
+  /** Spends the per-person overnight fee, advances one day, and restores the party. */
+  onPassNight?: (heroes: string[]) => { day: number; healed: number } | false;
   /** Whether a not-yet-accepted quest is on offer right now (its own availability condition).
    * Omitted means every quest is offered. */
   questOffered?: (questId: string) => boolean;
   /** Opened by talking to Vargan in the walkable Inn: goes straight to the smith (intro
    * video first, if not seen yet), and leaving the smith leaves this screen entirely. */
   startInSmith?: boolean;
+  /** Opened by talking to Curandeiro Ancião in the walkable Inn. */
+  startInHealer?: boolean;
+  /** Opens the limited roadside merchant inventory instead of the inn menus. */
+  startInMerchant?: boolean;
+  /** Roadside equipment selection priced between 320 and 1300 Gold. */
+  startInMerchantGear?: boolean;
+  /** Roadside or mountain-market scene for the merchant's shop. */
+  merchantBackdrop?: string;
+  healerTargets?: HealerTarget[];
+  /** Applies one paid Cura Média cast and returns the HP actually restored. */
+  onHealerCast?: (hero: string) => number | false;
+  /** Cures every selected party member's persistent disease/poison and returns count. */
+  onHealerCureAilments?: (heroes: string[]) => number | false;
   bags: Record<string, Bag>;
   onUseRation: (hero: string) => void;
   onUseRationAll?: (heroes: string[]) => number;
@@ -143,9 +193,10 @@ export function InnScreen({
   onSellWeapon: (weaponId: string) => number | false;
   onSeenSmithIntro: () => void;
 }) {
-  const [view, setView] = useState<"npc" | "smith">(startInSmith && save.seenSmithIntro ? "smith" : "npc");
+  const [view, setView] = useState<"npc" | "smith" | "healer">(startInMerchantGear ? "smith" : startInHealer ? "healer" : startInSmith && save.seenSmithIntro ? "smith" : "npc");
   const [smithIntro, setSmithIntro] = useState(startInSmith && !save.seenSmithIntro);
-  const [npc, setNpc] = useState<(typeof NPCS)[number]>(NPCS[0]);
+  const [npc, setNpc] = useState<(typeof NPCS)[number]>(startInMerchant || startInMerchantGear ? NPCS[NPCS.length - 1] : NPCS[0]);
+  const npcOptions = startInMerchant || startInMerchantGear ? [NPCS[NPCS.length - 1]] : NPCS.slice(0, -1);
   const [hero, setHero] = useState<string>("Kael");
   useEffect(() => {
     onTalkToNpc?.(npc.id);
@@ -158,6 +209,7 @@ export function InnScreen({
   const [rationsQtyDraft, setRationsQtyDraft] = useState("0");
   const [rationsNote, setRationsNote] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [restNote, setRestNote] = useState<string | null>(null);
   const [invView, setInvView] = useState<"doll" | "pack" | null>(null);
   useEffect(() => {
     if (!note) return;
@@ -169,14 +221,21 @@ export function InnScreen({
     const timer = window.setTimeout(() => setRationsNote(null), 2200);
     return () => window.clearTimeout(timer);
   }, [rationsNote]);
+  useEffect(() => {
+    if (!restNote) return;
+    const timer = window.setTimeout(() => setRestNote(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [restNote]);
   const bag = bags[hero] ?? { mid: 0, weak: 0, potent: 0, disease: 0, manaSmall: 0, manaMid: 0, manaLarge: 0, lockpick: 0 };
   // Same roster the Adega's own hero-selector row shows — Todos feeds exactly whoever
   // Comer could already feed one at a time, never a hero outside that list.
   const partyRoster = useMemo(
     () =>
-      (test ? [...HERO_NAMES, ...TEST_EXTRA_HERO_NAMES] : HERO_NAMES).filter((name) => test || heroRecruited(name, save.completed)),
-    [test, save.completed],
+      ALL_HERO_NAMES.filter((name) => test || heroRecruited(name, save.completed, save.flags)),
+    [test, save.completed, save.flags],
   );
+  const mealTargets = partyRoster.filter((name) => fullness(save.heroHunger[name]) < 120 && (save.unitHp[name] ?? 1) > 0);
+  const mealAllCost = mealTargets.length * INN_MEAL_PRICE;
 
   const total = useMemo(
     () => POTION_ORDER.reduce((n, kind) => n + cart[kind] * POTION_PRICE[kind], 0) + lockpickQty * LOCKPICK_PRICE,
@@ -258,7 +317,7 @@ export function InnScreen({
   };
 
   if (smithIntro) {
-    return <SmithIntroScreen muted={muted} onSkip={finishSmithIntro} />;
+    return <SmithIntroScreen muted={muted} onMute={onMute} onSkip={finishSmithIntro} />;
   }
 
   if (view === "smith") {
@@ -272,7 +331,9 @@ export function InnScreen({
         save={save}
         test={test}
         onMute={onMute}
-        onBack={startInSmith ? onLeave : () => setView("npc")}
+        merchantGear={startInMerchantGear}
+        merchantBackdrop={merchantBackdrop}
+        onBack={startInSmith || startInMerchantGear ? onLeave : () => setView("npc")}
         onBuyWeapon={onBuyWeapon}
         onBuyEquipment={onBuyEquipment}
         onEquipWeapon={onEquipWeapon}
@@ -289,9 +350,23 @@ export function InnScreen({
     );
   }
 
+  if (view === "healer") {
+    return (
+      <HealerServicePanel
+        ember={ember}
+        muted={muted}
+        targets={healerTargets}
+        onLeave={onLeave}
+        onMute={onMute}
+        onCast={onHealerCast ?? (() => false)}
+        onCureAilments={onHealerCureAilments ?? (() => false)}
+      />
+    );
+  }
+
   return (
     <section className="shop-surface relative h-dvh min-h-0 flex flex-col overflow-hidden bg-bg">
-      <img src="/game/assets/brief-estalagem.jpg" alt="" className="absolute inset-0 h-full w-full object-cover" />
+      <img src={startInMerchant ? merchantBackdrop ?? "/game/assets/merchant-road-background-001.jpg" : "/game/assets/brief-estalagem.jpg"} alt="" className="absolute inset-0 h-full w-full object-cover" />
       <div className="absolute inset-0 bg-gradient-to-t from-bg/80 via-bg/25 to-bg/10" />
       <header className="relative z-10 flex items-center gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-3">
         {/* Back/exit always sits at the far left, across every screen, so it never gets lost. */}
@@ -299,8 +374,8 @@ export function InnScreen({
           Sair
         </button>
         <div className="min-w-0 flex-1">
-          <p className="text-xs uppercase tracking-[0.18em] text-muted">Pousada à margem da cinza</p>
-          <h1 className="font-display text-2xl leading-none">A Estalagem do Osso Seco</h1>
+          <p className="text-xs ember-kicker">{startInMerchant ? (startInMerchantGear ? "Entre os picos nevados" : "Parada na estrada") : "Pousada à margem da cinza"}</p>
+          <h1 className="font-display text-2xl leading-none ember-title">{startInMerchant ? "Rambarton - Mercador Itinerante" : "A Estalagem do Osso Seco"}</h1>
         </div>
         <button
           type="button"
@@ -317,13 +392,13 @@ export function InnScreen({
         >
           Equipar
         </button>
-        <button
+        {!startInMerchant && (<button
           type="button"
           onClick={enterSmith}
           className="h-10 px-3 rounded-md ember-chip text-xs uppercase tracking-[0.14em]"
         >
           Ferreiro
-        </button>
+        </button>)}
         <p className="text-sm ember-chip rounded-md px-2 py-1"><GoldAmount amount={ember} /></p>
         <button type="button" onClick={onMute} className="size-10 grid place-items-center rounded-md ember-chip" aria-label="Som">
           {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
@@ -331,34 +406,58 @@ export function InnScreen({
       </header>
       <div className="relative z-10 flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3 max-w-lg mx-auto w-full">
         <div className="grid grid-cols-3 gap-2">
-          {NPCS.map((n) => (
+          {npcOptions.map((n) => (
             <button
               key={n.id}
               type="button"
               onClick={() => setNpc(n)}
-              className={`rounded-xl border overflow-hidden text-left ${npc.id === n.id ? "border-accent" : "border-border"}`}
+              className={`ember-slot overflow-hidden text-left${npc.id === n.id ? " is-last" : ""}`}
             >
               <img src={n.portrait} alt="" className="w-full aspect-[2/3] object-cover" />
               <p className="px-2 py-1 text-xs font-medium truncate ember-chip">{n.name}</p>
             </button>
           ))}
         </div>
-        <div className="ember-window rounded-xl p-3 flex gap-3">
+        <div className="relative ember-panel p-3 flex gap-3">
           <img src={npc.portrait} alt="" className="h-24 w-16 object-cover rounded-md shrink-0" />
           <div className="min-w-0">
             <p className="text-sm font-medium">
-              {npc.name} · {npc.role}
+              {npc.id === "merchant" ? `${npc.name} - ${npc.role}` : `${npc.name} · ${npc.role}`}
             </p>
             <p className="mt-1 text-sm leading-relaxed text-fg/90">{npc.talk}</p>
           </div>
         </div>
-        {questsFor(npc.id).map((quest) => {
+        {npc.id === "brue" && !startInMerchant && (
+          <div className="relative ember-panel p-3 flex flex-col gap-2">
+            <p className="text-xs ember-kicker">Descanso · uma noite</p>
+            <p className="text-sm leading-relaxed text-fg/90">Dormir na estalagem avança um dia, recupera 75% do HP perdido e restaura todos os usos de feitiço.</p>
+            <p className="text-sm tabular-nums">Prévia do custo · {partyRoster.length} pessoas × {NIGHT_REST_PRICE} Gold = <GoldAmount amount={partyRoster.length * NIGHT_REST_PRICE} /></p>
+            <p className="text-xs text-muted">Após dormir: {Math.max(0, ember - partyRoster.length * NIGHT_REST_PRICE)} Gold · Dia {save.gameClock} → {save.gameClock + 1}</p>
+            {restNote && <p className="text-sm text-accent">{restNote}</p>}
+            <Button
+              className="ember-btn ember-btn-primary"
+              disabled={!onPassNight || partyRoster.length === 0 || ember < partyRoster.length * NIGHT_REST_PRICE}
+              onClick={() => {
+                const result = onPassNight?.(partyRoster);
+                if (!result) {
+                  setRestNote("Brue recusou. Falta Gold para todo o grupo.");
+                  return;
+                }
+                sfxPlay.ui();
+                setRestNote(`Dia ${result.day}. O grupo recuperou ${result.healed} HP e todos os feitiços foram restaurados.`);
+              }}
+            >
+              Passar a Noite · {partyRoster.length * NIGHT_REST_PRICE} Gold
+            </Button>
+          </div>
+        )}
+        {(npc.id === "merchant" ? [] : questsFor(npc.id)).map((quest) => {
           const status = questStatus(save, quest);
           if (status === "available" && questOffered && !questOffered(quest.id)) return null;
           const { have, total } = questProgress(save, quest);
           return (
-            <div key={quest.id} className="ember-window rounded-xl p-3 flex flex-col gap-2">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted">
+            <div key={quest.id} className="relative ember-panel p-3 flex flex-col gap-2">
+              <p className="text-xs ember-kicker">
                 Missão · {status === "done" ? "concluída" : status === "available" ? "oferecida" : status === "ready" ? "pronta para entregar" : "em andamento"}
               </p>
               <p className="text-sm font-medium">{quest.title}</p>
@@ -368,17 +467,21 @@ export function InnScreen({
               {status !== "done" && <p className="text-xs text-muted">Onde: {quest.place}</p>}
               {status !== "available" && status !== "done" && (
                 <p className="text-xs text-muted tabular-nums">
-                  {quest.kind === "kill" ? (have >= total ? "Alvo abatido" : "Alvo ainda vivo") : `Encontrados ${have} / ${total}`}
+                  {quest.kind === "kill" ? (have >= total ? "Alvo abatido" : "Alvo ainda vivo") : quest.kind === "recruit" ? (have >= total ? "Oficial resgatado" : "Oficial ainda cativo") : `Encontrados ${have} / ${total}`}
                 </p>
               )}
               {status !== "done" && (
-                <p className="text-xs text-muted">
-                  Recompensa: <GoldAmount amount={quest.reward} />
-                  {quest.rewardPotions.map((kind) => ` + ${potionLabel(kind)}`).join("")}
-                </p>
+                <div className="flex flex-wrap items-center gap-x-1 text-xs text-muted">
+                  <span>Recompensa:</span>
+                  <GoldAmount amount={quest.reward} />
+                  {quest.rewardPotions.map((kind) => (
+                    <span key={kind} className="break-words">+ {potionLabel(kind)}</span>
+                  ))}
+                </div>
               )}
               {status === "available" && (
                 <Button
+                  className="ember-btn ember-btn-primary"
                   onClick={() => {
                     if (onAcceptQuest?.(quest.id)) sfxPlay.ui();
                   }}
@@ -388,6 +491,7 @@ export function InnScreen({
               )}
               {status === "ready" && (
                 <Button
+                  className="ember-btn ember-btn-primary"
                   onClick={() => {
                     if (onTurnInQuest?.(quest.id)) sfxPlay.ui();
                   }}
@@ -399,13 +503,13 @@ export function InnScreen({
           );
         })}
         {npc.shop && (
-          <div className="shop-panel ember-window rounded-xl p-3 flex flex-col gap-2">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted">Adega · quem leva</p>
+          <div className="shop-panel relative ember-panel p-3 flex flex-col gap-2">
+            <p className="text-xs ember-kicker">{startInMerchant ? "Estoque limitado · escolha o que levar" : "Adega · quem leva"}</p>
             <div className="flex flex-wrap gap-1">
               {partyRoster.map((name) => (
                 <Button
                   key={name}
-                  className="shop-hero-selector"
+                  className={`shop-hero-selector ember-btn ember-btn-sm ${hero === name ? "ember-btn-primary" : "ember-btn-ghost"}`}
                   size="sm"
                   variant={hero === name ? undefined : "quiet"}
                   onClick={() => {
@@ -420,34 +524,37 @@ export function InnScreen({
               ))}
             </div>
             <div className="flex flex-col gap-1">
-              <div className="rounded-md border border-border p-3">
+              <div className="ember-slot p-3">
                 <p className="text-sm">Refeição para {hero} · {INN_MEAL_PRICE} Gold</p>
                 <p className="text-xs text-muted">Enche a saciedade até 120% · bônus de 20%</p>
                 <HungerBar name={hero} value={save.heroHunger[hero]} />
                 <div className="flex gap-1.5 mt-2">
-                  <Button className="flex-1" disabled={ember < INN_MEAL_PRICE || fullness(save.heroHunger[hero]) >= 120 || (save.unitHp[hero] ?? 1) <= 0} onClick={() => setNote(onBuyMeal(hero) ? `${hero} comeu. Saciedade: 120%.` : "Falta Gold ou o personagem já está satisfeito.")}>
+                  <Button className="flex-1 ember-btn ember-btn-sm ember-btn-primary" disabled={ember < INN_MEAL_PRICE || fullness(save.heroHunger[hero]) >= 120 || (save.unitHp[hero] ?? 1) <= 0} onClick={() => setNote(onBuyMeal(hero) ? `${hero} comeu. Saciedade: 120%.` : "Falta Gold ou o personagem já está satisfeito.")}>
                     Comer · {INN_MEAL_PRICE} Gold
                   </Button>
                   <Button
-                    className="flex-1"
+                    className="flex-1 ember-btn ember-btn-sm ember-btn-ghost"
                     variant="quiet"
-                    disabled={ember < INN_MEAL_PRICE || !partyRoster.some((name) => fullness(save.heroHunger[name]) < 120 && (save.unitHp[name] ?? 1) > 0)}
+                    disabled={mealTargets.length === 0 || ember < INN_MEAL_PRICE}
                     onClick={() => {
                       const fed = onBuyMealAll(partyRoster);
                       setNote(
                         fed === 0
                           ? "Ninguém comeu. Falta Gold ou já estão satisfeitos."
-                          : fed === partyRoster.length
+                          : fed === mealTargets.length
                             ? "Todos comeram. Saciedade: 120%."
-                            : `${fed} comeram · Gold não deu pros demais.`,
+                            : `${fed} comeram por ${fed * INN_MEAL_PRICE} Gold · Gold não deu pros demais.`,
                       );
                     }}
                   >
-                    Todos · {INN_MEAL_PRICE} Gold cada
+                    Todos · {mealAllCost} Gold
                   </Button>
                 </div>
+                <p className="text-xs text-muted tabular-nums">
+                  Prévia: {mealTargets.length} {mealTargets.length === 1 ? "pessoa" : "pessoas"} podem comer · total {mealAllCost} Gold
+                </p>
               </div>
-              {POTION_ORDER.map((kind) => {
+              {(startInMerchant ? MERCHANT_POTION_ORDER : POTION_ORDER).map((kind) => {
                 const price = POTION_PRICE[kind];
                 const have = bag[kind] ?? 0;
                 const qty = cart[kind] ?? 0;
@@ -506,15 +613,15 @@ export function InnScreen({
             </p>
             {note && <p className="text-sm text-accent">{note}</p>}
             <div className="flex gap-2">
-              <Button className="flex-1" disabled={items <= 0} onClick={pay}>
+              <Button className="flex-1 ember-btn ember-btn-sm ember-btn-primary" disabled={items <= 0} onClick={pay}>
                 Pagar
               </Button>
-              <Button variant="quiet" onClick={() => { setCart({ ...EMPTY_CART }); setNote(null); }}>
+              <Button variant="quiet" className="ember-btn ember-btn-sm ember-btn-ghost" onClick={() => { setCart({ ...EMPTY_CART }); setNote(null); }}>
                 Limpar
               </Button>
             </div>
 
-            <p className="mt-2 text-xs uppercase tracking-[0.16em] text-muted">Rações · para toda a party</p>
+            <p className="mt-2 text-xs ember-kicker">Rações · para toda a party</p>
             <ItemTip text="Alimenta o grupo inteiro por um dia cada, no mapa. Empilha até 30 por espaço na mochila." className="block">
               <div className="tavern-item-window flex items-center gap-2 rounded-md border border-border px-2 py-1.5">
                 <img src={RATIONS_ICON} alt="" className="size-6 rounded-sm object-cover bg-black" />
@@ -575,15 +682,15 @@ export function InnScreen({
               </div>
             </ItemTip>
             {rationsNote && <p className="text-sm text-accent">{rationsNote}</p>}
-            <Button className="w-full" disabled={rationsQty <= 0 || ember < rationsQty * RATIONS_PRICE} onClick={buyRations}>
+            <Button className="w-full ember-btn ember-btn-primary" disabled={rationsQty <= 0 || ember < rationsQty * RATIONS_PRICE} onClick={buyRations}>
               Comprar {rationsQty > 0 ? `(${rationsQty * RATIONS_PRICE} Gold)` : ""}
             </Button>
           </div>
         )}
       </div>
       <div className="relative z-10 p-4 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))] max-w-lg mx-auto w-full">
-        <Button variant="ghost" className="w-full" onClick={onLeave}>
-          <ChevronLeft className="size-4" /> Sair da estalagem
+        <Button variant="ghost" className="w-full ember-btn ember-btn-ghost" onClick={onLeave}>
+          <ChevronLeft className="size-4" /> Sair da Adega
         </Button>
       </div>
       {invView && (
@@ -616,6 +723,157 @@ export function InnScreen({
   );
 }
 
+function HealerServicePanel({
+  ember,
+  muted,
+  targets,
+  onLeave,
+  onMute,
+  onCast,
+  onCureAilments,
+}: {
+  ember: number;
+  muted: boolean;
+  targets: HealerTarget[];
+  onLeave: () => void;
+  onMute: () => void;
+  onCast: (hero: string) => number | false;
+  onCureAilments: (heroes: string[]) => number | false;
+}) {
+  const [casts, setCasts] = useState<Record<string, number>>({});
+  const [healing, setHealing] = useState<{ hero: string; amount: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const castRef = useRef(onCast);
+  useEffect(() => {
+    castRef.current = onCast;
+  }, [onCast]);
+
+  const neededCasts = (target: HealerTarget) => {
+    if (target.hp <= 0 || target.hp >= target.maxHp) return 0;
+    const perCast = Math.max(1, Math.ceil(target.maxHp * 0.25));
+    return Math.min(4, Math.ceil((target.maxHp - target.hp) / perCast));
+  };
+  const selectedPlan = targets.flatMap((target) => {
+    const count = Math.min(neededCasts(target), Math.max(0, casts[target.name] ?? 0));
+    return count > 0 ? [{ hero: target.name, count }] : [];
+  });
+  const allPlan = targets.flatMap((target) => {
+    const count = neededCasts(target);
+    return count > 0 ? [{ hero: target.name, count }] : [];
+  });
+  const planCost = (plan: { hero: string; count: number }[]) => plan.reduce((sum, item) => sum + item.count * HEALER_CAST_PRICE, 0);
+  const selectedCost = planCost(selectedPlan);
+  const allCost = planCost(allPlan);
+  const ailmentTargets = targets.filter((target) => target.diseased || target.poisoned);
+  const ailmentCost = ailmentTargets.length * HEALER_AILMENT_PRICE;
+
+  const treat = async (plan: { hero: string; count: number }[], cost: number) => {
+    if (busy || plan.length === 0) return;
+    if (cost > ember) {
+      setNote(`São necessários ${cost} Gold; você tem ${ember}.`);
+      return;
+    }
+    setNote(null);
+    setBusy(true);
+    for (const item of plan) {
+      for (let index = 0; index < item.count; index++) {
+        const amount = castRef.current(item.hero);
+        if (amount === false || amount <= 0) {
+          setNote("O Curandeiro não conseguiu completar a cura.");
+          setBusy(false);
+          setHealing(null);
+          return;
+        }
+        setHealing({ hero: item.hero, amount });
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 650));
+      }
+    }
+    setHealing(null);
+    setCasts({});
+    setBusy(false);
+  };
+
+  return (
+    <section className="shop-surface relative h-dvh min-h-0 flex flex-col overflow-hidden bg-bg">
+      <img src="/game/assets/brief-estalagem.jpg" alt="" className="absolute inset-0 h-full w-full object-cover" />
+      <div className="absolute inset-0 bg-gradient-to-t from-bg/85 via-bg/45 to-bg/25" />
+      <header className="relative z-10 flex items-center gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-3">
+        <button type="button" onClick={onLeave} disabled={busy} className="h-10 px-3 rounded-md ember-chip text-xs uppercase tracking-[0.14em] disabled:opacity-50">Voltar</button>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs ember-kicker">Curandeiro Ancião</p>
+          <h1 className="font-display text-2xl leading-none ember-title">Cura Média</h1>
+        </div>
+        <p className="text-sm ember-chip rounded-md px-2 py-1"><GoldAmount amount={ember} /></p>
+        <button type="button" onClick={onMute} className="size-10 grid place-items-center rounded-md ember-chip" aria-label="Som">
+          {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+        </button>
+      </header>
+      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3 max-w-xl mx-auto w-full">
+        <div className="ember-panel p-3 flex flex-col gap-1">
+          <p className="text-sm leading-relaxed">“Uma Cura Média restaura 25% do HP máximo. Cinco Gold por conjuração; no máximo quatro por pessoa.”</p>
+          <p className="text-xs text-muted">Cada conjuração mostra a Cura Média sobre o personagem tratado.</p>
+        </div>
+        <div className="ember-panel p-3 flex flex-col gap-2">
+          <p className="text-sm font-medium">Curar doenças e venenos</p>
+          <p className="text-xs text-muted">
+            {ailmentTargets.length > 0
+              ? `Tratamento de ${ailmentTargets.map((target) => target.name).join(", ")} · ${ailmentTargets.length} ${ailmentTargets.length === 1 ? "pessoa" : "pessoas"} × ${HEALER_AILMENT_PRICE} Gold.`
+              : "Ninguém do grupo está doente ou envenenado."}
+          </p>
+          <p className="text-sm tabular-nums">Prévia do custo · <GoldAmount amount={ailmentCost} /> · após o tratamento: {Math.max(0, ember - ailmentCost)} Gold</p>
+          <Button className="ember-btn ember-btn-ghost" variant="quiet" disabled={busy || ailmentTargets.length === 0 || ailmentCost > ember} onClick={() => {
+            const count = onCureAilments(ailmentTargets.map((target) => target.name));
+            setNote(count === false ? "O Curandeiro não conseguiu tratar o grupo." : count === 0 ? "Ninguém precisava de tratamento." : `${count} ${count === 1 ? "pessoa foi tratada" : "pessoas foram tratadas"}.`);
+          }}>Tratar doenças e venenos · {ailmentCost} Gold</Button>
+        </div>
+        {targets.map((target) => {
+          const allowed = neededCasts(target);
+          const chosen = Math.min(allowed, Math.max(0, casts[target.name] ?? 0));
+          const perCast = Math.max(1, Math.ceil(target.maxHp * 0.25));
+          const previewHp = Math.min(target.maxHp, target.hp + perCast * chosen);
+          const portrait = portraitFor(target.sprite);
+          const isHealing = healing?.hero === target.name;
+          return (
+            <div key={target.name} className="relative ember-panel p-3 flex items-center gap-3">
+              <div className={`relative size-16 shrink-0 rounded-full ${isHealing ? "ring-2 ring-amber-200 shadow-[0_0_24px_rgba(255,211,105,0.95)]" : ""}`}>
+                <img src={portrait.src} alt="" style={{ objectPosition: portrait.position }} className={`h-full w-full rounded-full ${portrait.framed ? "object-cover" : "object-contain"}`} />
+                {isHealing && <div className="absolute -inset-2 rounded-full bg-[radial-gradient(circle,rgba(255,238,153,0.48),rgba(255,199,61,0.12)_55%,transparent_72%)] animate-pulse pointer-events-none" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">{target.name}</p>
+                <p className="text-sm tabular-nums">HP {target.hp} / {target.maxHp}{chosen > 0 && ` → ${previewHp} / ${target.maxHp}`}</p>
+                {(target.diseased || target.poisoned) && <p className="text-xs text-danger">{[target.diseased ? "Doente" : "", target.poisoned ? "Envenenado" : ""].filter(Boolean).join(" · ")}</p>}
+                {target.hp <= 0 && <p className="text-xs text-muted">Caído · não pode receber cura</p>}
+                {isHealing && <p className="text-xs text-amber-200 animate-pulse">Cura Média · +{healing.amount} HP</p>}
+              </div>
+              <div className="flex flex-col items-center gap-1">
+                <p className="text-[0.65rem] uppercase tracking-wider text-muted">Conjurações</p>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm" disabled={busy || chosen <= 0} onClick={() => setCasts((prev) => ({ ...prev, [target.name]: chosen - 1 }))}>−</Button>
+                  <span className="min-w-5 text-center tabular-nums">{chosen}/4</span>
+                  <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm" disabled={busy || chosen >= allowed || chosen >= 4} onClick={() => setCasts((prev) => ({ ...prev, [target.name]: chosen + 1 }))}>+</Button>
+                </div>
+                <span className="text-xs text-muted tabular-nums">{chosen * HEALER_CAST_PRICE} Gold</span>
+              </div>
+            </div>
+          );
+        })}
+        <div className="ember-panel p-3 flex flex-col gap-2">
+          <p className="text-sm">Prévia da seleção · {selectedPlan.reduce((sum, item) => sum + item.count, 0)} conjurações · <GoldAmount amount={selectedCost} /></p>
+          <p className="text-xs text-muted">Após a seleção: {Math.max(0, ember - selectedCost)} Gold</p>
+          {note && <p className="text-sm text-amber-200">{note}</p>}
+          <div className="flex flex-wrap gap-2">
+            <Button className="flex-1 ember-btn ember-btn-primary" disabled={busy || selectedPlan.length === 0 || selectedCost > ember} onClick={() => void treat(selectedPlan, selectedCost)}>Curar seleção · {selectedCost} Gold</Button>
+            <Button className="flex-1 ember-btn ember-btn-ghost" variant="quiet" disabled={busy || allPlan.length === 0 || allCost > ember} onClick={() => void treat(allPlan, allCost)}>Curar todos · {allCost} Gold</Button>
+          </div>
+          <p className="text-xs text-muted">Curar todos: {allPlan.reduce((sum, item) => sum + item.count, 0)} conjurações necessárias · {allCost} Gold</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function SmithPanel({
   ember,
   muted,
@@ -624,6 +882,8 @@ function SmithPanel({
   heroClass,
   save,
   test,
+  merchantGear = false,
+  merchantBackdrop,
   onMute,
   onBack,
   onBuyWeapon,
@@ -646,6 +906,8 @@ function SmithPanel({
   heroClass: Record<string, ClassId>;
   save: SaveData;
   test?: boolean;
+  merchantGear?: boolean;
+  merchantBackdrop?: string;
   onMute: () => void;
   onBack: () => void;
   onBuyWeapon: (hero: string, weaponId: string) => boolean;
@@ -679,14 +941,15 @@ function SmithPanel({
   const pool = useMemo(
     () =>
       Object.values(WEAPONS)
-        .filter((weapon) => test || weapon.price > 0)
+        .filter((weapon) => merchantGear ? weapon.price >= 320 && weapon.price <= 1300 : test || weapon.price > 0)
         .filter((weapon) => weapon.usableBy.includes(classId))
         .sort((a, b) => weaponPower(a) - weaponPower(b)),
-    [classId, test],
+    [classId, test, merchantGear],
   );
   const smithEquipment = useMemo(() => {
     const bySlot = new Map<string, (typeof EQUIPMENT)[string][]>();
     for (const item of Object.values(EQUIPMENT)) {
+      if (merchantGear && ((item.price ?? 0) < 320 || (item.price ?? 0) > 1300)) continue;
       if (!test && (item.price ?? 0) <= 0) continue;
       if (!test && isPouch(item.id)) continue;
       if (item.slot === "ring1" || item.slot === "ring2") continue;
@@ -696,17 +959,17 @@ function SmithPanel({
     }
     return [...bySlot.values()].flatMap((items) => {
       const ranked = items.sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
-      return test ? ranked : ranked.slice(0, Math.ceil(ranked.length / 2));
+      return test || merchantGear ? ranked : ranked.slice(0, Math.ceil(ranked.length / 2));
     }).sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
-  }, [classId, test]);
+  }, [classId, test, merchantGear]);
   const smithRings = useMemo(
     () =>
       Object.values(EQUIPMENT)
         .filter((item) => item.slot === "ring1" || item.slot === "ring2")
-        .filter((item) => test || (item.price ?? 0) > 0)
+        .filter((item) => merchantGear ? (item.price ?? 0) >= 320 && (item.price ?? 0) <= 1300 : test || (item.price ?? 0) > 0)
         .filter((item) => !item.usableBy || item.usableBy.includes(classId))
         .sort((a, b) => (a.price ?? 0) - (b.price ?? 0)),
-    [classId, test],
+    [classId, test, merchantGear],
   );
   const equippedId = equipped[hero];
   const equippedWeapon = equippedId ? WEAPONS[equippedId] : null;
@@ -721,7 +984,7 @@ function SmithPanel({
       return;
     }
     if (!onBuyWeapon(hero, weaponId)) {
-      setNote("Vargan recusou. Falta Gold.");
+      setNote(merchantGear ? "Elias recusou. Falta Gold." : "Vargan recusou. Falta Gold.");
       return;
     }
     sfxPlay.purchase();
@@ -734,7 +997,7 @@ function SmithPanel({
       return;
     }
     if (!onBuyEquipment(itemId)) {
-      setNote("Vargan recusou. Falta Gold.");
+      setNote(merchantGear ? "Elias recusou. Falta Gold." : "Vargan recusou. Falta Gold.");
       return;
     }
     sfxPlay.purchase();
@@ -750,7 +1013,7 @@ function SmithPanel({
     if (!equippedId) return;
     setNote(null);
     if (!onUpgradeWeapon(equippedId)) {
-      setNote("Vargan recusou. Falta Gold ou já está no máximo.");
+      setNote(merchantGear ? "Elias recusou. Falta Gold ou já está no máximo." : "Vargan recusou. Falta Gold ou já está no máximo.");
       return;
     }
     setNote(`${equippedWeapon?.name} aprimorada.`);
@@ -768,15 +1031,16 @@ function SmithPanel({
 
   return (
     <section className="shop-surface relative h-dvh min-h-0 flex flex-col overflow-hidden bg-bg">
-      <img src="/game/ui/smith-background.jpg" alt="" className="absolute inset-0 h-full w-full object-cover object-left" />
+      <img src={merchantGear ? merchantBackdrop ?? "/game/assets/merchant-snow-market-background-001.jpg" : "/game/ui/smith-background.jpg"} alt="" className="absolute inset-0 h-full w-full object-cover object-left" />
+      {merchantGear && <img src="/game/decorations/merchant-covered-cart-001.png" alt="" className="pointer-events-none absolute z-[1] bottom-0 left-0 w-[min(72vw,1020px)] max-h-[105vh] object-contain object-bottom drop-shadow-2xl" />}
       <header className="relative z-10 flex items-center gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-3">
         {/* Back always sits at the far left, across every screen, so it never gets lost. */}
         <button type="button" onClick={onBack} className="h-10 px-3 rounded-md ember-chip text-xs uppercase tracking-[0.14em]">
           <ChevronLeft className="size-4 inline -mt-0.5" /> Voltar
         </button>
         <div className="min-w-0 flex-1">
-          <p className="text-xs uppercase tracking-[0.18em] text-muted">A forja no porão</p>
-          <h1 className="font-display text-2xl leading-none">Vargan, o Ferreiro</h1>
+          <p className="text-xs ember-kicker">{merchantGear ? "Equipamentos de viagem · 320–1300 Gold" : "A forja no porão"}</p>
+          <h1 className="font-display text-2xl leading-none ember-title">{merchantGear ? "Equipamento para os Picos" : "Vargan, o Ferreiro"}</h1>
         </div>
         <button
           type="button"
@@ -799,25 +1063,25 @@ function SmithPanel({
         </button>
       </header>
       {note && (
-        <div className="pointer-events-none absolute left-1/2 top-20 z-30 -translate-x-1/2 rounded-lg border border-accent bg-surface px-4 py-2 text-sm text-fg shadow-2xl" role="status" aria-live="polite">
+        <div className="pointer-events-none absolute left-1/2 top-20 z-30 -translate-x-1/2 ember-plate is-accent px-4 py-2 text-sm" role="status" aria-live="polite">
           {note}
         </div>
       )}
       <div className="relative z-10 flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3 max-w-lg ml-auto w-full">
-        <div className="shop-panel ember-window rounded-xl p-3">
+        <div className="shop-panel relative ember-panel p-3">
           <p className="text-sm leading-relaxed text-fg/90">
             “Aço, sangue, alma — tudo é forjado.” Ele não fala mais que isso. Aponta pra bigorna e espera você escolher.
           </p>
         </div>
-        <div className="shop-panel ember-window rounded-xl p-3 flex flex-col gap-2">
-          <p className="text-xs uppercase tracking-[0.16em] text-muted">Equipamento exibido</p>
+        <div className="shop-panel relative ember-panel p-3 flex flex-col gap-2">
+          <p className="text-xs ember-kicker">Equipamento exibido</p>
           <div className="flex flex-wrap gap-1">
-            {(test ? [...HERO_NAMES, ...TEST_EXTRA_HERO_NAMES] : HERO_NAMES)
-              .filter((name) => test || heroRecruited(name, save.completed))
+            {ALL_HERO_NAMES
+              .filter((name) => test || heroRecruited(name, save.completed, save.flags))
               .map((name) => (
               <Button
                 key={name}
-                className="shop-hero-selector"
+                className={`shop-hero-selector ember-btn ember-btn-sm ${hero === name ? "ember-btn-primary" : "ember-btn-ghost"}`}
                 size="sm"
                 variant={hero === name ? undefined : "quiet"}
                 onClick={() => {
@@ -830,7 +1094,7 @@ function SmithPanel({
             ))}
           </div>
 
-          <p className="text-xs uppercase tracking-[0.16em] text-muted mt-2">Equipada</p>
+          <p className="text-xs ember-kicker mt-2">Equipada</p>
           {equippedWeapon ? (
             <ItemTip text={weaponTooltip(equippedWeapon, equippedEnh)} className="block">
               <div className="flex items-center gap-2 rounded-md border border-accent px-2 py-1.5">
@@ -845,13 +1109,13 @@ function SmithPanel({
                   <span className="block text-[10px] uppercase tracking-wide text-muted">Mão principal</span>
                 </span>
                 <div className="flex flex-col gap-1">
-                  <Button size="sm" disabled={nextEnhCost == null || ember < nextEnhCost} onClick={upgrade}>
+                  <Button size="sm" className="ember-btn ember-btn-sm ember-btn-primary" disabled={nextEnhCost == null || ember < nextEnhCost} onClick={upgrade}>
                     {nextEnhCost == null ? "Máx." : `+1 · ${nextEnhCost} Gold`}
                   </Button>
-                  <Button size="sm" variant="quiet" onClick={() => onEquipWeapon(hero, "")}>
+                  <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm ember-btn-ghost" onClick={() => onEquipWeapon(hero, "")}>
                     Desequipar
                   </Button>
-                  <Button size="sm" variant="quiet" onClick={() => sell(equippedWeapon.id)}>
+                  <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm ember-btn-ghost" onClick={() => sell(equippedWeapon.id)}>
                     Vender · {weaponSellValue(equippedWeapon.id, equippedEnh)} Gold
                   </Button>
                 </div>
@@ -863,7 +1127,7 @@ function SmithPanel({
 
           {owned.length > 0 && (
             <>
-              <p className="text-xs uppercase tracking-[0.16em] text-muted mt-2">No saco</p>
+              <p className="text-xs ember-kicker mt-2">No saco</p>
               <div className="flex flex-col gap-1">
                 {owned.map((w) => (
                   <ItemTip key={w.id} text={weaponTooltip(w, weapons[w.id] ?? 0)} className="block">
@@ -885,10 +1149,10 @@ function SmithPanel({
                           </span>
                         )}
                       </span>
-                      <Button size="sm" variant="quiet" onClick={() => equip(w.id)}>
+                      <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm ember-btn-ghost" onClick={() => equip(w.id)}>
                         Equipar
                       </Button>
-                      <Button size="sm" variant="quiet" onClick={() => sell(w.id)}>
+                      <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm ember-btn-ghost" onClick={() => sell(w.id)}>
                         Vender · {weaponSellValue(w.id, weapons[w.id] ?? 0)} Gold
                       </Button>
                     </div>
@@ -900,7 +1164,7 @@ function SmithPanel({
 
           {notOwned.length > 0 && (
             <>
-              <p className="text-xs uppercase tracking-[0.16em] text-muted mt-2">Na bancada</p>
+              <p className="text-xs ember-kicker mt-2">Na bancada</p>
               <div className="flex flex-col gap-1">
                 {notOwned.map((w) => (
                   <ItemTip key={w.id} text={weaponTooltip(w)} className="block">
@@ -922,7 +1186,7 @@ function SmithPanel({
                           </span>
                         )}
                       </span>
-                      <Button size="sm" disabled={bagFull || ember < w.price} onClick={() => buy(w.id)}>
+                      <Button size="sm" className="ember-btn ember-btn-sm ember-btn-primary" disabled={bagFull || ember < w.price} onClick={() => buy(w.id)}>
                         Comprar
                       </Button>
                     </div>
@@ -931,7 +1195,7 @@ function SmithPanel({
               </div>
             </>
           )}
-          <p className="text-xs uppercase tracking-[0.16em] text-muted mt-2">Anéis</p>
+          <p className="text-xs ember-kicker mt-2">Anéis</p>
           <p className="text-[11px] text-muted">Cabem nos dois dedos da paper doll. Compra dois se quiser testar os dois espaços.</p>
           <div className="grid grid-cols-2 gap-1.5">
             {smithRings.map((item) => (
@@ -944,12 +1208,12 @@ function SmithPanel({
                     <span className="block truncate">{item.name}</span>
                     <span className="block text-[10px] text-muted">{equipmentTypeSlotName(item)} · {item.price ?? 0} Gold</span>
                   </span>
-                  <Button size="sm" disabled={bagFull || ember < (item.price ?? 0)} onClick={() => buyEquipment(item.id)}>Comprar</Button>
+                  <Button size="sm" className="ember-btn ember-btn-sm ember-btn-primary" disabled={bagFull || ember < (item.price ?? 0)} onClick={() => buyEquipment(item.id)}>Comprar</Button>
                 </div>
               </ItemTip>
             ))}
           </div>
-          <p className="text-xs uppercase tracking-[0.16em] text-muted mt-2">Armaduras e acessórios</p>
+          <p className="text-xs ember-kicker mt-2">Armaduras e acessórios</p>
           <p className="text-[11px] text-muted">Estoque básico da estalagem. As peças superiores pertencem ao ferreiro da cidade.</p>
           <div className="grid grid-cols-2 gap-1.5">
             {smithEquipment.map((item) => (
@@ -962,7 +1226,7 @@ function SmithPanel({
                     <span className="block truncate">{item.name}</span>
                     <span className="block text-[10px] text-muted">{equipmentTypeSlotName(item)} · {item.price ?? 0} Gold</span>
                   </span>
-                  <Button size="sm" disabled={bagFull || ember < (item.price ?? 0)} onClick={() => buyEquipment(item.id)}>Comprar</Button>
+                  <Button size="sm" className="ember-btn ember-btn-sm ember-btn-primary" disabled={bagFull || ember < (item.price ?? 0)} onClick={() => buyEquipment(item.id)}>Comprar</Button>
                 </div>
               </ItemTip>
             ))}
@@ -997,8 +1261,12 @@ function SmithPanel({
   );
 }
 
-function SmithIntroScreen({ muted, onSkip }: { muted: boolean; onSkip: () => void }) {
+function SmithIntroScreen({ muted, onMute, onSkip }: { muted: boolean; onMute: () => void; onSkip: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
+  const prefs = useGamePreferences();
+  useEffect(() => {
+    syncEnglishSubtitles(ref.current?.textTracks, prefs.subtitles);
+  }, [prefs.subtitles]);
   const [portrait, setPortrait] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 720px) and (orientation: portrait)").matches,
   );
@@ -1030,13 +1298,26 @@ function SmithIntroScreen({ muted, onSkip }: { muted: boolean; onSkip: () => voi
   return (
     <section className="relative h-dvh w-dvw bg-black overflow-hidden">
       <div className="cutscene-stage">
-        <video ref={ref} src="/game/smith-intro.mp4" playsInline autoPlay preload="auto" onEnded={onSkip} onError={onSkip} />
+        <video ref={ref} src="/game/smith-intro.mp4" playsInline autoPlay preload="auto" onEnded={onSkip} onError={onSkip}>
+          <track kind="subtitles" src={CUTSCENE_SUBTITLES["/game/smith-intro.mp4"]} srcLang="en" label="English" default={prefs.subtitles} onLoad={() => syncEnglishSubtitles(ref.current?.textTracks, prefs.subtitles)} />
+        </video>
       </div>
       {portrait && (
         <p className="pointer-events-none absolute inset-x-0 top-[max(0.75rem,env(safe-area-inset-top))] text-center text-[11px] tracking-[0.16em] uppercase text-muted">
           Deite o telefone
         </p>
       )}
+      <div className="absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-20 p-2">
+        <button
+          type="button"
+          className="grid size-9 place-items-center rounded bg-black/40 text-white/90"
+          aria-label={muted ? "Ativar som" : "Silenciar"}
+          aria-pressed={!muted}
+          onClick={onMute}
+        >
+          {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+        </button>
+      </div>
       <div className="absolute inset-x-0 bottom-0 z-10 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] flex justify-end">
         <Button size="md" variant="ghost" onClick={onSkip}>
           Pular

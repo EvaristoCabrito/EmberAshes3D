@@ -102,7 +102,7 @@ export class CausticVenomVFX {
   private flightArc = 0;
   private disposed = false;
 
-  constructor(private readonly scene: THREE.Scene) {
+  constructor(private readonly scene: THREE.Object3D) {
     const sphere = new THREE.IcosahedronGeometry(1, 3);
     this.chargeCore = new THREE.Mesh(sphere, this.makeMaterial(HIGHLIGHT, 0x69d51b, 1.9, 0.18));
     this.chargeShell = new THREE.Mesh(sphere, this.makeMaterial(GREEN, 0x37b509, 1.15, 0.12));
@@ -385,7 +385,8 @@ export class CausticVenomVFX {
     return new THREE.MeshPhysicalMaterial({ color, emissive, emissiveIntensity, roughness: 0.16, metalness: 0.08, clearcoat: 0.96, clearcoatRoughness: 0.1, transmission: 0.1, transparent: opacity < 0.99, opacity, depthWrite: opacity >= 0.99, side: THREE.DoubleSide });
   }
 
-  private cancel(): void {
+  /** Stops any cast at once and removes its impact objects (also ends the battle-start warm-up). */
+  cancel(): void {
     this.phase = "idle";
     this.currentCast = null;
     this.root.visible = false;

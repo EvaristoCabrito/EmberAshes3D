@@ -1,4 +1,5 @@
 import { TIER_KEYS } from "./types.ts";
+import { ENCOUNTER_NPC_CLASSES, ENCOUNTER_NPC_GROWTH } from "./encounter-npcs.ts";
 import { INN_FULLNESS } from "./hunger.ts";
 import type { Bag, ClassDef, ClassId, DecorationDef, DecorationPlacement, EquipmentDef, EquipSlot, HealId, Mission, PotionId, SaveData, SpellKind, TerrainDef, TerrainId, TierKey, Unit, WeaponDef, WorldLocation } from "./types.ts";
 // The attribute is what Node's ESM loader needs to import JSON, and it is what lets
@@ -151,9 +152,18 @@ const DECO_BLOCK_5 = [
   { dx: 0, dy: -1 },
   { dx: 1, dy: -1 },
 ];
-// The visible house sits two tiles right of its map anchor. Match its ground area with the
-// established Type 6 body shape, shifted two tiles left; keep it separate from art sizing.
-const HOUSE_BLOCKING_FOOTPRINT = FOOTPRINT_TYPE_6.map(({ dx, dy }) => ({ dx: dx - 2, dy }));
+// Keep the authored front edge; extend collision toward the rear (negative rows)
+// so units cannot enter the space hidden behind the building.
+const HOUSE_GROUND_FOOTPRINT = [
+  ...DECO_BLOCK_5,
+  { dx: -1, dy: -2 }, { dx: 0, dy: -2 }, { dx: 1, dy: -2 },
+  { dx: 0, dy: -3 },
+];
+const BURNT_HOUSE_GROUND_FOOTPRINT = [
+  ...FOOTPRINT_TYPE_6,
+  { dx: -2, dy: -2 }, { dx: -1, dy: -2 }, { dx: 0, dy: -2 },
+  { dx: -2, dy: -3 }, { dx: -1, dy: -3 },
+];
 // A genuine 3x3 block (three rows, three columns) rather than a single row — a linear
 // footprint collapses vertical spread to 0, which stretches a roughly-square image (like a
 // wide ancestral tree) into a flat, deformed strip. Spreading it across both axes keeps the
@@ -261,6 +271,39 @@ const NEW_DECOR_2026: Record<string, DecorationDef> = {
   "light-wall-torch": { id: "light-wall-torch", name: "Tocha de Parede", footprint: DECO_ONE },
   "light-brazier-bowl": { id: "light-brazier-bowl", name: "Braseiro II", footprint: DECO_ONE },
   "light-fireplace": { id: "light-fireplace", name: "Lareira", footprint: DECO_ONE, artScale: 2, unitLayer: "behind" },
+  "inn-fireplace": { id: "inn-fireplace", name: "Lareira de Pedra da Estalagem", footprint: DECO_ONE, artScale: 2, unitLayer: "behind" },
+  "inn-herb-shelf": { id: "inn-herb-shelf", name: "Prateleira de Ervas e Jarras", footprint: DECO_ONE, artScale: 0.85, unitLayer: "behind" },
+  "inn-provisions-display": { id: "inn-provisions-display", name: "Mantimentos Pendentes da Estalagem", footprint: DECO_ONE, artScale: 0.9, unitLayer: "behind" },
+  // 2026-10-02 cave art drop: each prop is a separate alpha-cropped 2D decoration.
+  // 2026-10-02 forest art drop: preserve the supplied transparent cutouts as separate props.
+  "forest-mossy-stump": { id: "forest-mossy-stump", name: "Toco Musgoso com Raízes", footprint: DECO_ONE, heightScale: 0.84 },
+  "forest-amanitas": { id: "forest-amanitas", name: "Grupo de Amanitas", footprint: DECO_ONE, heightScale: 1.08 },
+  "forest-mossy-trunk": { id: "forest-mossy-trunk", name: "Tronco Caído Musgoso", footprint: DECO_ONE, heightScale: 0.68 },
+  "cave-stalagmites": { id: "cave-stalagmites", name: "Grupo de Estalagmites", footprint: DECO_ONE },
+  "cave-blue-crystals": { id: "cave-blue-crystals", name: "Cristais Azuis", footprint: DECO_ONE },
+  "cave-hanging-bat": { id: "cave-hanging-bat", name: "Morcego Pendurado", footprint: DECO_ONE, unitLayer: "behind", heightScale: 1.2 },
+  "cave-mossy-rocks": { id: "cave-mossy-rocks", name: "Rocha Coberta de Musgo", footprint: DECO_ONE },
+  "cave-bones": { id: "cave-bones", name: "Ossos e Crânio", footprint: DECO_ONE },
+  "cave-rock-pile": { id: "cave-rock-pile", name: "Monte de Pedras", footprint: DECO_ONE },
+  "cave-stalactite": { id: "cave-stalactite", name: "Estalactite", footprint: DECO_ONE, unitLayer: "behind", heightScale: 1.25 },
+  "cave-cracked-stone": { id: "cave-cracked-stone", name: "Pedra Rachada com Luz Azul", footprint: DECO_ONE },
+  "cave-amethyst-geode": { id: "cave-amethyst-geode", name: "Geodo de Ametista", footprint: DECO_ONE },
+  "cave-underground-pool": { id: "cave-underground-pool", name: "Poço Subterrâneo", footprint: DECO_ONE },
+  "cave-hanging-roots": { id: "cave-hanging-roots", name: "Raízes Suspensas", footprint: DECO_ONE, unitLayer: "behind", heightScale: 1.2 },
+  "cave-ammonite-fossil": { id: "cave-ammonite-fossil", name: "Fóssil de Amonite", footprint: DECO_ONE },
+  "cave-stone-rubble": { id: "cave-stone-rubble", name: "Entulho de Pedras", footprint: DECO_ONE },
+  "cave-boulder": { id: "cave-boulder", name: "Pedregulho", footprint: DECO_ONE },
+  "cave-glowing-mushrooms": { id: "cave-glowing-mushrooms", name: "Cogumelos Luminescentes", footprint: DECO_ONE },
+  "cave-carved-stone-block": { id: "cave-carved-stone-block", name: "Bloco de Pedra Entalhado", footprint: DECO_ONE },
+  "cave-barred-stone-opening": { id: "cave-barred-stone-opening", name: "Abertura de Pedra Gradeada", footprint: DECO_ONE, unitLayer: "behind" },
+  "cave-rusty-lantern": { id: "cave-rusty-lantern", name: "Lanterna Enferrujada", footprint: DECO_ONE },
+  "cave-webbed-chest": { id: "cave-webbed-chest", name: "Baú Coberto por Teias", footprint: DECO_ONE },
+  "cave-wall-ring": { id: "cave-wall-ring", name: "Argola de Ferro na Pedra", footprint: DECO_ONE, unitLayer: "behind" },
+  "cave-candle-stand": { id: "cave-candle-stand", name: "Candelabro de Velas", footprint: DECO_ONE },
+  "cave-spiked-gate": { id: "cave-spiked-gate", name: "Grade com Pontas", footprint: DECO_ONE, unitLayer: "behind" },
+  "cave-wall-brazier": { id: "cave-wall-brazier", name: "Braseiro de Parede", footprint: DECO_ONE, unitLayer: "behind" },
+  "cave-hanging-chains": { id: "cave-hanging-chains", name: "Correntes Suspensas", footprint: DECO_ONE, unitLayer: "behind", heightScale: 1.2 },
+  "cave-rusty-keys": { id: "cave-rusty-keys", name: "Chaves Enferrujadas", footprint: DECO_ONE },
   Brazier3: { id: "Brazier3", name: "Braseiro III", footprint: DECO_ONE, artScale: 1.05 },
   Chandelier: { id: "Chandelier", name: "Lustre", footprint: DECO_ONE, artScale: 1.1, heightScale: 1.25, unitLayer: "behind", noShadow: true },
   "city-root-shrine": { id: "city-root-shrine", name: "Santuário Coberto de Raízes", footprint: DECO_PAIR },
@@ -357,6 +400,49 @@ const NEW_DECOR_2026: Record<string, DecorationDef> = {
   "wilds-charred-stump": { id: "wilds-charred-stump", name: "Toco Carbonizado", footprint: DECO_ONE },
   "wilds-mossy-stones": { id: "wilds-mossy-stones", name: "Pedras Musgosas Empilhadas", footprint: DECO_ONE },
   "wilds-birds-nest": { id: "wilds-birds-nest", name: "Ninho de Pássaro", footprint: DECO_ONE },
+  // 2026-10-02 art drop: individual, centered cutouts from the supplied Tomb, Dungeon,
+  // Graveyard, Cave, Inn, Winter Woods, and City sheets. Source alpha is preserved; every
+  // prop remains its own manually placed 2D decoration.
+  "dungeon-sarcophagus": { id: "dungeon-sarcophagus", name: "Sarcófago de Pedra", footprint: DECO_PAIR },
+  "dungeon-penitent-statue": { id: "dungeon-penitent-statue", name: "Estátua Penitente", footprint: DECO_ONE, heightScale: 1.35 },
+  "dungeon-funerary-urn": { id: "dungeon-funerary-urn", name: "Urna Funerária", footprint: DECO_ONE, heightScale: 1.25 },
+  "dungeon-tomb-relief": { id: "dungeon-tomb-relief", name: "Laje Tumular Ornamentada", footprint: DECO_ONE },
+  "dungeon-bones": { id: "dungeon-bones", name: "Ossos Antigos", footprint: DECO_PAIR },
+  "torture-wall-shackles": { id: "torture-wall-shackles", name: "Argola de Masmorra", footprint: DECO_ONE },
+  "torture-pillory": { id: "torture-pillory", name: "Pelourinho de Madeira", footprint: DECO_PAIR },
+  "dungeon-stone-rubble": { id: "dungeon-stone-rubble", name: "Escombros de Masmorra", footprint: DECO_PAIR },
+  "torture-brazier": { id: "torture-brazier", name: "Braseiro de Ferro", footprint: DECO_ONE },
+  "torture-chain-pile": { id: "torture-chain-pile", name: "Correntes Enferrujadas", footprint: DECO_ONE },
+  "wilds-gothic-gravestone": { id: "wilds-gothic-gravestone", name: "Lápide Gótica", footprint: DECO_ONE, heightScale: 1.2 },
+  "wilds-broken-gravestone": { id: "wilds-broken-gravestone", name: "Lápide Quebrada", footprint: DECO_ONE, heightScale: 1.15 },
+  "wilds-broken-cross": { id: "wilds-broken-cross", name: "Cruz Caída no Túmulo", footprint: DECO_ONE },
+  "wilds-grave-mound": { id: "wilds-grave-mound", name: "Monte de Sepultura", footprint: DECO_PAIR },
+  "wilds-cemetery-lantern": { id: "wilds-cemetery-lantern", name: "Lanterna de Cemitério", footprint: DECO_ONE, heightScale: 1.3 },
+  "wilds-cave-stalagmite-cluster": { id: "wilds-cave-stalagmite-cluster", name: "Formação de Estalagmites", footprint: DECO_ONE },
+  "wilds-cave-stalactites": { id: "wilds-cave-stalactites", name: "Estalactites Suspensas", footprint: DECO_ONE, heightScale: 1.2 },
+  "wilds-cave-crystal-boulder": { id: "wilds-cave-crystal-boulder", name: "Rocha com Cristais", footprint: DECO_ONE },
+  "wilds-cave-mushrooms": { id: "wilds-cave-mushrooms", name: "Cogumelos de Caverna", footprint: DECO_ONE },
+  "wilds-cave-crystal-rubble": { id: "wilds-cave-crystal-rubble", name: "Escombros com Cristais", footprint: DECO_PAIR },
+  "city-inn-barrel": { id: "city-inn-barrel", name: "Barril da Taverna", footprint: DECO_ONE, heightScale: 1.15 },
+  "city-inn-table": { id: "city-inn-table", name: "Mesa da Taverna", footprint: DECO_ONE },
+  "city-inn-chair": { id: "city-inn-chair", name: "Cadeira da Taverna", footprint: DECO_ONE, heightScale: 1.2 },
+  "city-inn-tankard": { id: "city-inn-tankard", name: "Caneca de Estanho", footprint: DECO_ONE },
+  "city-inn-candle-sconce": { id: "city-inn-candle-sconce", name: "Castiçal de Parede", footprint: DECO_ONE, heightScale: 1.25 },
+  "wilds-snowy-stump": { id: "wilds-snowy-stump", name: "Toco Nevado com Raízes", footprint: DECO_PAIR },
+  "wilds-snowy-fallen-tree": { id: "wilds-snowy-fallen-tree", name: "Árvore Caída Nevada", footprint: DECO_PAIR },
+  "wilds-snowy-roots": { id: "wilds-snowy-roots", name: "Raízes Expostas na Neve", footprint: DECO_PAIR },
+  "wilds-winter-thorn-bush": { id: "wilds-winter-thorn-bush", name: "Arbusto Espinhoso de Inverno", footprint: DECO_ONE },
+  "wilds-winter-mossy-log": { id: "wilds-winter-mossy-log", name: "Tronco Musgoso Nevado", footprint: DECO_PAIR },
+  "wilds-cave-stalagmite-formation": { id: "wilds-cave-stalagmite-formation", name: "Colunas de Pedra da Caverna", footprint: DECO_ONE },
+  "wilds-cave-stalactite-formation": { id: "wilds-cave-stalactite-formation", name: "Grande Estalactite", footprint: DECO_ONE, heightScale: 1.25 },
+  "wilds-cave-amethyst-boulder": { id: "wilds-cave-amethyst-boulder", name: "Afloramento de Ametista", footprint: DECO_ONE },
+  "wilds-cave-glowing-mushrooms": { id: "wilds-cave-glowing-mushrooms", name: "Cogumelos Luminescentes", footprint: DECO_ONE },
+  "wilds-cave-crystal-wall": { id: "wilds-cave-crystal-wall", name: "Parede de Cristais", footprint: DECO_PAIR },
+  "city-lantern-post-new": { id: "city-lantern-post-new", name: "Poste de Rua com Lanterna", footprint: DECO_ONE, heightScale: 1.8 },
+  "city-market-wagon-new": { id: "city-market-wagon-new", name: "Carroça de Feira Coberta", footprint: DECO_PAIR },
+  "city-hanging-sign": { id: "city-hanging-sign", name: "Placa Suspensa da Cidade", footprint: DECO_ONE },
+  "city-firewood-stack-new": { id: "city-firewood-stack-new", name: "Pilha Amarrada de Lenha", footprint: DECO_PAIR },
+  "city-stone-trough-fountain": { id: "city-stone-trough-fountain", name: "Bebedouro de Pedra", footprint: DECO_ONE },
 };
 
 /** The 15 "deadwoods" ids above — wilds-prefixed for the shared id namespace, but the Map
@@ -380,11 +466,72 @@ export const DEADWOODS_DECOR_IDS = new Set([
   "wilds-birds-nest",
 ]);
 
+/** Supplied forest cutouts, grouped in their own editor section. */
+export const FOREST_DECOR_IDS = new Set([
+  "forest-mossy-stump",
+  "forest-amanitas",
+  "forest-mossy-trunk",
+]);
+
 // Multi-hex terrain props: rendered as one image over their whole footprint instead of
 // clipped per hex (see DecorationDef). Cropped from LargeHexes1-3.jpg.
 export const DECORATIONS: Record<string, DecorationDef> = {
+  "door-3d-stone-oak": { id: "door-3d-stone-oak", name: "Porta de madeira em pedra clara 3D", footprint: [{ dx: -1, dy: 0 }, { dx: 0, dy: 0 }, { dx: 1, dy: 0 }], architectureSpan: 3, model3d: "door", doorStyle: "stoneOak", wallTexture: "/game/textures/doors/stone-oak-reference.jpg" },
+  "door-3d-stone-oak-open": { id: "door-3d-stone-oak-open", name: "Vão de madeira em pedra clara 3D", footprint: [{ dx: -1, dy: 0 }, { dx: 0, dy: 0 }, { dx: 1, dy: 0 }], architectureSpan: 3, blockingFootprint: [{ dx: -1, dy: 0 }, { dx: 1, dy: 0 }], model3d: "doorway", doorStyle: "stoneOak", wallTexture: "/game/textures/doors/stone-oak-reference.jpg" },
+  "door-3d-dungeon-oak": { id: "door-3d-dungeon-oak", name: "Porta espessa de masmorra com grade 3D", footprint: [{ dx: -1, dy: 0 }, { dx: 0, dy: 0 }, { dx: 1, dy: 0 }], architectureSpan: 3, model3d: "door", doorStyle: "dungeonOak", thickWall: true, wallTexture: "/game/textures/doors/dungeon-oak-reference.jpg" },
+  "door-3d-dungeon-oak-open": { id: "door-3d-dungeon-oak-open", name: "Vão espesso de masmorra com grade 3D", footprint: [{ dx: -1, dy: 0 }, { dx: 0, dy: 0 }, { dx: 1, dy: 0 }], architectureSpan: 3, blockingFootprint: [{ dx: -1, dy: 0 }, { dx: 0, dy: 0 }], model3d: "doorway", doorStyle: "dungeonOak", thickWall: true, wallTexture: "/game/textures/doors/dungeon-oak-reference.jpg" },
+  "dungeon-3d-thick-basalt": { id: "dungeon-3d-thick-basalt", name: "Masmorra — muralha espessa de basalto 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", thickWall: true, wallThicknessScale: 2.35, wallTexture: "/game/textures/walls/dungeon-thick-basalt.png" },
+  "dungeon-3d-thick-reference": { id: "dungeon-3d-thick-reference", name: "Masmorra — muralha espessa com argolas 3D", footprint: [{ dx: -1, dy: 0 }, { dx: 0, dy: 0 }, { dx: 1, dy: 0 }], architectureSpan: 3, model3d: "wall", thickWall: true, dungeonReference: true, wallThicknessScale: 2.35, wallTexture: "/game/textures/walls/dungeon-thick-reference.jpg" },
+  "castle-3d-thick": { id: "castle-3d-thick", name: "Muralha espessa com ameias 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", castleStyle: "battlement", thickWall: true, wallThicknessScale: 1.8, wallTexture: "/game/textures/walls/castle-thick.jpg" },
+  "castle-3d-thick-tower": { id: "castle-3d-thick-tower", name: "Torre quadrada espessa 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", castleStyle: "tower", thickWall: true, heightScale: 1.15, wallTexture: "/game/textures/walls/castle-thick.jpg" },
+  "castle-3d-thick-ruined": { id: "castle-3d-thick-ruined", name: "Muralha espessa arruinada 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", castleStyle: "ruined", thickWall: true, wallThicknessScale: 1.8, wallTexture: "/game/textures/walls/castle-thick.jpg" },
+  "house-3d-vau": { id: "house-3d-vau", name: "Casa clássica do Vau 3D", footprint: DECO_BLOCK_5, model3d: "prop", propModel: "small-house" },
+  "rocks-3d-outcrop": { id: "rocks-3d-outcrop", name: "Afloramento rochoso realista 3D", footprint: DECO_PAIR, model3d: "prop", propModel: "rocky-outcrop" },
+  "rocks-3d-grey-outcrop": { id: "rocks-3d-grey-outcrop", name: "Afloramento rochoso cinzento 3D II", footprint: DECO_PAIR, model3d: "prop", propModel: "grey-outcrop" },
+  "prop-3d-tavern-barrel": { id: "prop-3d-tavern-barrel", name: "Barril da taverna 3D", footprint: DECO_ONE, model3d: "prop", propModel: "tavern-barrel" },
+  "prop-3d-tavern-chair": { id: "prop-3d-tavern-chair", name: "Cadeira da taverna 3D", footprint: DECO_ONE, model3d: "prop", propModel: "tavern-chair" },
+  "prop-3d-tavern-candlestick": { id: "prop-3d-tavern-candlestick", name: "Castiçal de parede 3D", footprint: DECO_ONE, model3d: "prop", propModel: "tavern-candlestick" },
+  "prop-3d-tavern-mug": { id: "prop-3d-tavern-mug", name: "Caneca de metal 3D", footprint: DECO_ONE, model3d: "prop", propModel: "tavern-mug" },
+  "prop-3d-tavern-table": { id: "prop-3d-tavern-table", name: "Mesa redonda da taverna 3D", footprint: DECO_ONE, model3d: "prop", propModel: "tavern-table" },
+  "tree-3d-broadleaf": { id: "tree-3d-broadleaf", name: "Árvore realista 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "tree", treeModel: "broadleaf" },
+  "tree-3d-snowy-pine": { id: "tree-3d-snowy-pine", name: "Pinheiro nevado 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "tree", treeModel: "snowy-pine" },
+  // Wisp Forest dead trees in 3D (assets/blender/create_dead_trees.py), matching the 2D
+  // wilds-dead-oak, dead-tree and wilds-twisted-tree art; same height as the other 3D trees.
+  "tree-3d-dead-oak": { id: "tree-3d-dead-oak", name: "Carvalho morto 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "tree", treeModel: "dead-oak" },
+  "tree-3d-dead-snag": { id: "tree-3d-dead-snag", name: "Árvore morta 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "tree", treeModel: "dead-snag" },
+  "tree-3d-twisted-stump": { id: "tree-3d-twisted-stump", name: "Árvore retorcida 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "tree", treeModel: "twisted-stump" },
+  "rock-3d-layered": { id: "rock-3d-layered", name: "Rochas — parede estratificada 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", rockStyle: "layered", heightScale: 0.55, wallTexture: "/game/textures/walls/rock-formation.jpg" },
+  "rock-3d-arch": { id: "rock-3d-arch", name: "Rochas — arco natural 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "doorway", rockStyle: "arch", wallTexture: "/game/textures/walls/rock-formation.jpg" },
+  "rock-3d-broken": { id: "rock-3d-broken", name: "Rochas — parede desmoronada 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", rockStyle: "broken", heightScale: 0.75, wallTexture: "/game/textures/walls/rock-formation.jpg" },
+  "temple-3d-plain": { id: "temple-3d-plain", name: "Templo — muralha de pedra 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", templeStyle: "plain", wallTexture: "/game/textures/walls/temple-plain.jpg" },
+  "temple-3d-niche": { id: "temple-3d-niche", name: "Templo — nicho arqueado 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", templeStyle: "niche", wallTexture: "/game/textures/walls/temple-niche.jpg" },
+  "temple-3d-relief": { id: "temple-3d-relief", name: "Templo — arco com relevo floral 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", templeStyle: "relief", wallTexture: "/game/textures/walls/temple-relief.jpg" },
+  "castle-3d-battlement": { id: "castle-3d-battlement", name: "Castelo — muralha com ameias 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", castleStyle: "battlement", wallTexture: "/game/textures/walls/castle-battlement.jpg" },
+  "castle-3d-ruined": { id: "castle-3d-ruined", name: "Castelo — muralha arruinada 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", castleStyle: "ruined", wallTexture: "/game/textures/walls/castle-ruined.jpg" },
+  "castle-3d-gate": { id: "castle-3d-gate", name: "Castelo — portão arqueado 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "door", doorStyle: "castle", castleStyle: "gate", wallTexture: "/game/textures/walls/castle-gate.jpg" },
+  "castle-3d-gate-open": { id: "castle-3d-gate-open", name: "Castelo — arco aberto 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "doorway", doorStyle: "castle", castleStyle: "gate", wallTexture: "/game/textures/walls/castle-gate.jpg" },
+  "wall-3d-dungeon": { id: "wall-3d-dungeon", name: "Parede de Masmorra 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", wallThicknessScale: 1.55, wallTexture: "/game/textures/walls/dungeon-v2.png" },
+  "wall-3d-tower": { id: "wall-3d-tower", name: "Parede de Torre 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", wallTexture: "/game/textures/walls/tower-v2.png" },
+  "wall-3d-tavern": { id: "wall-3d-tavern", name: "Parede de Taverna 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", wallTexture: "/game/textures/walls/tavern-v2.png" },
+  "wall-3d-crypt": { id: "wall-3d-crypt", name: "Parede de Cripta 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", wallThicknessScale: 1.55, wallTexture: "/game/textures/walls/crypt-v2.png" },
+  "wall-3d-temple": { id: "wall-3d-temple", name: "Parede de Templo 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", wallTexture: "/game/textures/walls/temple-v2.png" },
+  "wall-3d-cave": { id: "wall-3d-cave", name: "Parede de Caverna 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", wallThicknessScale: 1.55, wallTexture: "/game/textures/walls/cave-v2.png" },
+  "wall-3d-castle": { id: "wall-3d-castle", name: "Parede de Castelo 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", wallThicknessScale: 1.55, wallTexture: "/game/textures/walls/castle-v2.png" },
+  "wall-3d-city": { id: "wall-3d-city", name: "Parede de Cidade 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", wallTexture: "/game/textures/walls/city-v2.png" },
+  "wall-3d-stone": { id: "wall-3d-stone", name: "Parede de pedra 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall" },
+  "wall-3d-low": { id: "wall-3d-low", name: "Mureta de pedra 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "wall", heightScale: 0.5 },
+  "door-3d-frame": { id: "door-3d-frame", name: "Passagem aberta 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "doorway", doorStyle: "oak", wallTexture: "/game/textures/doors/medieval-oak-door.png" },
+  "door-3d-closed": { id: "door-3d-closed", name: "Porta fechada 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "door", doorStyle: "oak", wallTexture: "/game/textures/doors/medieval-oak-door.png" },
+  "door-3d-reinforced-frame": { id: "door-3d-reinforced-frame", name: "Vão de porta reforçada 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "doorway", doorStyle: "reinforced", wallTexture: "/game/textures/doors/reinforced-wood-door.png" },
+  "door-3d-reinforced": { id: "door-3d-reinforced", name: "Porta reforçada 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "door", doorStyle: "reinforced", wallTexture: "/game/textures/doors/reinforced-wood-door.png" },
+  "door-3d-iron-frame": { id: "door-3d-iron-frame", name: "Arco de ferro aberto 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "doorway", doorStyle: "iron" },
+  "door-3d-iron": { id: "door-3d-iron", name: "Porta arqueada de ferro rebitado 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "door", doorStyle: "iron" },
+  "door-3d-steel-frame": { id: "door-3d-steel-frame", name: "Arco de aço aberto 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "doorway", doorStyle: "steel" },
+  "door-3d-steel": { id: "door-3d-steel", name: "Porta arqueada de aço com painéis 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "door", doorStyle: "steel" },
+  "secret-door-3d-frame": { id: "secret-door-3d-frame", name: "Passagem secreta aberta 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "doorway", doorStyle: "secretStone", wallTexture: "/game/textures/doors/passage-stone.png" },
+  "secret-door-3d-hidden": { id: "secret-door-3d-hidden", name: "Porta secreta de pedra 3D", footprint: [{ dx: 0, dy: 0 }], model3d: "secretDoor", doorStyle: "secretStone", wallThicknessScale: 1.55, wallTexture: "/game/textures/walls/dungeon-v2.png" },
   "mountain-ridge": { id: "mountain-ridge", name: "Cordilheira", footprint: DECO_PAIR, tile: "hill" },
-  "spike-rocks": { id: "spike-rocks", name: "Agulhas de Pedra", footprint: DECO_PAIR, tile: "column" },
+  "spike-rocks": { id: "spike-rocks", name: "Agulhas de Pedra", footprint: DECO_PAIR },
   // No tile stamp — it used to stamp "highwood" underneath itself, which is exactly
   // the terrain deadtree/highwood/highruin were retired for being (see
   // clearScrappedGroundTiles' own doc comment): a fallen-tree PROP re-creating a fallen-tree
@@ -401,8 +548,8 @@ export const DECORATIONS: Record<string, DecorationDef> = {
   // of the ground-mist sheets (aboveGroundMist): it commonly sits right in the map's edge band,
   // where Mist 4's border fog lives, and mist's depthTest-disabled material would otherwise
   // paint over it and wash it out.
-  "bridge-parapet-gothic-statues-001": { id: "bridge-parapet-gothic-statues-001", name: "Parapeito Gótico — Estátuas", footprint: DECO_QUAD, foreground: true, unitLayer: "front", repeatGroup: "bridge-parapet-gothic-statues", noShadow: true },
-  "bridge-parapet-gothic-wall-001": { id: "bridge-parapet-gothic-wall-001", name: "Parapeito Gótico — Muralha", footprint: DECO_QUAD, unitLayer: "behind", repeatGroup: "bridge-parapet-gothic-wall", noShadow: true },
+  "bridge-parapet-gothic-statues-001": { id: "bridge-parapet-gothic-statues-001", name: "Parapeito Gótico — Estátuas", footprint: DECO_QUAD, foreground: true, unitLayer: "front", repeatGroup: "bridge-parapet-gothic-statues", noShadow: true, aboveGroundMist: true },
+  "bridge-parapet-gothic-wall-001": { id: "bridge-parapet-gothic-wall-001", name: "Parapeito Gótico — Muralha", footprint: DECO_QUAD, unitLayer: "behind", repeatGroup: "bridge-parapet-gothic-wall", noShadow: true, aboveGroundMist: true },
   "bridge-parapet-tall-001": { id: "bridge-parapet-tall-001", name: "Tall-Parapeito", footprint: DECO_ROW_FIVE, unitLayer: "behind", repeatGroup: "bridge-parapet-tall", heightScale: 1.8, noShadow: true, aboveGroundMist: true },
   "bridge-parapet-tall-statues-001": { id: "bridge-parapet-tall-statues-001", name: "Tall-Parapeito — Estátuas", footprint: DECO_ROW_FIVE, foreground: true, unitLayer: "front", decorRenderOrder: 10, repeatGroup: "bridge-parapet-tall", heightScale: 1.8, noShadow: true, aboveGroundMist: true },
   "ember-channels-001": { id: "ember-channels-001", name: "Canais de Brasa", footprint: DECO_PAIR },
@@ -428,27 +575,30 @@ export const DECORATIONS: Record<string, DecorationDef> = {
   "fallen-log": { id: "fallen-log", name: "Tronco caído", footprint: DECO_PAIR },
   "small-house": { id: "small-house", name: "Casa pequena", footprint: DECO_BLOCK_5 },
   "stone-hut": { id: "stone-hut", name: "Cabana de pedra", footprint: DECO_BLOCK_5 },
-  "rocky-outcrop": { id: "rocky-outcrop", name: "Afloramento Rochoso", footprint: DECO_PAIR, tile: "column" },
-  "boulder-pile": { id: "boulder-pile", name: "Pilha de Pedras", footprint: DECO_PAIR, tile: "column" },
-  "twin-spires": { id: "twin-spires", name: "Torres Gêmeas de Pedra", footprint: DECO_PAIR, tile: "column" },
-  "large-boulder": { id: "large-boulder", name: "Pedregulho Grande", footprint: DECO_ONE, tile: "column" },
-  "burning-house": { id: "burning-house", name: "Casa em Chamas", footprint: DECO_BLOCK_5 },
-  "burnt-house-ruins": { id: "burnt-house-ruins", name: "Ruínas Queimadas", footprint: DECO_BLOCK_5, blockingFootprint: HOUSE_BLOCKING_FOOTPRINT },
+  "rocky-outcrop": { id: "rocky-outcrop", name: "Afloramento Rochoso", footprint: DECO_PAIR },
+  "boulder-pile": { id: "boulder-pile", name: "Pilha de Pedras", footprint: DECO_PAIR },
+  "twin-spires": { id: "twin-spires", name: "Torres Gêmeas de Pedra", footprint: DECO_PAIR },
+  "large-boulder": { id: "large-boulder", name: "Pedregulho Grande", footprint: DECO_ONE },
+  "burning-house": { id: "burning-house", name: "Casa em Chamas", footprint: DECO_BLOCK_5, blockingFootprint: HOUSE_GROUND_FOOTPRINT },
+  "burnt-house-ruins": { id: "burnt-house-ruins", name: "Ruínas Queimadas", footprint: DECO_BLOCK_5, blockingFootprint: BURNT_HOUSE_GROUND_FOOTPRINT },
   well: { id: "well", name: "Poço", footprint: DECO_ONE },
   "stone-fountain": { id: "stone-fountain", name: "Fonte de Pedra", footprint: DECO_ONE },
   // These were painted at their intended small prop size; opt out of the global 1.6x decor boost.
   tombstones: { id: "tombstones", name: "Lápides", footprint: DECO_ONE, artScale: 0.625 },
-  "spike-rocks-2": { id: "spike-rocks-2", name: "Agulhas de Pedra II", footprint: DECO_PAIR, tile: "column" },
+  "spike-rocks-2": { id: "spike-rocks-2", name: "Agulhas de Pedra II", footprint: DECO_PAIR },
   lamppost: { id: "lamppost", name: "Poste de Lampião", footprint: DECO_ONE },
-  "mossy-rocks": { id: "mossy-rocks", name: "Pedras Musgosas", footprint: DECO_PAIR, tile: "column" },
+  "mossy-rocks": { id: "mossy-rocks", name: "Pedras Musgosas", footprint: DECO_PAIR },
   "jagged-ridge": { id: "jagged-ridge", name: "Crista Irregular", footprint: DECO_PAIR, tile: "hill" },
-  "mossy-boulder": { id: "mossy-boulder", name: "Pedregulho Musgoso", footprint: DECO_ONE, tile: "column" },
+  "mossy-boulder": { id: "mossy-boulder", name: "Pedregulho Musgoso", footprint: DECO_ONE },
   "mountain-range": { id: "mountain-range", name: "Cadeia de Montanhas", footprint: DECO_TRIO, tile: "hill" },
   "rune-stone": { id: "rune-stone", name: "Menir Rúnico", footprint: DECO_ONE },
-  "burning-hamlet": { id: "burning-hamlet", name: "Vilarejo em Chamas", footprint: DECO_BLOCK_5 },
-  "boulder-mound": { id: "boulder-mound", name: "Monte de Pedras", footprint: DECO_ONE, tile: "column" },
+  "burning-hamlet": { id: "burning-hamlet", name: "Vilarejo em Chamas", footprint: DECO_BLOCK_5, blockingFootprint: HOUSE_GROUND_FOOTPRINT },
+  "boulder-mound": { id: "boulder-mound", name: "Monte de Pedras", footprint: DECO_ONE },
   "wooden-cart": { id: "wooden-cart", name: "Carroça de Madeira", footprint: DECO_PAIR },
-  "spike-crown": { id: "spike-crown", name: "Coroa de Espinhos", footprint: DECO_TRIO, tile: "column" },
+  "merchant-covered-cart-001": { id: "merchant-covered-cart-001", name: "Carroça Coberta do Mercador", footprint: DECO_PAIR, artScale: 1.2, heightScale: 1.15 },
+  "inn-stairs-up": { id: "inn-stairs-up", name: "Escada para o Andar de Cima", footprint: DECO_PAIR, artScale: 0.9 },
+  "inn-stairs-down": { id: "inn-stairs-down", name: "Escada para o Andar de Baixo", footprint: DECO_PAIR, artScale: 0.9 },
+  "spike-crown": { id: "spike-crown", name: "Coroa de Espinhos", footprint: DECO_TRIO },
   ...WILDS_DECORATIONS,
   ...TORTURE_DECORATIONS,
   ...CITY_DECORATIONS,
@@ -469,8 +619,7 @@ export const DECORATIONS: Record<string, DecorationDef> = {
     exitKind: "dungeon",
     noShadow: true,
   },
-  // One red hex, placed on both ends of a floor connection — DecorationPlacement.targetMapId
-  // says which mission it leads to, DecorationPlacement.returnConnector picks its wording.
+  // Red down for deeper, gold up for return; targetMapId retains the destination.
   // The renderer fits this marking to one hex, like other single-cell waypoint art.
   "floor-connector": {
     id: "floor-connector",
@@ -480,6 +629,35 @@ export const DECORATIONS: Record<string, DecorationDef> = {
     noShadow: true,
   },
 };
+
+export const THREE_D_DOOR_VARIANTS = {
+  stoneOak: { open: "door-3d-stone-oak-open", closed: "door-3d-stone-oak" },
+  dungeonOak: { open: "door-3d-dungeon-oak-open", closed: "door-3d-dungeon-oak" },
+  castle: { open: "castle-3d-gate-open", closed: "castle-3d-gate" },
+  oak: { open: "door-3d-frame", closed: "door-3d-closed" },
+  reinforced: { open: "door-3d-reinforced-frame", closed: "door-3d-reinforced" },
+  iron: { open: "door-3d-iron-frame", closed: "door-3d-iron" },
+  steel: { open: "door-3d-steel-frame", closed: "door-3d-steel" },
+  secretStone: { open: "secret-door-3d-frame", closed: "secret-door-3d-hidden" },
+} as const;
+
+// Thin posts and signposts read too small against the enlarged map scenery. Keep their width
+// and gameplay footprint unchanged, but double their visible height and mirror alternating
+// placements so rows of the same prop do not look stamped from one cutout.
+const TALL_POST_DECOR_IDS = [
+  "wilds-lantern-post",
+  "wilds-weathered-signpost",
+  "wilds-lantern-signpost",
+  "city-banner-post",
+  "city-lantern-post",
+  "city-signpost",
+  "city-notice-post",
+  "lamppost",
+];
+for (const id of TALL_POST_DECOR_IDS) {
+  const def = DECORATIONS[id];
+  if (def) DECORATIONS[id] = { ...def, heightScale: 2, mirrorAlternate: true };
+}
 
 /** Every lockable-chest decoration id. Both size variants block/open the same way
  * (BattleEngine.useLockpick/adjacentLock, hexprops.buildDecorOverlay) — callers that need
@@ -497,6 +675,28 @@ export const BIG_HOUSE_DECOR_IDS = new Set<string>();
  * impassable and never faded by fog, same as HOUSE_DECOR_IDS. This also includes the gatehouse
  * and watchtower: both are solid buildings whose full footprint must stay out of movement range. */
 export const SOLID_HOUSE_DECOR_IDS = new Set(["burning-hamlet", "gatehouse", "watchtower"]);
+
+/** Carts, wagons and handcarts are solid scenery: their complete authored footprint
+ * blocks movement, arrows and line of sight, including placements saved on older maps. */
+export const SOLID_CART_DECOR_IDS = new Set([
+  "wilds-abandoned-cart",
+  "wooden-cart",
+  "merchant-covered-cart-001",
+  "city-supply-cart",
+  "city-covered-wagon",
+  "city-supply-cart-2",
+  "city-log-cart",
+  "city-market-wagon-new",
+  "city-wheelbarrow",
+]);
+
+/** Rock props are solid decorations; their art must never replace the ground with column terrain. */
+/** Low props: "Bloquear caminho" stops walking through them, but arrows and sight pass over (a well is knee-high). */
+export const LOW_BLOCKER_DECOR_IDS = new Set<string>(["well", "wilds-wishing-well", "tombstones"]);
+export const SOLID_ROCK_DECOR_IDS = new Set([
+  "rocks-3d-grey-outcrop", "rocks-3d-outcrop", "spike-rocks", "rocky-outcrop", "boulder-pile", "twin-spires",
+  "large-boulder", "spike-rocks-2", "mossy-rocks", "mossy-boulder", "boulder-mound", "spike-crown",
+]);
 
 /** City props that read as a barricade/wall and should block like one — impassable, blocks
  * shots — without repainting the hex underneath to barricade terrain (that would replace
@@ -549,6 +749,12 @@ export function decorationSideFile(id: string, step: number): string {
   return step === 0 ? id : `${id}-side${step + 1}`;
 }
 
+export function decorationPlacementArt(p: Pick<DecorationPlacement, "id" | "returnConnector">): string {
+  return p.id === "floor-connector"
+    ? p.returnConnector ? "floor-connector-up-gold-v1" : "floor-connector-down-red-v1"
+    : p.id;
+}
+
 /** Which drawing to use for a prop's current facing, and how.
  *
  * Asks in order: this side's own drawing, then the drawing that mirrors onto it, then the
@@ -580,9 +786,15 @@ const DECORATION_ALPHA_CLEAN = new Set([
 ]);
 
 function decorationImagePath(id: string, ext: "png" | "webp"): string {
+  if (id === "floor-connector") id = "floor-connector-down-red-v1";
+  id = DECORATIONS[id]?.propModel ?? id;
   const file = DECORATION_ALPHA_CLEAN.has(id) ? `${id}-alpha-001` : id;
+  // Both the replacement originals and their newly added side-4 files need a fresh URL:
+  // browsers may have cached the previous low-res image or even the old side-4 404.
+  const baseId = id.replace(/-side\d+$/, "");
+  const cacheVersion = TALL_POST_DECOR_IDS.includes(baseId) ? "?v=post-hd-20260930-2" : "";
   return `/game/decorations/${file}.${ext}${
-    id === "locked-chest"
+    cacheVersion || (id === "locked-chest"
       ? "?v=4"
       : id === "dead-tree" ||
           id === "fallen-log" ||
@@ -590,7 +802,7 @@ function decorationImagePath(id: string, ext: "png" | "webp"): string {
           id === "small-house" ||
           id === "stone-hut"
         ? "?v=4"
-        : ""
+        : "")
   }`;
 }
 
@@ -693,6 +905,10 @@ export function rotateFootprint(
 export function placedFootprint(p: { id: string; x: number; y: number; rot?: number }): { dx: number; dy: number }[] {
   const def = DECORATIONS[p.id];
   if (!def) return [];
+  if (def.architectureSpan) return def.footprint.map(({ dx, dy }) => {
+    const turn = (p.rot ?? 0) % 4;
+    return turn === 1 ? { dx: -dy, dy: dx } : turn === 2 ? { dx: -dx, dy: -dy } : turn === 3 ? { dx: dy, dy: -dx } : { dx, dy };
+  });
   return rotateFootprint(def.footprint, p.x, p.y, p.rot ?? 0);
 }
 
@@ -700,7 +916,37 @@ export function placedFootprint(p: { id: string; x: number; y: number; rot?: num
 export function placedBlockingFootprint(p: { id: string; x: number; y: number; rot?: number }): { dx: number; dy: number }[] {
   const def = DECORATIONS[p.id];
   if (!def) return [];
+  if (def.architectureSpan) return placedFootprint({ ...p, id: p.id }).filter(cell => {
+    if (!def.blockingFootprint) return true;
+    const turn = (p.rot ?? 0) % 4;
+    return def.blockingFootprint.some(({ dx, dy }) => {
+      const f = turn === 1 ? { dx: -dy, dy: dx } : turn === 2 ? { dx: -dx, dy: -dy } : turn === 3 ? { dx: dy, dy: -dx } : { dx, dy };
+      return f.dx === cell.dx && f.dy === cell.dy;
+    });
+  });
   return rotateFootprint(def.blockingFootprint ?? def.footprint, p.x, p.y, p.rot ?? 0);
+}
+
+/** Remove legacy column terrain used as collision scaffolding under solid rocks.
+ * The decoration overlay supplies collision; the tile underneath is ordinary ground. */
+export function clearRockColumnTiles(
+  tiles: readonly TerrainId[], cols: number, rows: number,
+  decorations: readonly DecorationPlacement[], baseTile?: TerrainId,
+): TerrainId[] {
+  const ground = baseTile && TERRAIN[baseTile].passable && baseTile !== "water" && baseTile !== "void"
+    ? baseTile : tiles.includes("nave") ? "nave" : tiles.includes("snow") ? "snow" : "plains";
+  const cleaned = [...tiles];
+  for (const p of decorations) {
+    const def = DECORATIONS[p.id];
+    if (!SOLID_ROCK_DECOR_IDS.has(p.id) && !(def?.rockStyle && def.model3d === "wall")) continue;
+    for (const { dx, dy } of placedFootprint(p)) {
+      const x = p.x + dx, y = p.y + dy;
+      if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
+      const index = y * cols + x;
+      if (cleaned[index] === "column") cleaned[index] = ground;
+    }
+  }
+  return cleaned;
 }
 
 export function decorationCells(placements: { id: string; x: number; y: number; rot?: number }[]): Set<string> {
@@ -716,6 +962,7 @@ export function decorationCells(placements: { id: string; x: number; y: number; 
 // class, in BattleEngine's spawnUnit (engine.ts). Do not add per-class scaling logic in
 // this table to replicate it; the one copy in spawnUnit is the whole point.
 export const CLASSES: Record<ClassId, ClassDef> = {
+  ...ENCOUNTER_NPC_CLASSES,
   swordsman: {
     id: "swordsman",
     name: "Guerreiro",
@@ -864,6 +1111,24 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     minRange: 1,
     maxRange: 1,
     sprite: "wardog",
+    size: 2,
+    footprintOffsets: FOOTPRINT_TYPE_3,
+    init: 6,
+  },
+  // Same unit as the War Dog — only the art differs (32-frame video cut with a death sheet).
+  wardog2: {
+    id: "wardog2",
+    name: "Cão de guerra 2",
+    role: "Profano",
+    hp: 40,
+    atk: 9,
+    mag: 0,
+    def: 3,
+    res: 1,
+    mov: 5,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "wardog2",
     size: 2,
     footprintOffsets: FOOTPRINT_TYPE_3,
     init: 6,
@@ -1081,6 +1346,11 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     size: 1,
     init: 5,
   },
+  minorHorror: {
+    id: "minorHorror", name: "Minor Horror", role: "Abominação",
+    hp: 42, atk: 9, mag: 7, def: 3, res: 4, mov: 4,
+    minRange: 1, maxRange: 1, sprite: "minor-horror-001", size: 1, init: 5,
+  },
   horror: {
     id: "horror",
     name: "Horror",
@@ -1167,6 +1437,24 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     size: 1,
     init: 2,
   },
+  // Twice the Zombie (HP/ATK/DEF/RES, move and initiative), with MAG to match his ATK for his spells: 2 Força
+  // Fantasmal + 1 Relâmpago per battle (see the cultist/wraith branch in runAiFor).
+  emberedWraith: {
+    id: "emberedWraith",
+    name: "Embered Wraith",
+    role: "Morto-vivo",
+    hp: 76,
+    atk: 18,
+    mag: 18,
+    def: 6,
+    res: 2,
+    mov: 6,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "EmberedWraith",
+    size: 1,
+    init: 4,
+  },
   zombie2: {
     id: "zombie2",
     name: "Zumbi 2",
@@ -1182,6 +1470,45 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     sprite: "zombie2",
     size: 1,
     init: 2,
+  },
+  // Undead Ox: ~2.5x the Zombie, Type 3 body like the War Hound. Its hit sickens like a
+  // zombie's (DISEASE.zombieChance) and it spits Veneno Cáustico twice per battle (tier4,
+  // runAiFor's birolho branch). Sheets cut from reference video (sprites/undeadOx/README.md).
+  undeadOx: {
+    id: "undeadOx",
+    name: "Boi Morto-vivo",
+    role: "Morto-vivo",
+    hp: 95,
+    atk: 20,
+    mag: 10,
+    def: 7,
+    res: 3,
+    mov: 4,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "undeadOx",
+    size: 2,
+    footprintOffsets: FOOTPRINT_TYPE_3,
+    init: 3,
+  },
+  // Plague Bearing Cattle: the Undead Ox's stats x1.2, same body type, disease hit and
+  // Veneno Menor. Sheets cut from reference video (work/plague-cattle/).
+  plagueBearingCattle: {
+    id: "plagueBearingCattle",
+    name: "Plague Bearing Cattle",
+    role: "Morto-vivo",
+    hp: 114,
+    atk: 24,
+    mag: 12,
+    def: 8,
+    res: 4,
+    mov: 4,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "plague-bearing-cattle",
+    size: 2,
+    footprintOffsets: FOOTPRINT_TYPE_3,
+    init: 3,
   },
   troll: {
     id: "troll",
@@ -1217,10 +1544,28 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     footprintOffsets: FOOTPRINT_TYPE_7,
     init: 8,
   },
+  roccoTheBird: {
+    id: "roccoTheBird",
+    name: "Rocco The Bird",
+    role: "Chefe",
+    hp: 108,
+    atk: 25,
+    mag: 25,
+    def: 20,
+    res: 20,
+    mov: 5,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "RoccoTheBird",
+    size: 4,
+    footprintOffsets: FOOTPRINT_TYPE_7,
+    init: 8,
+    boss: true,
+  },
   swampBlueCalf: {
     id: "swampBlueCalf",
-    name: "Swamp Blue Calf",
-    role: "Profano",
+    name: "Cobalt Blue Deer",
+    role: "Fera",
     hp: 22,
     atk: 7,
     mag: 0,
@@ -1229,8 +1574,27 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     mov: 5,
     minRange: 1,
     maxRange: 1,
-    sprite: "swamp-blue-calf",
+    sprite: "cobalt-blue-deer",
     size: 1,
+    init: 6,
+  },
+  // Big Blue Ox has its own preserved animation set. Keep the
+  // original class id, stats, water rules and existing spawns intact.
+  bigBlueCalf: {
+    id: "bigBlueCalf",
+    name: "Big Blue Ox",
+    role: "Fera",
+    hp: 22,
+    atk: 7,
+    mag: 0,
+    def: 3,
+    res: 2,
+    mov: 5,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "big-blue-ox-002",
+    size: 2,
+    footprintOffsets: FOOTPRINT_TYPE_2,
     init: 6,
   },
   // Classes novas — nome, papel e arte ainda são provisórios (sprite reaproveita
@@ -1509,6 +1873,28 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     // Troll/Birolho/Horror/Asherah/Ancient Golem getting stuck on their own footprint.
     size: 2,
     footprintOffsets: FOOTPRINT_TYPE_6,
+    init: 6,
+    summon: true,
+  },
+  // Conjurer tier 5 (Invocar Cão Zumbi) — see castSummonFamiliar. Like the familiars, these
+  // combat stats are a fallback only: the real numbers are 100% of the caster's own current
+  // attributes (SUMMON_ZOMBIE_DOG.statScale), computed live at cast time. Casts Veneno
+  // Cáustico twice per battle (FAMILIAR_SPELL / Unit.spellCharges).
+  zombieDog: {
+    id: "zombieDog",
+    name: "Cão Zumbi",
+    role: "Invocação",
+    hp: 22,
+    atk: 8,
+    mag: 8,
+    def: 4,
+    res: 4,
+    mov: 5,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "zombieDog",
+    size: 2,
+    footprintOffsets: FOOTPRINT_TYPE_2,
     init: 6,
     summon: true,
   },
@@ -1877,6 +2263,22 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     size: 1,
     init: 7,
   },
+  travelingMerchant: {
+    id: "travelingMerchant",
+    name: "Mercador",
+    role: "Civil — mercador",
+    hp: 10,
+    atk: 1,
+    mag: 0,
+    def: 1,
+    res: 1,
+    mov: 3,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "travelingMerchant",
+    size: 1,
+    init: 7,
+  },
 };
 
 export const HERO_NAMES = ["Kael", "Neera", "Voss", "Salazar"] as const;
@@ -1885,10 +2287,11 @@ export const HERO_NAMES = ["Kael", "Neera", "Voss", "Salazar"] as const;
  * in the story (Aldric, Malrec) — HERO_NAMES stays the narrower "starts in the save" tuple
  * other code keys off of, this is the roster for anything that must react to a NEW recruit
  * showing up (Mochila/Equipar's hero switcher, the RPG map's party row, etc.), gated the
- * same way as everyone else: heroRecruited(name, save.completed). */
+ * same way as everyone else: heroRecruited(name, save.completed, save.flags). */
 export const ALL_HERO_NAMES = ["Kael", "Neera", "Voss", "Salazar", "Aldric", "Malrec"] as const;
 
 export const GROWTH: Record<ClassId, { hp: number; atk: number; mag: number; def: number; res: number }> = {
+  ...ENCOUNTER_NPC_GROWTH,
   swordsman: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
   archer: { hp: 3, atk: 2, mag: 0, def: 1, res: 1 },
   mage: { hp: 3, atk: 0, mag: 3, def: 1, res: 3 },
@@ -1898,8 +2301,15 @@ export const GROWTH: Record<ClassId, { hp: number; atk: number; mag: number; def
   brigand: { hp: 3, atk: 2, mag: 0, def: 1, res: 1 },
   captain: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
   wardog: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
+  wardog2: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
   zombie: { hp: 4, atk: 2, mag: 0, def: 1, res: 1 },
   zombie2: { hp: 4, atk: 2, mag: 0, def: 1, res: 1 },
+  // ~2.5x the Zombie's growth.
+  undeadOx: { hp: 10, atk: 5, mag: 2, def: 3, res: 2 },
+  // The Undead Ox's growth x1.2.
+  plagueBearingCattle: { hp: 12, atk: 6, mag: 2, def: 4, res: 2 },
+  // Twice the Zombie's growth, MAG growing with ATK.
+  emberedWraith: { hp: 8, atk: 4, mag: 4, def: 2, res: 2 },
   morvenianWolf: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
   mordavianWolf: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
   mordavianWolfFinal: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
@@ -1914,14 +2324,17 @@ export const GROWTH: Record<ClassId, { hp: number; atk: number; mag: number; def
   birolhoLegs2: { hp: 4, atk: 2, mag: 0, def: 2, res: 2 },
   cultist: { hp: 3, atk: 0, mag: 2, def: 1, res: 2 },
   cultistV2: { hp: 3, atk: 0, mag: 2, def: 1, res: 2 },
+  minorHorror: { hp: 3, atk: 1, mag: 1, def: 1, res: 1 },
   horror: { hp: 4, atk: 2, mag: 0, def: 2, res: 2 },
   asherah: { hp: 5, atk: 2, mag: 0, def: 2, res: 2 },
   troll: { hp: 5, atk: 2, mag: 0, def: 2, res: 1 },
   troll2: { hp: 5, atk: 2, mag: 0, def: 2, res: 1 },
+  roccoTheBird: { hp: 5, atk: 3, mag: 3, def: 2, res: 2 },
   // The troll's growth times 1.4, rounded — see CLASSES.ancientGolem. res can't scale: 40%
   // of 1 rounds back to 1.
   ancientGolem: { hp: 7, atk: 3, mag: 0, def: 3, res: 1 },
   swampBlueCalf: { hp: 3, atk: 2, mag: 0, def: 1, res: 1 },
+  bigBlueCalf: { hp: 3, atk: 2, mag: 0, def: 1, res: 1 },
   assassin: { hp: 3, atk: 3, mag: 0, def: 1, res: 1 },
   rogue: { hp: 3, atk: 2, mag: 0, def: 1, res: 1 },
   lancer: { hp: 4, atk: 2, mag: 0, def: 2, res: 1 },
@@ -1941,6 +2354,7 @@ export const GROWTH: Record<ClassId, { hp: number; atk: number; mag: number; def
   familiar: { hp: 0, atk: 0, mag: 0, def: 0, res: 0 },
   familiar2: { hp: 0, atk: 0, mag: 0, def: 0, res: 0 },
   familiar3: { hp: 0, atk: 0, mag: 0, def: 0, res: 0 },
+  zombieDog: { hp: 0, atk: 0, mag: 0, def: 0, res: 0 },
   familiar4: { hp: 0, atk: 0, mag: 0, def: 0, res: 0 },
   paladin: { hp: 5, atk: 1, mag: 1, def: 3, res: 2 },
   heavyKnight: { hp: 5, atk: 1, mag: 0, def: 3, res: 1 },
@@ -1967,12 +2381,25 @@ export const GROWTH: Record<ClassId, { hp: number; atk: number; mag: number; def
   soupLady: { hp: 1, atk: 0, mag: 0, def: 1, res: 1 },
   villagerF1: { hp: 2, atk: 1, mag: 0, def: 0, res: 1 },
   woodsman: { hp: 2, atk: 1, mag: 0, def: 1, res: 0 },
+  travelingMerchant: { hp: 2, atk: 0, mag: 0, def: 1, res: 1 },
 };
 
 export const MAX_LEVEL = 30;
 
-/** XP needed to go up one level — flat at every level, Final Fantasy Tactics-style. */
+/** XP needed for the first two level transitions. */
 export const EXP_TO_LEVEL = 100;
+
+/** Cost from the current level to the next; each band starts at its named level. */
+export function expToLevel(level: number): number {
+  const current = Math.max(1, Math.min(MAX_LEVEL - 1, level));
+  if (current >= 28) return 600;
+  if (current >= 23) return 500;
+  if (current >= 18) return 400;
+  if (current >= 13) return 300;
+  if (current >= 8) return 225;
+  if (current >= 3) return 150;
+  return EXP_TO_LEVEL;
+}
 
 /** Diablo-style progression layered on top of each class's normal automatic growth. */
 export const STAT_POINTS_PER_LEVEL = 3;
@@ -2107,6 +2534,16 @@ function priceWeight(price: number): number {
 
 export type LootDrop = { kind: "weapon"; id: string } | { kind: "equipment"; id: string };
 
+/** Free starting weapons, including the heroes' explicit main/off-hand loadouts. */
+function startingWeaponIds(): Set<string> {
+  const ids = new Set(["cajado-da-galhada", "punhal-curvo"]);
+  for (const classId of Object.keys(CLASSES) as ClassId[]) {
+    const id = starterWeaponFor(classId);
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
 /** Lowest/highest price across every lootable item (every weapon, every offHand
  * EquipmentDef) — the endpoints of the 1-MAX_LEVEL power-level scale below. Recomputed
  * from whatever WEAPONS/EQUIPMENT currently contain rather than hardcoded, so adding a new
@@ -2128,17 +2565,18 @@ export function gearPowerLevel(price: number): number {
   return Math.max(1, Math.min(MAX_LEVEL, Math.round(1 + t * (MAX_LEVEL - 1))));
 }
 
-/** Weighted random pick across every weapon and every offHand EquipmentDef, rarer as price
+/** Weighted random pick across weapons and equipment, excluding free starting weapons, rarer as price
  * climbs, capped to maxLevel on the gearPowerLevel scale (see BattleEngine.highestEnemyLevel)
  * and — for weapons — excluding anything in ownedWeaponIds so a drop never announces a weapon the
  * recipient already has. Used for chest loot and enemy kill drops alike. */
 export function weightedLootPick(rng: () => number, maxLevel = MAX_LEVEL, ownedWeaponIds: ReadonlySet<string> = new Set()): LootDrop {
+  const startingWeapons = startingWeaponIds();
   const build = (level: number): [LootDrop, number][] => [
     ...Object.values(WEAPONS)
-      .filter((w) => gearPowerLevel(w.price) <= level && !ownedWeaponIds.has(w.id))
+      .filter((w) => !startingWeapons.has(w.id) && gearPowerLevel(w.price) <= level && !ownedWeaponIds.has(w.id))
       .map((w): [LootDrop, number] => [{ kind: "weapon", id: w.id }, priceWeight(w.price)]),
     ...Object.values(EQUIPMENT)
-      .filter((e) => gearPowerLevel(e.price ?? 60) <= level)
+      .filter((e) => !startingWeapons.has(e.id) && gearPowerLevel(e.price ?? 60) <= level)
       .map((e): [LootDrop, number] => [{ kind: "equipment", id: e.id }, priceWeight(e.price ?? 60)]),
   ];
   // The mission-level cap can (rarely) leave nothing eligible once owned weapons are also
@@ -2150,10 +2588,15 @@ export function weightedLootPick(rng: () => number, maxLevel = MAX_LEVEL, ownedW
 /** Weighted random pick across a given set of weapon ids, capped to maxLevel on the
  * gearPowerLevel scale — for drop sources that only ever granted a weapon before (e.g.
  * enemy kill drops), optionally restricted to a pool (e.g. "not already owned"). Defaults
- * to every weapon in the game. */
+ * to every non-starting weapon in the game. Starting weapons stay excluded from fallback pools. */
 export function weightedWeaponPick(rng: () => number, ids: string[] = Object.keys(WEAPONS), maxLevel = MAX_LEVEL): string {
-  const capped = ids.filter((id) => gearPowerLevel(WEAPONS[id]?.price ?? 100) <= maxLevel);
-  const pool = capped.length > 0 ? capped : ids;
+  const startingWeapons = startingWeaponIds();
+  const lootable = (id: string) => !!WEAPONS[id] && !startingWeapons.has(id);
+  const eligible = ids.filter(lootable);
+  // Even an empty or starter-only requested pool must never fall back to free weapons.
+  const candidates = eligible.length > 0 ? eligible : Object.keys(WEAPONS).filter(lootable);
+  const capped = candidates.filter((id) => gearPowerLevel(WEAPONS[id]!.price) <= maxLevel);
+  const pool = capped.length > 0 ? capped : candidates;
   const entries: [string, number][] = pool.map((id): [string, number] => [id, priceWeight(WEAPONS[id]?.price ?? 100)]);
   return weightedPick(rng, entries);
 }
@@ -2361,10 +2804,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
   "arco-elfico": wpn("arco-elfico", "Arco Élfico", ARCHER_TRIO, 3, RANGED),
   "arco-do-cacador": wpn("arco-do-cacador", "Arco do Caçador", ARCHER_TRIO, 4, RANGED),
   "besta-leve": wpn("besta-leve", "Besta Leve", ARCHER_TRIO, 5, { minRange: 1, maxRange: 4, ranged: true }),
-  "punhal-curvo": wpn("punhal-curvo", "Punhal Curvo", ARCHER_TRIO, 1),
-  "katar": wpn("katar", "Katar", ARCHER_TRIO, 2),
-  "adaga-sombria": wpn("adaga-sombria", "Adaga Sombria", ARCHER_TRIO, 3),
-  "adaga-de-veneno": wpn("adaga-de-veneno", "Adaga de Veneno", ARCHER_TRIO, 4),
+  // Punhal Curvo / Katar / Adaga Sombria / Adaga de Veneno are off-hand weapons now — see OFFHAND_DAGGERS.
 
   // Lanceiro / Sentinela / Templário — lança, exclusiva dessa linha.
   "lanca": wpn("lanca", "Lança", LANCER_TRIO, 1, SPEAR),
@@ -2396,10 +2836,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
   "arco-do-cacador-sombrio": wpn("arco-do-cacador-sombrio", "Arco do Caçador Sombrio", ARCHER_TRIO, 6, RANGED),
   "arco-elfico-de-cinzas": wpn("arco-elfico-de-cinzas", "Arco Élfico de Cinzas", ARCHER_TRIO, 7, RANGED),
   "arco-longo-de-teixo": wpn("arco-longo-de-teixo", "Arco Longo de Teixo", ARCHER_TRIO, 8, RANGED_MASTERWORK),
-  "adaga-viperina": wpn("adaga-viperina", "Adaga Viperina", ARCHER_TRIO, 5),
-  "misericordia-sombria": wpn("misericordia-sombria", "Misericórdia Sombria", ARCHER_TRIO, 6),
-  "punhal-do-salteador": wpn("punhal-do-salteador", "Punhal do Salteador", ARCHER_TRIO, 7),
-  "katar-sepulcral": wpn("katar-sepulcral", "Katar Sepulcral", ARCHER_TRIO, 8),
+  // Adaga Viperina / Misericórdia Sombria / Punhal do Salteador / Katar Sepulcral: same, see OFFHAND_DAGGERS.
   "martelo-belico": wpn("martelo-belico", "Martelo Bélico", [...WARRIOR_TRIO, "cleric"], 3),
   "malho-do-juizo": wpn("malho-do-juizo", "Malho do Juízo", [...WARRIOR_TRIO, "cleric"], 4),
   "lamina-consagrada": wpn("lamina-consagrada", "Lâmina Consagrada", WARRIOR_TRIO, 3, MELEE, undefined, 1),
@@ -2546,6 +2983,22 @@ export const EQUIPMENT_SLOTS: { id: EquipSlot; label: string }[] = [
   { id: "ring2", label: "Anel 2" },
   { id: "offHand", label: "Mão Secundária" },
 ];
+
+/** Every dagger/katar of the archer line. They are never a main-hand weapon: the bow is always
+ * the main hand, and a dagger always goes in the off-hand slot (Mão Secundária attack and the
+ * adjacent counter). They keep the ids and art they had as main-hand weapons; damage is the same
+ * rung of the shared dice ladder. */
+const OFFHAND_DAGGERS: [id: string, name: string, rung: number][] = [
+  ["punhal-curvo", "Punhal Curvo", 1],
+  ["katar", "Katar", 2],
+  ["adaga-sombria", "Adaga Sombria", 3],
+  ["adaga-de-veneno", "Adaga de Veneno", 4],
+  ["adaga-viperina", "Adaga Viperina", 5],
+  ["misericordia-sombria", "Misericórdia Sombria", 6],
+  ["punhal-do-salteador", "Punhal do Salteador", 7],
+  ["katar-sepulcral", "Katar Sepulcral", 8],
+];
+const OFFHAND_DAGGER_IDS = new Set(OFFHAND_DAGGERS.map(([id]) => id));
 
 export const EQUIPMENT: Record<string, EquipmentDef> = {
   // ============ ARMADURAS ============
@@ -2767,7 +3220,10 @@ export const EQUIPMENT: Record<string, EquipmentDef> = {
   "escudo-do-leao-rompante": { id: "escudo-do-leao-rompante", name: "Escudo do Leão Rompante", slot: "offHand", kind: "shield", usableBy: SHIELD_WEARERS, def: 6, res: 1, dmgMul: 0.9, price: 3900 },
   "escudo-de-bandas-cruzadas": { id: "escudo-de-bandas-cruzadas", name: "Escudo de Bandas Cruzadas", slot: "offHand", kind: "shield", usableBy: SHIELD_WEARERS, def: 3, res: 1, dmgMul: 0.8, price: 1300 },
   "escudo-andrajoso": { id: "escudo-andrajoso", name: "Escudo Andrajoso", slot: "offHand", kind: "shield", usableBy: SHIELD_WEARERS, mag: 1, def: 1, dmgMul: 0.7, price: 380 },
-  "adaga-secundaria": { id: "adaga-secundaria", name: "Adaga Secundária", slot: "offHand", kind: "weapon", usableBy: ARCHER_TRIO, dice: 1, faces: 4, bonus: 0, minRange: 1, maxRange: 1, price: 70 },
+  ...Object.fromEntries(OFFHAND_DAGGERS.map(([id, name, rung]) => {
+    const r = WEAPON_RUNGS[rung - 1]!;
+    return [id, { id, name, slot: "offHand", kind: "weapon", usableBy: ARCHER_TRIO, dice: r.dice, faces: r.faces, bonus: r.bonus, minRange: 1, maxRange: 1, price: r.price } satisfies EquipmentDef];
+  })),
   "katar-secundario": { id: "katar-secundario", name: "Katar Secundário", slot: "offHand", kind: "weapon", usableBy: ARCHER_TRIO, dice: 1, faces: 6, bonus: 0, minRange: 1, maxRange: 1, price: 90 },
 
   // ============ ACESSÓRIOS ============
@@ -2969,6 +3425,7 @@ export function lockpickTooltip(): string {
 export function equipmentIcon(id: string): string {
   // One equipment id maps to one dedicated icon. Never collapse distinct items onto
   // a generic chest/helm/boots drawing again.
+  if (OFFHAND_DAGGER_IDS.has(id)) return `/game/icons/weapons/${id}.png`;
   return `/game/icons/equipment/${id}.png`;
 }
 
@@ -3026,11 +3483,11 @@ export function pouchUpgradeBonus(equipment: SaveData["equipment"] | undefined):
  * follows (Mochila's hero switcher, the RPG map's party row, etc.), so a full six-hero
  * test roster gets its full 60 slots instead of getting docked for whichever hero hasn't
  * formally joined this save yet. */
-export function partyBagCapacity(save: Pick<SaveData, "completed" | "equipment">, test = false): number {
+export function partyBagCapacity(save: Pick<SaveData, "completed" | "flags" | "equipment">, test = false): number {
   // ALL_HERO_NAMES (all 6 possible party members), not HERO_NAMES (just the 4 starters) —
-  // Aldric and Malrec joining the party adds their own 10 slots same as anyone else, so a
+  // late recruits add their own 10 slots same as anyone else, so a
   // full six-hero roster tops out at 60, not stuck at 40.
-  const heroes = Math.max(1, ALL_HERO_NAMES.filter((name) => test || heroRecruited(name, save.completed)).length);
+  const heroes = Math.max(1, ALL_HERO_NAMES.filter((name) => test || heroRecruited(name, save.completed, save.flags)).length);
   return PARTY_BAG_PER_HERO * heroes + pouchUpgradeBonus(save.equipment);
 }
 
@@ -3042,7 +3499,7 @@ export function partyBagUsed(save: Pick<SaveData, "weapons" | "equipped" | "loos
   return weapons + gear + rationStacks;
 }
 
-export function partyBagHasRoom(save: Pick<SaveData, "completed" | "equipment" | "weapons" | "equipped" | "looseEquipment" | "rations">, extra = 1, test = false): boolean {
+export function partyBagHasRoom(save: Pick<SaveData, "completed" | "flags" | "equipment" | "weapons" | "equipped" | "looseEquipment" | "rations">, extra = 1, test = false): boolean {
   return partyBagUsed(save) + extra <= partyBagCapacity(save, test);
 }
 
@@ -3055,8 +3512,12 @@ export const EMBER_DROP: Partial<Record<ClassId, number>> = {
   brigand: 2,
   pikeman: 3,
   wardog: 2,
+  wardog2: 2,
   zombie: 3,
   zombie2: 3,
+  undeadOx: 8,
+  plagueBearingCattle: 10,
+  emberedWraith: 6,
   morvenianWolf: 3,
   mordavianWolf: 5,
   mordavianWolfFinal: 5,
@@ -3069,13 +3530,16 @@ export const EMBER_DROP: Partial<Record<ClassId, number>> = {
   birolhoLegs: 9,
   birolhoLegs2: 9,
   swampBlueCalf: 2,
+  bigBlueCalf: 2,
   cultist: 4,
   cultistV2: 4,
   captain: 6,
+  minorHorror: 5,
   horror: 10,
   asherah: 12,
   troll: 8,
   troll2: 8,
+  roccoTheBird: 12,
 };
 
 export function emberForKill(classId: ClassId): number {
@@ -3099,10 +3563,9 @@ export function emberFromCompleted(completed: string[]): number {
 export const CURES: Record<HealId, { name: string; dice: number; faces: number; bonus: number; mul: number; range: number }> = {
   cureMinor: { name: "Cura Menor", dice: 1, faces: 6, bonus: 0, mul: 1.0, range: 2 },
   cureWounds: { name: "Cura Média", dice: 2, faces: 6, bonus: 0, mul: 1.6, range: 3 },
-  // Paladin tier 4: mechanically identical to the Healer's Cura Média (same dice/mul/range,
-  // "the same as Healer" per spec) — a distinct HealId so its tier-4 uses are its own pool,
-  // never shared with the Healer's tier-2 Cura Média.
-  cureLight: { name: "Cura Leve", dice: 2, faces: 6, bonus: 0, mul: 1.6, range: 3 },
+  // Paladin tier 4: between Minor and Medium Heal, with its own charge pool.
+  // The MAG contribution is 20% above Minor Heal; 1D8 gives a modest potency lift.
+  cureLight: { name: "Healing Hands", dice: 1, faces: 8, bonus: 0, mul: 1.2, range: 1 },
 };
 
 export function rollDice(dice: number, faces: number, bonus: number, rng: () => number): number {
@@ -3183,6 +3646,15 @@ export const CAUSTIC_VENOM = {
   splashFaces: 6,
   splashMul: 1.1,
   splashBonus: 0,
+};
+
+/** Veneno Menor — the mobs' venom (Undead Ox, Zombie Dog; the Birolhos keep the full Veneno
+ * Cáustico): same range, dice and poison as Caustic Venom on a radius-2 splash, drawn with the
+ * original effect (green bolt, burst and acid patch) instead of the 3D V2 smoke. */
+export const MINOR_VENOM = {
+  ...CAUSTIC_VENOM,
+  name: "Veneno Menor",
+  size: 2,
 };
 
 export const LONG_SHOT = {
@@ -3572,14 +4044,25 @@ export const PHANTASMAL_FORCE = {
   range: 6,
 };
 
-/** Enemy-only legacy spell retained for Cultists. It shares Phantasmal Force's level curve
- * and casts twice per battle, but its damage is reduced in BattleEngine. */
+/** Monster-only Phantom System: legacy 2D arcane bolt with its own charge pool and damage
+ * settings, independent of the Conjurer's Phantasmal Force. */
 export const FANTOM_FORCE = {
-  name: "FantomForce",
-  range: PHANTASMAL_FORCE.range,
+  name: "Phantom System",
+  range: 6,
   usesPerBattle: 2,
   damageMul: 0.82,
 };
+
+export function fantomForceChargesFor(classId: ClassId): number {
+  return classId === "cultist" || classId === "cultistV2" || classId === "emberedWraith"
+    ? FANTOM_FORCE.usesPerBattle
+    : 0;
+}
+
+/** Monster spell's own dice progression; changing Phantasmal Force does not change it. */
+export function fantomForceDice(level: number): { dice: number; faces: number } {
+  return { dice: 1, faces: 4 + Math.floor((Math.max(1, level) - 1) / 2) * 2 };
+}
 
 export const PHANTASMAL_FORCE_UNLOCK_LEVEL = 2;
 
@@ -3631,10 +4114,21 @@ export const SUMMON_FAMILIAR4 = {
   statScale: 0.75,
 };
 
-/** Which of the conjurer's three familiar tiers gets a spell of its own, and which one —
+/** Conjurer tier 5 (for testing — meant to become a Necromancer tier 6 spell): summons a
+ * Zombie Dog (Type 2 body) with 100% of the caster's current stats, same one-at-a-time rule
+ * and range as the familiars. The dog casts Veneno Cáustico twice per battle. */
+export const SUMMON_ZOMBIE_DOG = {
+  name: "Invocar Cão Zumbi",
+  range: 4,
+  statScale: 1,
+  causticVenomCharges: 2,
+};
+
+/** Which of the conjurer's familiar tiers gets a spell of its own, and which one —
  * Familiar and Familiar Maior (tiers 1-2) both get Magic Missile, Familiar Titã (tier 3) gets
- * Bola de Fogo instead. Every other tier/class is absent, meaning "no familiar spell of its
- * own" (see familiarSpellRemaining in engine.ts). Familiar Maior is the one tier with a SECOND
+ * Bola de Fogo instead. Familiar Radiante (tier 4) gets three Shock charges per summon.
+ * Classes absent here have no familiar spell of their own (see familiarSpellRemaining in
+ * engine.ts). Familiar Maior and Familiar Radiante also have a SECOND
  * own spell on top of this, Dreno de Vida (see LIFE_DRAIN/familiarLifeDrainCharges below) —
  * it isn't listed here because it runs through its own dedicated Unit.lifeDrainCharges field
  * and castLifeDrain, not the generic spellCharges machinery this table drives. */
@@ -3642,7 +4136,8 @@ export const FAMILIAR_SPELL: Partial<Record<ClassId, SpellKind>> = {
   familiar: "magicMissile",
   familiar2: "magicMissile",
   familiar3: "fireball",
-  familiar4: "magicMissile",
+  familiar4: "shock",
+  zombieDog: "minorVenom",
 };
 
 /** Familiar Titã's own Fireball charges for the battle — set once at summon time from the
@@ -3792,6 +4287,7 @@ export const SHOCK = {
 };
 
 const ENEMY_MAGE_IDS: ReadonlySet<ClassId> = new Set([
+  "minorHorror",
   "cultist",
   "cultistV2",
   "mage",
@@ -3813,6 +4309,7 @@ export function isEnemyMageClass(id: ClassId): boolean {
 /** Choque charges spawned on an enemy mage. Birolho (and Birolho2) get 3; every other mage
  * gets 2. */
 export function shockChargesFor(classId: ClassId): number {
+  if (classId === "roccoTheBird") return 1;
   if (classId === "birolho" || classId === "birolho2" || classId === "birolho3" || classId === "birolhoLegs" || classId === "birolhoLegs2") return 3;
   if (isEnemyMageClass(classId)) return 2;
   return 0;
@@ -3837,7 +4334,7 @@ export const CURE_DISEASE = {
  * two independent breakpoint ladders: the 120%-"overfed" tier (same value a paid Inn meal
  * already grants, INN_FULLNESS) starts flat at level 10, cutting across the dice table's own
  * 9-10 pairing. */
-export const CREATE_FOOD_AND_WATER = { name: "Curar Fome e Sede", radius: 2 };
+export const CREATE_FOOD_AND_WATER = { name: "Criar Comida e Água", radius: 2 };
 
 export function createFoodAndWaterPower(level: number): { dice: number; faces: number; bonus: number; fullness: number } {
   const fullness = level >= 10 ? INN_FULLNESS : 100;
@@ -4137,6 +4634,8 @@ export function rulesClass(classId: ClassId): ClassId {
 }
 
 export function tierUses(classId: ClassId, tier: SpellTier, level: number): number {
+  // Small blue ox: daily Phantasmal Force pool, with a third cast from level 5.
+  if (classId === "swampBlueCalf") return tier === 1 ? (level >= 5 ? 3 : 2) : 0;
   const progressionClass = rulesClass(classId);
   const table = CLASS_TIER_TABLE[progressionClass];
   if (table) {
@@ -4185,11 +4684,13 @@ export const SPELL_TIER: Partial<Record<SpellKind, SpellTier>> = {
   summonFamiliar2: 2,
   summonFamiliar3: 4,
   summonFamiliar4: 3,
+  summonZombieDog: 5,
   webOfDreams: 2,
   fireball: 3,
   lightningTier3: 5,
   cureDisease: 3,
   causticVenom: 4,
+  minorVenom: 4,
   multiShot: 3,
   secondWind: 3,
   cureLight: 4,
@@ -4391,7 +4892,7 @@ const RAW_MISSIONS: Mission[] = [
     title: "Bosque Morto",
     place: "Troncos secos",
     briefing:
-      "As árvores não têm folhas há duas estações. O bosque aperta o passo e esconde besteiros. No charco fareja um Swamp Blue Calf. Não deixem Kael sozinho na frente.",
+      "As árvores não têm folhas há duas estações. O bosque aperta o passo e esconde besteiros. No charco fareja um Cobalt Blue Deer. Não deixem Kael sozinho na frente.",
     objective: "Derrote todos os inimigos",
     win: "rout",
     cols: 9,
@@ -4416,8 +4917,8 @@ const RAW_MISSIONS: Mission[] = [
       { name: "Soldado", classId: "soldier", x: 7, y: 0 },
       { name: "Besteiro", classId: "brigand", x: 4, y: 1 },
       { name: "Besteiro", classId: "brigand", x: 2, y: 2 },
-      { name: "Swamp Blue Calf", classId: "swampBlueCalf", x: 6, y: 2 },
-      { name: "Swamp Blue Calf", classId: "swampBlueCalf", x: 8, y: 4 },
+      { name: "Cobalt Blue Deer", classId: "swampBlueCalf", x: 6, y: 2 },
+      { name: "Cobalt Blue Deer", classId: "swampBlueCalf", x: 8, y: 4 },
     ],
   },
   {
@@ -5087,8 +5588,7 @@ export function scatterTactics(m: Mission): Mission {
   return { ...m, layout };
 }
 
-// Solid props only: the mountain ridge left this list when it became climbable, since
-// rockifyColumns draws these over column tiles that stay impassable underneath.
+// Solid rock props supply collision through the decoration overlay.
 const ROCK_IDS = ["spike-rocks"];
 
 /** Replaces every "column" tile (a marble pillar rendered on its own patch of grass —
@@ -5123,12 +5623,11 @@ function rockifyColumns(mission: Mission): Mission {
       next += 1;
     }
   }
-  // Defensive fallback only — the doubling guarantee above means this should never fire,
-  // but an unpaired column left as-is would still be the exact sprite we're trying to
-  // get rid of, so any survivor becomes plain floor instead.
+  // Clear all former column terrain, including cells now occupied by rocks.
+  // The rock footprint supplies collision; no rendered pillar is needed underneath.
   for (let y = 0; y < mission.rows; y++) {
     for (let x = 0; x < mission.cols; x++) {
-      if (grid[y]![x] === "c" && !claimed.has(`${x},${y}`)) grid[y]![x] = fallbackFloor;
+      if (grid[y]![x] === "c") grid[y]![x] = fallbackFloor;
     }
   }
   return { ...mission, layout: grid.map((row) => row.join("")), decorations };
@@ -5451,7 +5950,7 @@ export function scatterDecor(m: Mission, excludeIds?: ReadonlySet<string>): Miss
   // The Map Editor lets the author opt specific props out of this pool (per direct
   // instruction) — a piece that's too distinctive to see scattered at random, without
   // pulling it out of DECORATIONS entirely and losing manual placement too.
-  const ids = Object.keys(DECORATIONS).filter((id) => !CHEST_DECOR_IDS.has(id) && !MANUAL_DECORATION_IDS.has(id) && !excludeIds?.has(id));
+  const ids = Object.keys(DECORATIONS).filter((id) => !DECORATIONS[id]?.model3d && !CHEST_DECOR_IDS.has(id) && !MANUAL_DECORATION_IDS.has(id) && !excludeIds?.has(id));
   // Uncapped and generous: scenery is the thing a board should have lots of, and anything
   // unwanted is a click to clear. Bumped from 10 to 14 per campaign-sized board alongside
   // wallCenters' own reduction above — the generator now leans toward decoration variety
@@ -5524,6 +6023,8 @@ export const WORLD_LOCATIONS: WorldLocation[] = [
   { id: "ruins", name: "Ruins", x: 77.94, y: 30, missionIds: ["muralha", "fortaleza", "templo", "cripta"] },
   // x/y is the RPG hex map's own hex(6,8) center, same treatment as vertente above.
   { id: "estalagem", name: "Inn", x: 51.96, y: 60, missionIds: ["estalagem"] },
+  // Inn hex(6,8) → E → E → NE: entrance at hex(8,7).
+  { id: "ashen-forest", name: "Ashen Forest Crossing", x: 73.61215932167728, y: 52.5, missionIds: ["ashen-forest-crossing"], openAccess: true },
   // x/y is the RPG hex map's own hex(1,11) center, same treatment as vertente above.
   { id: "dungeon", name: "The Sunken Ruins", x: 12.99, y: 82.5, missionIds: ["colina", "passagem", "profundezas"] },
   { id: "watchtower", name: "Watchtower", x: 24, y: 50, missionIds: ["bosque"] },
@@ -5534,11 +6035,28 @@ export const WORLD_LOCATIONS: WorldLocation[] = [
   { id: "vertente", name: "Fortified Temple Complex", x: 51.96, y: 15, missionIds: [] },
   { id: "village", name: "Village", x: 22, y: 25, missionIds: [] },
   { id: "farm", name: "Farm", x: 14, y: 38, missionIds: [] },
+  // Mordavian Woods is one northwest hex from the Farm (odd-r overworld coordinate 1,4).
+  { id: "mordavian-woods", name: "Mordavian Woods", x: 8.66, y: 30, missionIds: ["mordavian-woods"], encountersAllowed: true, openAccess: true, submaps: [
+    { missionId: "mordavian-woods-floor-1", floor: 1 },
+    { missionId: "mordavian-woods-floor-2", floor: 2 },
+    { missionId: "mordavian-woods-floor-3", floor: 3 },
+    { missionId: "mordavian-woods-floor-4", floor: 4 },
+    { missionId: "mordavian-woods-floor-5", floor: 5 },
+  ] },
   // x/y is the RPG hex map's own hex(6,6) center, same treatment as vertente above.
   { id: "misty-cave", name: "Misty Cave", x: 51.96, y: 45, missionIds: [] },
   { id: "cemetery", name: "Cemetery", x: 86, y: 52, missionIds: [] },
   // x/y is the RPG hex map's own hex(6,10) center, same treatment as vertente above.
-  { id: "frozen-swamp", name: "Frozen Swamp", x: 51.96, y: 75, missionIds: [] },
+  { id: "frozen-swamp", name: "Frozen Swamp", x: 51.96, y: 75, missionIds: ["frozen-swamp-crossing-1"], openAccess: true, submaps: [
+    { missionId: "frozen-swamp-crossing-2", floor: 2 },
+    { missionId: "frozen-swamp-crossing-3", floor: 3 },
+    { missionId: "frozen-swamp-1-sunk-vault", floor: 1 },
+    { missionId: "frozen-swamp-1-hidden-cellar", floor: 1 },
+    { missionId: "frozen-swamp-2-sunk-vault", floor: 2 },
+    { missionId: "frozen-swamp-2-hidden-cellar", floor: 2 },
+    { missionId: "frozen-swamp-3-sunk-vault", floor: 3 },
+    { missionId: "frozen-swamp-3-hidden-cellar", floor: 3 },
+  ] },
   // x/y is the RPG hex map's own hex(9,11) center, same treatment as vertente above.
   { id: "forest", name: "The Verdant Refuge", x: 82.27, y: 82.5, missionIds: [] },
   // x/y is the RPG hex map's own hex(4,8) center, same treatment as vertente above.
@@ -5567,13 +6085,10 @@ const HERO_JOIN_INDEX: Record<string, number> = (() => {
   return out;
 })();
 
-/** Whether a hero has joined the party yet — false before the mission they first appear
- * in has been reached, so their gear doesn't show up in party-wide UI (Ferreiro,
- * Mochila) before the story actually recruits them. Recruited once the PRECEDING mission
- * is completed, since that's the one whose briefing/outcome frees them — e.g. Salazar
- * (first playerSpawn in "cripta", index 6) becomes recruited on completing mission 06,
- * "Nave Enforcada" (index 5), where Asherah falls and he's found as her prisoner. */
-export function heroRecruited(name: string, completed: string[]): boolean {
+/** Whether a hero has joined the party yet. Explicit story recruitment flags take precedence;
+ * otherwise the campaign roster opens when the mission before their first appearance is done. */
+export function heroRecruited(name: string, completed: string[], flags: string[] = []): boolean {
+  if (flags.includes(`recruited:${name}`)) return true;
   const joinIndex = HERO_JOIN_INDEX[name];
   // Not found in any mission's playerSpawns at all (e.g. authored in ALL_HERO_NAMES
   // but their joining mission doesn't exist yet) — must read as "not recruited",

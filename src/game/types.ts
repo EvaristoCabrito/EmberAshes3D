@@ -38,7 +38,7 @@ export type TerrainId = "plains" | "woods" | "ruins" | "water" | "ember" | "hill
  * neutral of that same class on the map — the whole species turns "enemy" at once (see
  * BattleEngine.provoke) and starts acting from the following round. Nothing turns back. */
 export type Side = "player" | "enemy" | "neutral";
-export type ClassId =
+export type ClassId = import("./encounter-npcs").EncounterNpcId
   | "ancientGolem"
   | "swordsman"
   | "archer"
@@ -49,13 +49,19 @@ export type ClassId =
   | "captain"
   | "cultist"
   | "cultistV2"
+  | "minorHorror"
   | "horror"
   | "asherah"
   | "pikeman"
   | "wardog"
+  | "wardog2"
+  | "emberedWraith"
   | "zombie" | "zombie2"
+  | "undeadOx"
+  | "plagueBearingCattle"
   | "troll"
   | "troll2"
+  | "roccoTheBird"
   | "morvenianWolf"
   | "mordavianWolf"
   | "mordavianWolfFinal"
@@ -67,6 +73,7 @@ export type ClassId =
   | "birolhoLegs"
   | "birolhoLegs2"
   | "swampBlueCalf"
+  | "bigBlueCalf"
   // Weak, killable flavor civilians (see SpriteId's own note) — random encounters and regular
   // maps, deliberately not the (not yet built) city hubs, where a civilian instance would carry
   // Spawn.dialog instead and never be a combat target at all.
@@ -119,8 +126,12 @@ export type ClassId =
   | "familiar3"
   // Conjurer tier 3 (Summon Familiar Radiante): Familiar Maior's kit and stat share on a new
   // body — see SUMMON_FAMILIAR4.
-  | "familiar4";
-export type SpriteId = "defaultWarrior" | "neera" | "voss" | "salazar" | "aldric" | "malrec" | "defaultLancer" | "soldier" | "brigand" | "captain" | "sorcerer" | "horror" | "Asherah" | "pikeman" | "wardog" | "zombie" | "zombie2" | "troll" | "troll2" | "morvenian-wolf" | "mordavian-wolf" | "mordavian-wolf-final" | "punisher" | "theButcher" | "birolho" | "birolho2" | "birolho3" | "BirolhoLegs" | "BirolhoLegs2" | "familiar" | "familiar2" | "familiar3" | "familiar4" | "swamp-blue-calf" | "ancient-golem" | "lancer" | "sandoval" | "kaelFinal" | "kaelEarly" | "conjurer" | "cultist-v2"
+  | "familiar4"
+  // Conjurer tier 5 (Invocar Cão Zumbi): a summoned zombie dog — see SUMMON_ZOMBIE_DOG.
+  | "zombieDog"
+  | "travelingMerchant";
+export type SpriteId = "defaultWarrior" | "neera" | "voss" | "salazar" | "aldric" | "malrec" | "defaultLancer" | "soldier" | "brigand" | "captain" | "sorcerer" | "horror" | "minor-horror-001" | "Asherah" | "pikeman" | "wardog" | "wardog2" | "EmberedWraith" | "zombie" | "zombie2" | "undeadOx" | "plague-bearing-cattle" | "troll" | "troll2" | "RoccoTheBird" | "morvenian-wolf" | "mordavian-wolf" | "mordavian-wolf-final" | "punisher" | "theButcher" | "birolho" | "birolho2" | "birolho3" | "BirolhoLegs" | "BirolhoLegs2" | "familiar" | "familiar2" | "familiar3" | "familiar4" | "zombieDog" | "swamp-blue-calf" | "cobalt-blue-deer" | "big-blue-ox-002" | "ancient-golem" | "lancer" | "sandoval" | "kaelFinal" | "kaelEarly" | "conjurer" | "cultist-v2"
+  | import("./encounter-npcs").EncounterNpcId
   // Generic-enemy "alter" sprites, split off so a plain Archer/Mage/Healer enemy (and their
   // own promotions) never renders as literally the same SpriteId as Neera/Voss/Salazar the
   // MCs — see HERO_SPRITE_BY_NAME/CLASSES in engine.ts/data.ts. Each starts as a straight
@@ -142,7 +153,7 @@ export type SpriteId = "defaultWarrior" | "neera" | "voss" | "salazar" | "aldric
   | "shadyPatron"
   | "soupLady"
   | "villagerF1"
-  | "woodsman";
+  | "woodsman" | "travelingMerchant";
 export type HealId = "cureMinor" | "cureWounds" | "cureLight";
 export type SpellKind =
   | "fireball"
@@ -155,6 +166,8 @@ export type SpellKind =
   | "magicMissile"
   | "magicMissileV2"
   | "causticVenom"
+  // Veneno Menor: the mobs' radius-2 venom (MINOR_VENOM in data.ts).
+  | "minorVenom"
   | "doubleStrike"
   | "cleave"
   | "cureDisease"
@@ -167,6 +180,7 @@ export type SpellKind =
   | "summonFamiliar2"
   | "summonFamiliar3"
   | "summonFamiliar4"
+  | "summonZombieDog"
   | "lifeDrain"
   | "webOfDreams"
   | "multiShot"
@@ -182,7 +196,7 @@ export type SpellKind =
   | "shieldBash"
   | "burningHands"
   | "createFoodAndWater";
-export type ScreenId = "boot" | "title" | "campaign" | "mapChoice" | "vauIntro" | "wispForestIntro" | "innArrivalIntro" | "worldMap" | "overworldMap" | "briefing" | "cutscene" | "epilogue" | "battle" | "victory" | "defeat" | "inn" | "testMenu" | "mapEditor" | "devControls";
+export type ScreenId = "boot" | "title" | "saveSlots" | "campaign" | "mapChoice" | "vauIntro" | "wispForestIntro" | "innArrivalIntro" | "worldMap" | "overworldMap" | "briefing" | "cutscene" | "epilogue" | "battle" | "victory" | "defeat" | "inn" | "testMenu" | "mapEditor" | "devControls";
 export type Phase = "player" | "enemy";
 export type InputMode = "idle" | "selected" | "awaitAction" | "awaitAttack" | "awaitOffHand" | "awaitSpell" | "awaitPotion" | "locked";
 
@@ -245,19 +259,25 @@ export interface ClassDef {
 /** One reply choice inside a branching DialogLine. Picking it jumps to `next`, or ends the
  * tree if `next` is absent/null — same convention as DialogLine.next below. */
 export interface DialogReply {
+  /** Directed companion chapter resolved by this response, for one-time affinity changes. */
+  companionScene?: string;
+  affinity?: { from: string; to: string; delta: -3 | 0 | 3 };
+  translations?: Partial<Record<"pt" | "en", string>>;
   text: string;
   next?: string | null;
   /** Opens one of the Inn's menus after the popup closes — see DialogAction. */
   action?: DialogAction;
 }
 
-/** A screen a dialog reply can hand off to: Brue's tavern menu or Vargan's smith. */
-export type DialogAction = "tavern" | "smith";
+/** A handoff a dialog reply can trigger: an Inn or merchant shop, or a story recruitment. */
+export type DialogAction = "tavern" | "smith" | "healer" | "merchant" | "merchantGear" | "recruitAldric" | "acceptSuspectHostageQuest";
 
 /** One screen of the dialog popup: a speaker, an optional portrait, and the line itself.
  * Either it links straight to the next line (`next`, plain "OK" to continue) or it branches
  * (`replies`, one button per reply) — never both; `replies` wins if somehow both are set. */
 export interface DialogLine {
+  translations?: Partial<Record<"pt" | "en", string>>;
+  speakerTranslations?: Partial<Record<"pt" | "en", string>>;
   id: string;
   speaker: string;
   /** A SpriteId to resolve a portrait image from (see resolveDialogPortrait) — omitted shows
@@ -290,6 +310,8 @@ export interface Spawn {
    * Meant for neutral-side spawns — a neutral with no dialog stays the existing wild-beast
    * behavior, unchanged. */
   dialog?: DialogTree;
+  /** Optional door that must be opened before this NPC can be talked to. */
+  dialogRequiresOpenDoor?: { x: number; y: number };
   /** Editor/test escape hatch from HERO_SPRITE_BY_NAME (engine.ts): one of the six named
    * heroes normally always renders with their own pinned sprite no matter what classId they
    * carry, so a promoted hero never visually turns into the stock enemy art their new class
@@ -310,6 +332,22 @@ export type WinCondition = "rout" | "boss" | "escape";
  * grid so it doesn't need to fill each hex's exact shape. Every hex in its footprint is
  * impassable and blocks line of sight, independent of whatever terrain tile is under it. */
 export interface DecorationDef {
+  /** Architecture meshes live in the editor's separate 3D Walls palette. */
+  model3d?: "wall" | "doorway" | "door" | "secretDoor" | "tree" | "prop";
+  /** Paired open/closed architecture variant, used to retain a door's appearance on opening. */
+  doorStyle?: "oak" | "reinforced" | "secretStone" | "iron" | "steel" | "castle" | "stoneOak" | "dungeonOak";
+  castleStyle?: "battlement" | "ruined" | "gate" | "tower";
+  thickWall?: boolean;
+  architectureSpan?: number;
+  dungeonReference?: boolean;
+  templeStyle?: "plain" | "niche" | "relief";
+  propModel?: "small-house" | "rocky-outcrop" | "grey-outcrop" | "tavern-barrel" | "tavern-chair" | "tavern-candlestick" | "tavern-mug" | "tavern-table";
+  treeModel?: "broadleaf" | "snowy-pine" | "dead-oak" | "dead-snag" | "twisted-stump";
+  rockStyle?: "layered" | "arch" | "broken";
+  /** Repeating albedo material for architecture; lighting remains real time. */
+  wallTexture?: string;
+  /** Extra masonry depth multiplier; defaults to the standard thin wall profile. */
+  wallThicknessScale?: number;
   id: string;
   name: string;
   /** Hex offsets from the anchor cell (dx/dy in board coordinates, same convention as
@@ -319,11 +357,9 @@ export interface DecorationDef {
   blockingFootprint?: { dx: number; dy: number }[];
   /** The terrain this prop means, if it means one.
    *
-   * Decorations are art: every rule — whether a hex can be walked, shot through or stood
-   * on top of — comes from the tile underneath, which is why the rocks that rockifyColumns
-   * draws leave their column tile in place. A ridge you can climb is a mountain-ridge prop
-   * sitting on "hill". Naming it here lets the editor lay the tile with the prop, so the
-   * picture and the rules cannot drift apart. */
+   * A ridge you can climb sits on "hill". Naming terrain here lets the editor lay
+   * that tile with the prop. Solid decorations such as rocks instead block through
+   * their own footprints without changing the ground underneath. */
   tile?: TerrainId;
   /** Draw this prop after character sprites so near-side scenery can naturally occlude
    * them. This is visual-only: it does not change movement, line of sight, or terrain. */
@@ -338,6 +374,8 @@ export interface DecorationDef {
   repeatGroup?: string;
   /** Optional vertical presentation multiplier for tall isometric scenery. */
   heightScale?: number;
+  /** Mirror alternating placements horizontally to add visual variety to repeated props. */
+  mirrorAlternate?: boolean;
   /** Visual multiplier applied to both dimensions without changing the footprint or rules. */
   artScale?: number;
   /** Normalized horizontal artwork offset from its measured base anchor. */
@@ -371,8 +409,13 @@ export interface DecorationPlacement {
   y: number;
   /** How far the prop is turned, in sixths of a circle (0-5). A hexagon maps onto itself
    * every 60 degrees, so those are the only turns whose footprint still lands on real
-   * hexes. Optional: a map saved before props could turn has no such key, read as 0. */
+   * hexes. Architecture instead uses quarter-turns (0-3) for rectangular walls and doors.
+   * Optional: a map saved before props could turn has no such key, read as 0. */
   rot?: number;
+  /** Mirror this placed prop horizontally without rotating its occupied hexes. */
+  mirrorX?: boolean;
+  /** Explicit wall axis; absent preserves older maps' automatic corner joins. */
+  wallOrientation?: "horizontal" | "vertical";
   /**
    * Per-placement rule overrides, set by the two switches in the map editor.
    *
@@ -421,7 +464,16 @@ export interface ElementalFxPlacement {
   parameters?: Record<string, number | boolean>;
 }
 
+/** Authored payment for clearing a battlefield and helping named neutral NPCs. */
+export interface VictoryReward {
+  ember: number;
+  rations: number;
+  requiredNpcNames?: string[];
+}
+
 export interface Mission {
+  /** Preserve authored starting positions for scripted or dangerous openings. */
+  lockPartyFormation?: boolean;
   id: string;
   index: number;
   title: string;
@@ -523,6 +575,15 @@ export interface Mission {
    * Missing/undefined index or omitted array entirely means variant 0 (the default) —
    * existing missions never set this and keep rendering exactly as before. */
   tileVariants?: number[];
+  /** Authored terrain levels, row-major. Positive levels grant existing high-ground advantages in both views. Missing cells retain the terrain type's height. */
+  terrainElevations?: number[];
+  /** Independent 3D water surface levels. Null cells have no authored water. */
+  waterLevels?: (number | null)[];
+  /** Free-position water strokes in tile-normalized world coordinates (Y down). */
+  waterVersion?: "v1" | "v2" | "v3" | "v4";
+  waterPatches?: { x: number; y: number; level: number; size: number; shape: "round" | "square" }[];
+  /** Water footprint size and shape per cell; absent means the original full round brush. */
+  waterFootprints?: ({ size: number; shape: "round" | "square" } | null)[];
   /** Default ground chosen in the map editor. Terrain-changing decorations restore this tile when removed. */
   baseTile?: TerrainId;
   baseVariant?: number;
@@ -544,6 +605,7 @@ export interface Mission {
    * door/sub-area rather than just leaving out in the open. Omitted on every existing
    * mission — purely additive. */
   betterChests?: { x: number; y: number }[];
+  victoryReward?: VictoryReward;
   /** Shown once, before the player can act, right as the battle screen opens. Omitted on
    * every existing mission — purely additive. */
   introDialog?: DialogTree;
@@ -564,6 +626,10 @@ export interface Mission {
 export interface WorldLocation {
   id: string;
   name: string;
+  /** Location and first mission ignore the campaign's previous-location prerequisite. */
+  openAccess?: boolean;
+  /** Travel encounters can also roll on this named location's hex. */
+  encountersAllowed?: boolean;
   /** Position on the world map image, in percent (0-100) of its width/height. */
   x: number;
   y: number;
@@ -619,6 +685,11 @@ export interface Unit {
   moved: boolean;
   acted: boolean;
   facing: 1 | -1;
+  /** The unit's last real heading on the board (hexCenter delta toward its last attack/counter/cast
+   * target, or along its last step). `facing` is re-derived from it for the current camera angle every
+   * frame, so a unit keeps pointing where it last fought, whatever the camera does. */
+  faceDx?: number;
+  faceDy?: number;
   walkPose: "front" | "back" | "side";
   /** Flips at the start of every one of this unit's own turns (see beginUnitTurn). Consulted
    * by sprites with a second idle loop (currently just Malrec, see idles2 in GameArt) to
@@ -639,11 +710,20 @@ export interface Unit {
   healGlow: number;
   /** Palette the healGlow halo uses: holy gold (minor/medium), disease teal, potion amber,
    * or Potionzero (the original warm-white glow, kept for future skills). */
-  healGlowKind: "holyMinor" | "holyMedium" | "disease" | "potion" | "potionZero" | "food" | "bless";
+  healGlowKind: "holyMinor" | "healingHands" | "holyMedium" | "disease" | "potion" | "potionZero" | "food" | "bless";
   fade: number;
+  /** Engine time (BattleEngine.time) at which this unit died — drives its death sheet (see
+   * GameArt.deaths) and holds off the fade-out until that sheet has played. */
+  diedAt?: number;
+  /** Rolled at death: plays the alternate death sheet (GameArt.deaths2) instead, for the
+   * sprites that have one. */
+  deathAlt?: boolean;
+  /** Engine time at which this unit last took damage — drives its hit-reaction sheet (see
+   * GameArt.hits). */
+  hitAt?: number;
   bob: number;
   level: number;
-  /** XP toward the next level (0..EXP_TO_LEVEL-1). Player-only; always 0 for enemies. */
+  /** XP toward the next level (0..expToLevel(level)-1). Player-only; always 0 for enemies. */
   xp: number;
   bag: Bag;
   spells: Spells;
@@ -931,6 +1011,8 @@ export interface HudSnapshot {
   playerAlive: number;
   enemyAlive: number;
   busy: boolean;
+  /** Whether Cancel can safely stop a player movement animation before its queued action resolves. */
+  canCancelMovement: boolean;
   result: "victory" | "defeat" | null;
   winAvailable: boolean;
   /** The waypoint currently offering an exit action — see DecorationDef.exitKind and
@@ -975,10 +1057,11 @@ export interface GameArt {
   decorations: Record<string, HTMLImageElement>;
   sprites: Record<SpriteId, HTMLImageElement[]>;
   attacks: Partial<Record<SpriteId, HTMLImageElement[]>>;
-  /** A second, distinct attack cut for the few sprites that have one (currently just Familiar
-   * 3) — Unit.idleAlt (the same flip Malrec's idles2 uses, see its doc comment) picks between
-   * this and the sprite's regular `attacks` pool, alternating turn to turn. */
+  /** A second, distinct attack cut for sprites with an alternate move (Familiar 3, plus
+   * Neera's placeholder bow-skill ATT). Unit.idleAlt selects it for Familiar 3. */
   attacks2: Partial<Record<SpriteId, HTMLImageElement[]>>;
+  /** Left-facing counterpart for a second attack cut when its source has authored mirrored frames. */
+  attacks2Left: Partial<Record<SpriteId, HTMLImageElement[]>>;
   /** Short-range (off-hand dagger/katar) attack cut, atk-short-*.png, for the sprites that
    * have one (currently Neera). Used instead of `attacks` whenever the strike is with the
    * off-hand weapon — the unit's own off-hand attack or its off-hand counter. */
@@ -1023,6 +1106,17 @@ export interface GameArt {
    * walk). No gameplay effect. */
   walks2: Partial<Record<SpriteId, HTMLImageElement[]>>;
   walksLeft2: Partial<Record<SpriteId, HTMLImageElement[]>>;
+  /** Death sheet (death-*.png), for the sprites that have one: plays once when the unit dies,
+   * holds the last frame for a moment, then the unit fades out as usual. Sprites without one
+   * just fade out on death, exactly as before. */
+  deaths: Partial<Record<SpriteId, HTMLImageElement[]>>;
+  /** Alternate death sheet (death2-*.png), played instead of `deaths` about one death in
+   * three (Unit.deathAlt), for variety. */
+  deaths2: Partial<Record<SpriteId, HTMLImageElement[]>>;
+  /** Hit-reaction sheet (hit-*.png), for the sprites that have one: plays once whenever the
+   * unit takes damage, unless it is attacking or walking at that moment. On a killing blow it
+   * plays first and the death sheet follows. Sprites without one just flash, as before. */
+  hits: Partial<Record<SpriteId, HTMLImageElement[]>>;
   impact: HTMLImageElement[];
   /** Ultra-realistic Fireball core; its trail and light remain procedural. */
   fireballCore: HTMLImageElement;
@@ -1065,6 +1159,8 @@ export interface BattleUnitSnap {
   moved: boolean;
   acted: boolean;
   facing: 1 | -1;
+  faceDx?: number;
+  faceDy?: number;
   alive: boolean;
   fade: number;
   level: number;
@@ -1104,6 +1200,7 @@ export interface BattleUnitSnap {
 }
 
 export interface BattleSnapshot {
+  affinityScores?: Record<string, number>;
   missionId: string;
   turn: number;
   phase: Phase;
@@ -1215,6 +1312,17 @@ export interface SaveData {
   /** RPG map only: current hex position and day count. Unused by the classic map. */
   overworldPos: { col: number; row: number };
   gameClock: number;
+  /** Hour on the travel clock (0..23); older saves start at 08:00. */
+  gameHour?: number;
+  /** Shared relationship score for each named hero pair, from 0 to 100. */
+  affinityScores?: Record<string, number>;
+  /** Chosen response per directed companion chapter; preserved across leader changes. */
+  companionConversations?: Record<string, -3 | 0 | 3>;
+  partyFormation?: string[];
+  /** Hero who walks the world map and free-roam maps (Party menu); absent means Kael. */
+  partyLeader?: string;
+  /** Actual travel hours with an empty hunger meter; absent falls back to hungerStreak days. */
+  hungerHours?: number;
   /** RPG map only: every hex ("col,row") the party has ever stood on — drives the fog of
    * war (see OverworldMapScreen): a location pin other than the Inn only shows once its
    * hex is in here, and the dark overlay clears in a radius around each one. Grows,
@@ -1227,6 +1335,8 @@ export interface SaveData {
   /** Overworld illnesses persist between travel and battles until cured with a disease
    * potion or the Curar Doença spell. Missing heroes are healthy for old saves. */
   heroDiseases: Record<string, boolean>;
+  /** Poison residue that survives between battles until cured. Older saves default to none. */
+  heroPoisons: Record<string, boolean>;
   /** Party-wide ration stock. One ration refills one character's fullness to 100%; inn
    * meals are bought separately. A real backpack item that stacks by RATION_STACK_MAX. */
   rations: number;
@@ -1239,10 +1349,12 @@ export interface SaveData {
    * really is out there, whether or not it's crossed your path yet. Decrements by one every
    * travel day, 0 = normal odds. */
   alertStreak: number;
-  /** The road encounter's mission id from the last time one triggered — excluded from the
-   * very next pick (see roadEncounterIds/stepOverworld in overworld.ts) so the same fight
+  /** The travel encounter's mission id from the last time one triggered — excluded from the
+   * very next pick (see travelEncounterIds/stepOverworld in overworld.ts) so the same fight
    * never repeats twice in a row. null before the first one ever fires. */
   lastRoadEncounterId: string | null;
+  /** Travel battle maps seen during this campaign; legacy name retained for existing saves. */
+  roadEncountersSeen?: string[];
 }
 
 export interface SaveBank {
@@ -1274,12 +1386,10 @@ export interface GrowthLine {
   resFrom: number;
   resTo: number;
   fallen: boolean;
-  /** XP toward the next level at the end of the mission (0..EXP_TO_LEVEL-1). */
+  /** XP toward the next level at the end of the mission (0..expToLevel(level)-1). */
   xp: number;
-  /** XP toward the level shown by `xp` at mission start — the ResultScreen's XP bar
-   * animates from here up to `xp` rather than snapping straight to the final value. Only
-   * meaningful (nonzero) when `to === from`; a level-up resets it to 0 since the bar is now
-   * tracking progress in a different level than the one `xpFrom` would describe. */
+  /** XP toward level `from + 1` at mission start. The ResultScreen's XP bar fills from here
+   * to full, refills once per level gained, and ends at `xp` (progress toward `to + 1`). */
   xpFrom: number;
   /** Extra spell uses this level-up granted (e.g. "+1 T1 · +1 T2"). Empty when the new
    * level didn't add slots — spent charges are never refilled, only new slots land. */

@@ -1,15 +1,18 @@
-import { EQUIPMENT, EXP_TO_LEVEL, MAX_GRID, MAX_LEVEL, POTION_CARRY_MAX, BAG_MAX, PROMOTIONS, STAT_POINTS_PER_LEVEL, WEAPONS, WORLD_LOCATIONS, emberFromCompleted, equipmentFitsSlot, starterWeaponFor, startingBags } from "./data";
+import { cleanPartyFormation, cleanPartyLeader } from "./partyFormation";
+import { EQUIPMENT, EXP_TO_LEVEL, expToLevel, MAX_GRID, MAX_LEVEL, POTION_CARRY_MAX, BAG_MAX, PROMOTIONS, STAT_POINTS_PER_LEVEL, WEAPONS, WORLD_LOCATIONS, emberFromCompleted, equipmentFitsSlot, starterWeaponFor, startingBags } from "./data";
 import { ALL_MISSIONS } from "./mapstore";
-import { OVERWORLD_START_HEX, worldToHex } from "./overworld";
+import { OVERWORLD_START_HEX, locationAt, worldToHex } from "./overworld";
 import { cleanHunger, fullness } from "./hunger";
+import { cleanAffinityScores } from "./affinity";
+import { cleanConversationMemory } from "./companionDialogues";
 import { TIER_KEYS } from "./types";
-import type { Bag, BattleSnapshot, BattleUnitSnap, ClassId, DialogLine, DialogTree, EquipSlot, Phase, SaveBank, SaveData, Side, SpriteId, StatPointAllocation, StatPointAttribute, TerrainId, TierKey } from "./types";
+import type { Bag, BattleSnapshot, BattleUnitSnap, ClassId, DialogAction, DialogLine, DialogTree, EquipSlot, Phase, SaveBank, SaveData, Side, SpriteId, StatPointAllocation, StatPointAttribute, TerrainId, TierKey } from "./types";
 
 /** Fresh parties begin one hex left of Stone Bridge, on the map's west edge. */
 const START_HEX = OVERWORLD_START_HEX;
 
-export const SLOT_COUNT = 5;
-export const SAVE_VERSION = 16;
+export const SLOT_COUNT = 6;
+export const SAVE_VERSION = 18;
 const BANK_KEY = "ember-save-bank";
 const SAVE_KEY = "ember-save";
 const SAVE_BAK_KEY = "ember-save.bak";
@@ -123,12 +126,12 @@ function cleanLevels(raw: unknown): Record<string, number> {
   return levels;
 }
 
-function cleanXp(raw: unknown): Record<string, number> {
+function cleanXp(raw: unknown, levels: Record<string, number>): Record<string, number> {
   const xp = { ...DEFAULT_XP };
   if (!raw || typeof raw !== "object") return xp;
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (!HEROES.includes(k as (typeof HEROES)[number])) continue;
-    xp[k] = clampInt(v, 0, EXP_TO_LEVEL - 1);
+    xp[k] = clampInt(v, 0, expToLevel(levels[k] ?? 1) - 1);
   }
   return xp;
 }
@@ -262,7 +265,11 @@ function cleanDialogTree(raw: unknown): DialogTree | null {
           if (!r || typeof r !== "object") return [];
           const rr = r as Record<string, unknown>;
           if (typeof rr.text !== "string") return [];
-          return [{ text: rr.text, next: typeof rr.next === "string" ? rr.next : null }];
+          const action = rr.action === "tavern" || rr.action === "smith" || rr.action === "healer" || rr.action === "merchant" || rr.action === "merchantGear" || rr.action === "recruitAldric" || rr.action === "acceptSuspectHostageQuest" ? (rr.action as DialogAction) : undefined;
+          const af = rr.affinity as { from?: unknown; to?: unknown; delta?: unknown } | undefined;
+          const affinity = af && typeof af.from === "string" && typeof af.to === "string" && (af.delta === -3 || af.delta === 0 || af.delta === 3)
+            ? { from: af.from, to: af.to, delta: af.delta as -3 | 0 | 3 } : undefined;
+          return [{ text: rr.text, next: typeof rr.next === "string" ? rr.next : null, action, affinity }];
         })
       : undefined;
     lines.push({
@@ -343,10 +350,12 @@ function cleanBattleUnit(raw: unknown): BattleUnitSnap | null {
     moved: u.moved === true,
     acted: u.acted === true,
     facing,
+    faceDx: typeof u.faceDx === "number" && Number.isFinite(u.faceDx) ? u.faceDx : undefined,
+    faceDy: typeof u.faceDy === "number" && Number.isFinite(u.faceDy) ? u.faceDy : undefined,
     alive: u.alive !== false,
     fade: Math.min(1, Math.max(0, Number(u.fade) || 1)),
     level: clampInt(u.level, 1, MAX_LEVEL),
-    xp: clampInt(u.xp, 0, EXP_TO_LEVEL - 1),
+    xp: clampInt(u.xp, 0, expToLevel(clampInt(u.level, 1, MAX_LEVEL)) - 1),
     bag: cleanBag(u.bag),
     spells,
     weaponId: typeof u.weaponId === "string" && WEAPONS[u.weaponId] ? u.weaponId : null,
@@ -387,14 +396,17 @@ function cleanBattle(raw: unknown, pendingMission: string | null): BattleSnapsho
   const tiles = (b.tiles as unknown[]).filter((t): t is TerrainId => typeof t === "string") as TerrainId[];
   const decorations = Array.isArray(b.decorations)
     ? (b.decorations as unknown[])
-        .filter((d): d is { id: string; x: number; y: number; rot?: number } => !!d && typeof d === "object" && typeof (d as { id?: unknown }).id === "string")
+        .filter((d): d is Record<string, unknown> => !!d && typeof d === "object" && typeof (d as { id?: unknown }).id === "string")
         .map((d) => ({
-          id: (d as { id: string }).id,
-          x: clampInt((d as { x?: unknown }).x, 0, MAX_GRID - 1),
-          y: clampInt((d as { y?: unknown }).y, 0, MAX_GRID - 1),
-          rot: typeof (d as { rot?: unknown }).rot === "number" ? clampInt((d as { rot?: unknown }).rot, 0, 5) : undefined,
-          blocksPath: (d as { blocksPath?: unknown }).blocksPath === true ? true : undefined,
-          yieldsHighGround: (d as { yieldsHighGround?: unknown }).yieldsHighGround === true ? true : undefined,
+          id: d.id as string,
+          x: clampInt(d.x, 0, MAX_GRID - 1),
+          y: clampInt(d.y, 0, MAX_GRID - 1),
+          rot: typeof d.rot === "number" ? clampInt(d.rot, 0, 5) : undefined,
+          mirrorX: d.mirrorX === true ? true : undefined,
+          blocksPath: d.blocksPath === true ? true : undefined,
+          yieldsHighGround: d.yieldsHighGround === true ? true : undefined,
+          targetMapId: typeof d.targetMapId === "string" ? d.targetMapId : undefined,
+          returnConnector: d.returnConnector === true ? (true as const) : undefined,
         }))
     : [];
   const turnOrder = Array.isArray(b.turnOrder) ? (b.turnOrder as unknown[]).filter((id): id is string => typeof id === "string") : units.map((u) => u.id);
@@ -438,6 +450,7 @@ function cleanBattle(raw: unknown, pendingMission: string | null): BattleSnapsho
   const phase: Phase = b.phase === "enemy" ? "enemy" : "player";
   return {
     missionId,
+    affinityScores: b.affinityScores == null ? undefined : cleanAffinityScores(b.affinityScores),
     turn: clampInt(b.turn, 1, 999),
     phase,
     units,
@@ -500,7 +513,7 @@ function starterEquipment(): { weapons: Record<string, number>; equipped: Record
     weapons[id] = 0;
     equipped[hero] = id;
   }
-  equipment.Neera = { offHand: "adaga-secundaria" };
+  equipment.Neera = { offHand: "punhal-curvo" };
   for (const [hero, classId] of Object.entries(LATE_HERO_BASE_CLASS)) {
     const id = starterWeaponFor(classId);
     if (!id) continue;
@@ -536,13 +549,16 @@ export function emptySave(muted = false): SaveData {
     seenInnArrivalIntro: false,
     overworldPos: { col: START_HEX.x, row: START_HEX.y },
     gameClock: 0,
+    affinityScores: {},
     overworldMoveBudgetUsed: 0,
     heroHunger: {},
     heroDiseases: {},
+    heroPoisons: {},
     rations: STARTING_RATIONS,
     hungerStreak: 0,
     alertStreak: 0,
     lastRoadEncounterId: null,
+    roadEncountersSeen: [],
     exploredHexes: [`${START_HEX.x},${START_HEX.y}`],
   };
 }
@@ -591,12 +607,45 @@ function migrateRecord(raw: Record<string, unknown>, muted: boolean): SaveData {
       if (cleanIds.length) crossingDefeatedSpawns[missionId] = [...new Set(cleanIds)];
     }
   }
-  const weapons = cleanWeapons(raw.weapons);
+  // v18 (applied to every save, not only older ones — a save written by the running game off-hand-only equipment right after the change would carry the removed id under the new version number):
+  // daggers/katars became off-hand-only equipment (same ids, see OFFHAND_DAGGERS in data.ts)
+  // and "adaga-secundaria" was removed. Owned daggers move from the weapon list to the loose
+  // equipment stash, and the removed item becomes the weakest dagger, so nothing is lost.
+  let rawWeapons = raw.weapons;
+  let rawLoose = raw.looseEquipment;
+  let rawEquipment = raw.equipment;
+  {
+    const daggerIds = ["punhal-curvo", "katar", "adaga-sombria", "adaga-de-veneno", "adaga-viperina", "misericordia-sombria", "punhal-do-salteador", "katar-sepulcral"];
+    const loose: Record<string, unknown> = rawLoose && typeof rawLoose === "object" ? { ...(rawLoose as Record<string, unknown>) } : {};
+    const addLoose = (id: string) => { loose[id] = (typeof loose[id] === "number" ? (loose[id] as number) : 0) + 1; };
+    if (rawWeapons && typeof rawWeapons === "object") {
+      const kept: Record<string, unknown> = { ...(rawWeapons as Record<string, unknown>) };
+      for (const id of daggerIds) if (id in kept) { delete kept[id]; addLoose(id); }
+      rawWeapons = kept;
+    }
+    if (typeof loose["adaga-secundaria"] === "number") {
+      const n = loose["adaga-secundaria"] as number;
+      delete loose["adaga-secundaria"];
+      for (let i = 0; i < n; i++) addLoose("punhal-curvo");
+    }
+    rawLoose = loose;
+    if (rawEquipment && typeof rawEquipment === "object") {
+      const swapped: Record<string, unknown> = {};
+      for (const [hero, slots] of Object.entries(rawEquipment as Record<string, unknown>)) {
+        swapped[hero] = slots && typeof slots === "object" && (slots as Record<string, unknown>).offHand === "adaga-secundaria"
+          ? { ...(slots as Record<string, unknown>), offHand: "punhal-curvo" }
+          : slots;
+      }
+      rawEquipment = swapped;
+    }
+  }
+  const weapons = cleanWeapons(rawWeapons);
   const equipped = cleanEquipped(raw.equipped, weapons);
-  const equipment = cleanEquipment(raw.equipment);
-  // v15 removes an accidentally seeded Besta Leve from untouched new-game saves. It is found
-  // or bought during play, never granted as starting equipment.
-  if (version < 15 && completed.length === 0 && weapons["besta-leve"] != null) {
+  const equipment = cleanEquipment(rawEquipment);
+  // v17 removes an accidentally seeded Besta Leve from untouched new-game saves, including
+  // saves that were already migrated by v15 before the cleanup covered the current version.
+  // It is found or bought during play, never granted as starting equipment.
+  if (version < 17 && completed.length === 0 && weapons["besta-leve"] != null) {
     delete weapons["besta-leve"];
     for (const [hero, weaponId] of Object.entries(equipped)) {
       if (weaponId === "besta-leve") delete equipped[hero];
@@ -607,7 +656,7 @@ function migrateRecord(raw: Record<string, unknown>, muted: boolean): SaveData {
   if (version < 14) {
     weapons["arco-composto"] = weapons["arco-composto"] ?? 0;
     equipped.Neera = "arco-composto";
-    equipment.Neera = { ...equipment.Neera, offHand: equipment.Neera?.offHand ?? "adaga-secundaria" };
+    equipment.Neera = { ...equipment.Neera, offHand: equipment.Neera?.offHand ?? "punhal-curvo" };
   }
   // Backfill: any hero with nothing equipped yet (old save, predates weapons) gets their
   // class's free starter weapon, same as a brand new save already does.
@@ -650,14 +699,14 @@ function migrateRecord(raw: Record<string, unknown>, muted: boolean): SaveData {
     questKills: cleanQuestList(raw.questKills),
     unitHp: cleanHp(raw.unitHp),
     levels,
-    xp: cleanXp(raw.xp),
+    xp: cleanXp(raw.xp, levels),
     statPointAllocations: cleanStatPointAllocations(raw.statPointAllocations, levels),
     bags: version < 4 ? startingBags() : cloneBags(raw.bags as Record<string, Bag>),
     promotions: cleanPromotions(raw.promotions),
     weapons,
     equipped,
     equipment,
-    looseEquipment: cleanLooseEquipment(raw.looseEquipment),
+    looseEquipment: cleanLooseEquipment(rawLoose),
     spellUses: cleanSpellUses(raw.spellUses),
     ember,
     emberSeeded,
@@ -672,13 +721,21 @@ function migrateRecord(raw: Record<string, unknown>, muted: boolean): SaveData {
     mapMode: raw.mapMode === "classic" || raw.mapMode === "rpg" ? raw.mapMode : undefined,
     overworldPos,
     gameClock: clampInt(raw.gameClock, 0, 999999),
+    gameHour: clampInt(raw.gameHour ?? 8, 0, 23),
+    affinityScores: cleanAffinityScores(raw.affinityScores),
+    companionConversations: cleanConversationMemory(raw.companionConversations),
+    partyFormation: cleanPartyFormation(raw.partyFormation),
+    partyLeader: cleanPartyLeader(raw.partyLeader),
     overworldMoveBudgetUsed: clampInt(raw.overworldMoveBudgetUsed ?? raw.gameClock, 0, 999999),
     heroHunger: cleanHunger(raw.heroHunger),
     heroDiseases: cleanHeroDiseases(raw.heroDiseases),
+    heroPoisons: cleanHeroDiseases(raw.heroPoisons),
     rations: typeof raw.rations === "number" ? clampInt(raw.rations, 0, 999999) : STARTING_RATIONS,
     hungerStreak: clampInt(raw.hungerStreak, 0, 999999),
+    hungerHours: typeof raw.hungerHours === "number" && Number.isFinite(raw.hungerHours) ? Math.max(0, raw.hungerHours) : undefined,
     alertStreak: clampInt(raw.alertStreak, 0, 999999),
     lastRoadEncounterId: typeof raw.lastRoadEncounterId === "string" ? raw.lastRoadEncounterId : null,
+    roadEncountersSeen: cleanStringList(raw.roadEncountersSeen, MISSION_IDS),
     exploredHexes: cleanExploredHexes(raw.exploredHexes, completed, overworldPos),
   };
 }
@@ -720,7 +777,7 @@ function writeKey(key: string, value: string): boolean {
 
 function slotOccupied(s: SaveData | null): boolean {
   if (!s) return false;
-  return s.completed.length > 0 || Object.keys(s.unitHp).length > 0 || !!s.pendingMission || !!s.battle;
+  return s.completed.length > 0 || Object.keys(s.unitHp).length > 0 || !!s.pendingMission || !!s.battle || Object.keys(s.companionConversations ?? {}).length > 0;
 }
 
 function migrateLegacyIntoBank(): SaveBank {
@@ -756,7 +813,8 @@ function parseBank(text: string | null): SaveBank | null {
 }
 
 export function loadBank(): SaveBank {
-  const bank = parseBank(readKey(BANK_KEY));
+  const rawBank = readKey(BANK_KEY);
+  const bank = parseBank(rawBank);
   if (bank) return bank;
   const migrated = migrateLegacyIntoBank();
   persistBank(migrated);
@@ -847,6 +905,23 @@ export function slotProgress(slot: SaveData | null): { title: string; detail: st
   if (slot.pendingMission) {
     const m = ALL_MISSIONS.find((x) => x.id === slot.pendingMission);
     return { title: m ? m.title : slot.pendingMission, detail: "Início do combate" };
+  }
+  // On the RPG map the party has a real position: name the place it is standing on (or the
+  // nearest one, when it is out on the road) instead of guessing from completed missions.
+  if (slot.mapMode === "rpg" && slot.overworldPos) {
+    const { col, row } = slot.overworldPos;
+    const here = locationAt(WORLD_LOCATIONS, col, row);
+    if (here) return { title: here.name, detail: `Dia ${slot.gameClock ?? 0} · mapa` };
+    const toCube = (x: number, y: number) => { const q = x - (y - (y & 1)) / 2; return { q, r: y, s: -q - y }; };
+    const a = toCube(col, row);
+    let nearest: { name: string; d: number } | null = null;
+    for (const loc of WORLD_LOCATIONS) {
+      const h = worldToHex(loc.x, loc.y);
+      const b = toCube(h.x, h.y);
+      const d = (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs(a.s - b.s)) / 2;
+      if (!nearest || d < nearest.d) nearest = { name: loc.name, d };
+    }
+    if (nearest) return { title: `Estrada perto de ${nearest.name}`, detail: `Dia ${slot.gameClock ?? 0} · mapa` };
   }
   if (slot.completed.length === 0) return { title: "Campanha nova", detail: "Mapa de cenários" };
   const lastId = slot.completed[slot.completed.length - 1]!;

@@ -314,6 +314,11 @@ export function mapSavePlugin() {
             const file = `${draft.id}${String(serial).padStart(3, "0")}.json`;
             const full = join(dir, file);
             writeFileSync(full, JSON.stringify({ serial, savedAt: Date.now(), draft }, null, 2) + "\n", "utf8");
+            const saved = readBack(full);
+            if (!saved || saved.serial !== serial || JSON.stringify(saved.draft) !== JSON.stringify(draft)) {
+              reply(500, { ok: false, error: `não foi possível confirmar a gravação de ${file}` });
+              return;
+            }
             reply(200, { ok: true, serial, file: `${MAPS_DIR}/${file}`, bytes: statSync(full).size });
           })
           .catch((err) => reply(400, { ok: false, error: String(err?.message ?? err) }));

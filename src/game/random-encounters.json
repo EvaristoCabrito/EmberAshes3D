@@ -5,13 +5,30 @@
       "name": "Floresta Tropical",
       "encounterIds": [
         "random-encounter-1",
-        "random-encounter-2"
+        "random-encounter-2",
+        "random-caravan-green-road",
+        "random-broken-antler-grove",
+        "random-river-rope-ambush",
+        "random-hollow-root-den",
+        "random-mora-rootwatch",
+        "random-mora-hollow-stream",
+        "random-amanita-glade",
+        "random-blightwood-verge"
       ]
     },
     {
       "id": "mountain",
       "name": "Montanha",
-      "encounterIds": []
+      "encounterIds": [
+        "random-coldwind-saddle",
+        "random-hollow-pine-basin",
+        "random-cairnkeepers-rise",
+        "random-splintered-trunk-pass",
+        "random-rimewater-shrine",
+        "random-stoneshelf-pass",
+        "random-greycairn-plateau",
+        "random-encounter-14"
+      ]
     },
     {
       "id": "swamp",
@@ -23,7 +40,15 @@
     {
       "id": "ice",
       "name": "Gelo",
-      "encounterIds": []
+      "encounterIds": [
+        "random-frostbound-sanctuary",
+        "random-bell-beneath-ice",
+        "random-small-toll-collector",
+        "random-walking-campfire",
+        "random-backward-hunt",
+        "random-icelands-blue-antlers",
+        "random-icelands-last-beacon"
+      ]
     },
     {
       "id": "dead-nature",
@@ -33,7 +58,9 @@
     {
       "id": "underworld",
       "name": "Submundo",
-      "encounterIds": []
+      "encounterIds": [
+        "random-crystal-ossuary"
+      ]
     },
     {
       "id": "aquatic",
@@ -48,13 +75,26 @@
         "random-encounter-3",
         "random-encounter-6",
         "random-encounter-7",
-        "random-encounter-8"
+        "random-encounter-8",
+        "random-encounter-11",
+        "random-encounter-12",
+        "random-encounter-13",
+        "random-road-three-routes-market",
+        "random-road-broken-milepost"
       ]
     },
     {
       "id": "plains",
       "name": "Planície",
-      "encounterIds": []
+      "encounterIds": [
+        "random-whispering-reeds",
+        "random-plains-windgrass",
+        "random-plains-broken-caravan",
+        "random-plains-sunken-ford",
+        "random-plains-old-stones",
+        "random-plains-silent-harvest",
+        "random-plains-hill-patrol"
+      ]
     }
   ]
 }

@@ -1,27 +1,42 @@
+import { applyPartyFormation, cleanPartyFormation, cleanPartyLeader, partyLeaderOf } from "./partyFormation";
+import { OptionsButton } from "./OptionsMenu";
+import { CUTSCENE_SUBTITLES, syncEnglishSubtitles } from "./cutsceneSubtitles";
+import { uiText, useGamePreferences, type Translations } from "./gamePreferences";
+import { GraphicsQualityControl } from "./GraphicsQualityControl";
 import { type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronDown, ChevronLeft, ChevronUp, Dices, Grip, ListOrdered, Pencil, RotateCcw, Shuffle, SlidersHorizontal, Swords, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Dices, Grip, ListOrdered, Lock, Pencil, RotateCcw, Shuffle, SlidersHorizontal, Swords, Volume2, VolumeX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { artProgress, loadGameArt, portraitFor, subscribeArtProgress, TILE_VARIANT_COUNT, tileVariantName, tileVariantSrc } from "./assets";
-import { getAudioVolumes, installAudioUnlock, playFile, playMenuMusic, playTheme, resumeAudio, setCutsceneVolume, setMusicVolume, setMuted, setSfxVolume, sfxPlay, stopMusic, unlockAudio } from "./audio";
+import { artProgress, ensureDecorationArt, ensureTerrainArt, ensureSpriteArt, loadGameArt, portraitFor, releaseSpriteArt, subscribeArtProgress, TILE_VARIANT_COUNT, tileVariantName, tileVariantSrc } from "./assets";
+import { getAudioVolumes, isMuted, installAudioUnlock, pauseMusic, playFile, playMenuMusic, playTheme, resumeAudio, resumeMusic, setCutsceneVolume, setMusicVolume, setMuted, setSfxVolume, sfxPlay, stopMusic, unlockAudio } from "./audio";
 import { BattleCanvas } from "./BattleCanvas";
 import { ELEMENT_LABELS, PLACEABLE_ELEMENT_KINDS, type PlaceableElementKind } from "./gfx/params";
 import { ELEMENT_FX_REGISTRY, pixelDefaults, pixelPresetsFor, type PixelElement, type PixelElementSettings } from "./gfx/three/ProceduralElementEmitter";
+import { THREE_D_DOOR_VARIANTS } from "./data";
+import { decorationPlacementArt } from "./data";
+import { SOLID_CART_DECOR_IDS } from "./data";
+import { FANTOM_FORCE } from "./data";
+import { victoryRewardFor } from "./victory-reward";
+import { ENCOUNTER_NPC_IDS, encounterNpcSpawn, type EncounterNpcId } from "./encounter-npcs";
 import { DEFAULT_AMBIENT_INTENSITY, DEFAULT_BLOOM_INTENSITY, DEFAULT_SUN_INTENSITY, TIME_OF_DAY_LIGHT } from "./gfx/three/ThreeBattleRenderer";
 import { getDevGfx, setDevGfx, subscribeDevGfx, type DevGfxSettings } from "./gfx/three/devGfx";
 import { DevGfxPreview } from "./gfx/three/DevGfxPreview";
 import { VfxDebugPanel } from "./gfx/three/VfxDebugPanel";
 import { Hd2dTestScreen } from "./gfx/three/Hd2dTestScene";
-import { InnScreen } from "./InnScreen";
+import { HEALER_AILMENT_PRICE, HEALER_CAST_PRICE, NIGHT_REST_PRICE, InnScreen } from "./InnScreen";
 import { PartyInventoryOverlay, ItemTip } from "./InventoryScreens";
 import { DialogOverlay } from "./DialogOverlay";
+import { CompanionConversations } from "./CompanionConversations";
+import { resolveCompanionReply } from "./companionDialogues";
+import { AFFINITY_HEROES } from "./affinity";
 import { LIGHT_DEFS } from "./lighting";
 import { DialogEditor } from "./DialogEditor";
-import { BLESS, BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, CAUSTIC_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, decorationImage, decorationImageWebp, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, heroRecruited, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
+import { BLESS, BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, SOLID_ROCK_DECOR_IDS, CAUSTIC_VENOM, MINOR_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, FOREST_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, expToLevel, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, placedBlockingFootprint, decorationImage, decorationImageWebp, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, heroRecruited, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
 import { QUESTS, activePickupsFor, questById, questProgress, questStatus, questsFor } from "./quests";
 import { advanceProgression, evaluate, isGatedMission, missionAccess, type MissionAccess, type ProgressExtras } from "./progression";
 import { BattleEngine, heroSpriteFor } from "./engine";
 import { MapPreviewCanvas, type PreviewDecorationSelection, type PreviewUnitSelection } from "./MapPreviewCanvas";
 import { WorldMapScreen } from "./WorldMapScreen";
+import { campaignHour, campaignTimeOfDay, usesTravelClock } from "./campaignTime";
 import { OverworldMapScreen } from "./OverworldMapScreen";
 import { LoadingCurtain, useLoadingCurtain } from "./MapLoadingOverlay";
 import { HungerBar } from "./HungerBar";
@@ -39,6 +54,7 @@ import {
   RANDOM_ENCOUNTER_REGIONS,
   isRandomEncounter,
   isCrossingDungeon,
+  keepsDefeatedSpawns,
   clearSessionMapOverride,
   draftToMission,
   latestSerialFor,
@@ -100,7 +116,8 @@ import {
   selectSlot,
 } from "./save";
 import type { Bag, BattleSnapshot, ClassId, DecorationPlacement, DialogAction, DialogTree, ElementalFxPlacement, EquipSlot, GameArt, GrowthLine, HudSnapshot, MapTimeOfDay, Mission, PotionId, SaveBank, SaveData, ScreenId, SpellKind, Spawn, SpriteId, StatPointAllocation, StatPointAttribute, TerrainId, UnitPublic, WinCondition, WorldLocation } from "./types";
-import { hexNeighbors, key as hexKey } from "./pathfinding";
+import { footprint, hexDist, hexNeighbors, key as hexKey } from "./pathfinding";
+import { buildDecorOverlay, HEX_BLOCKED } from "./hexprops";
 
 /** A map JSON write updates Vite's module list and can reload the app. This one-shot
  * snapshot restores the editor instead of sending the author to the title screen. */
@@ -249,10 +266,12 @@ function useHeroPotion(save: SaveData, hero: string, kind: PotionId): SaveData {
     return { ...save, bags: { ...save.bags, [hero]: { ...bag, [kind]: bag[kind] - 1 } }, spellUses: { ...save.spellUses, [hero]: spent } };
   }
   if (def.effect === "disease") {
-    if (!save.heroDiseases[hero]) return save;
+    if (!save.heroDiseases[hero] && !save.heroPoisons[hero]) return save;
     const heroDiseases = { ...save.heroDiseases };
     delete heroDiseases[hero];
-    return { ...save, bags: { ...save.bags, [hero]: { ...bag, [kind]: bag[kind] - 1 } }, heroDiseases };
+    const heroPoisons = { ...save.heroPoisons };
+    delete heroPoisons[hero];
+    return { ...save, bags: { ...save.bags, [hero]: { ...bag, [kind]: bag[kind] - 1 } }, heroDiseases, heroPoisons };
   }
   const maxHp = heroMaxHp(save, hero);
   const current = save.unitHp[hero] ?? maxHp;
@@ -279,6 +298,7 @@ function hudBlank(): HudSnapshot {
     playerAlive: 0,
     enemyAlive: 0,
     busy: false,
+    canCancelMovement: false,
     result: null,
     winAvailable: false,
     activeExit: null,
@@ -314,7 +334,7 @@ function progressionExtras(save: SaveData): ProgressExtras {
     ...Object.keys(save.looseEquipment ?? {}),
     ...Object.values(save.equipment ?? {}).flatMap((slots) => Object.values(slots).filter((id): id is string => typeof id === "string")),
   ];
-  const party = ["Kael", "Neera", "Voss", "Salazar", "Aldric", "Malrec"].filter((name) => heroRecruited(name, save.completed));
+  const party = ["Kael", "Neera", "Voss", "Salazar", "Aldric", "Malrec"].filter((name) => heroRecruited(name, save.completed, save.flags));
   return { items, party };
 }
 
@@ -344,6 +364,7 @@ function lockedMission(
   if (access && isGatedMission(id)) return access(id) !== "available";
 
   const location = locations.find((candidate) => candidate.missionIds.includes(id));
+  if (location?.openAccess) return false;
   if (!location) {
     const at = fallbackOrder.indexOf(id);
     return at < 0 || (at > 0 && !fallbackOrder.slice(0, at).every((previousId) => completed.includes(previousId)));
@@ -398,6 +419,7 @@ const BRIEF_ART: Record<string, string> = {
   estalagem: "/game/assets/brief-estalagem.jpg",
   colina: "/game/assets/brief-colina.jpg",
   passagem: "/game/assets/brief-passagem.jpg?v=2",
+  "watchtower-gate-floor": "/game/assets/brief-watchtower.jpg",
   vertente: "/game/assets/brief-vertente.jpg?v=2",
   portao: "/game/assets/brief-portao.jpg",
   profundezas: "/game/assets/profundezas-bg.jpg?v=2",
@@ -456,7 +478,8 @@ function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY): SpellK
         // PHANTASMAL_FORCE_UNLOCK_LEVEL — it shares tier 1's pool with summonFamiliar but
         // isn't selectable/castable until level 2); summonFamiliar2 (Familiar Maior) is the
         // same deal at tier 2 (shares that tier's pool of uses with webOfDreams).
-        return ["summonFamiliar", "phantasmalForce", "webOfDreams", "summonFamiliar2", "summonFamiliar4", "summonFamiliar3"];
+        // summonZombieDog: tier 5 here for testing — meant to become a Necromancer tier 6 spell.
+        return ["summonFamiliar", "phantasmalForce", "webOfDreams", "summonFamiliar2", "summonFamiliar4", "summonFamiliar3", "summonZombieDog"];
       case "familiar":
         // Familiar's own hotbar, once summoned — Magic Missile is its only action beyond a
         // plain attack (see FAMILIAR_SPELL/familiarMagicMissileCharges).
@@ -467,11 +490,14 @@ function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY): SpellK
         // charge pool.
         return ["magicMissile", "lifeDrain"];
       case "familiar4":
-        // Familiar Radiante carries Familiar Maior's kit.
-        return ["magicMissile", "lifeDrain"];
+        // Familiar Radiante has three Shock casts plus Life Drain.
+        return ["shock", "lifeDrain"];
       case "familiar3":
         // The Big Guy's own hotbar, once summoned — its only action beyond a plain attack.
         return ["fireball"];
+      case "zombieDog":
+        // Cão Zumbi's own hotbar: Veneno Menor, twice per battle (FAMILIAR_SPELL charges).
+        return ["minorVenom"];
       case "archer":
         return ["longShot", "piercing", "multiShot"];
       case "healer":
@@ -527,6 +553,7 @@ function slotIcon(action: SlotAction): string {
     case "fireball":
       return spellIcon("fireball");
     case "causticVenom":
+    case "minorVenom":
       return spellIcon("caustic-venom");
     case "lightning":
       return spellIcon("lightning");
@@ -535,6 +562,7 @@ function slotIcon(action: SlotAction): string {
     case "shock":
       return spellIcon("lightning");
     case "magicMissile":
+    case "magicMissileV2":
       return spellIcon("magic-missile");
     case "longShot":
       return spellIcon("long-shot");
@@ -557,6 +585,7 @@ function slotIcon(action: SlotAction): string {
     // No dedicated art yet — reuses Magic Missile's own icon, closest in theme to a single
     // ranged magic bolt.
     case "phantasmalForce":
+    case "fantomForce":
       return spellIcon("phantasmal-force");
     // No dedicated art yet for the tier-2/3 summons — each reuses the same familiar icon.
     case "summonFamiliar2":
@@ -565,32 +594,30 @@ function slotIcon(action: SlotAction): string {
       return spellIcon("summon-familiar3");
     case "summonFamiliar4":
       return spellIcon("summon-familiar4");
+    case "summonZombieDog":
+      return spellIcon("summon-zombie-dog");
     case "webOfDreams":
       return spellIcon("web-of-dreams");
-    // Familiar Maior's own second spell — no dedicated art; reuses the cure icon since it's
-    // a heal-on-hit touch, closer in theme to a heal than to anything offensive here.
     case "lifeDrain":
-      return spellIcon("cure-wounds");
-    // No dedicated art exists yet for any of these — each reuses an existing icon whose
-    // theme is closest (a zone effect, a big melee AOE, a holy/arcane burst). secondWind is
-    // never actually shown (see PRESTIGE_SPELLS) but the switch must stay exhaustive.
+      return spellIcon("life-drain");
+    // secondWind is never actually shown (see PRESTIGE_SPELLS) but the switch stays exhaustive.
     case "multiShot":
       return spellIcon("multi-shot");
     case "secondWind":
     case "cureLight":
       return spellIcon("cure-light");
     case "bless":
-      return spellIcon("cure-light");
+      return spellIcon("bless");
     case "auraOfProtection":
-      return spellIcon("web-of-dreams");
+      return spellIcon("aura-of-protection");
     case "intimidatingPresence":
-      return spellIcon("caustic-venom");
+      return spellIcon("intimidating-presence");
     case "divineWrath":
-      return spellIcon("fireball");
+      return spellIcon("divine-wrath");
     case "shoulderSmash":
-      return spellIcon("cleave");
+      return spellIcon("shoulder-smash");
     case "stampede":
-      return spellIcon("cleave-crossed-blades");
+      return spellIcon("stampede");
     case "bullRush":
       return spellIcon("bull-rush");
     case "executionerStrike":
@@ -615,6 +642,8 @@ function slotLabel(action: SlotAction): string {
       return FIREBALL.name;
     case "causticVenom":
       return CAUSTIC_VENOM.name;
+    case "minorVenom":
+      return MINOR_VENOM.name;
     case "lightning":
       return LIGHTNING.name;
     case "lightningTier3":
@@ -622,6 +651,7 @@ function slotLabel(action: SlotAction): string {
     case "shock":
       return SHOCK.name;
     case "magicMissile":
+    case "magicMissileV2":
       return MAGIC_MISSILE.name;
     case "longShot":
       return LONG_SHOT.name;
@@ -645,12 +675,16 @@ function slotLabel(action: SlotAction): string {
       return SUMMON_FAMILIAR.name;
     case "phantasmalForce":
       return PHANTASMAL_FORCE.name;
+    case "fantomForce":
+      return FANTOM_FORCE.name;
     case "summonFamiliar2":
       return SUMMON_FAMILIAR2.name;
     case "summonFamiliar3":
       return SUMMON_FAMILIAR3.name;
     case "summonFamiliar4":
       return SUMMON_FAMILIAR4.name;
+    case "summonZombieDog":
+      return SUMMON_ZOMBIE_DOG.name;
     case "webOfDreams":
       return WEB_OF_DREAMS.name;
     case "lifeDrain":
@@ -747,7 +781,7 @@ function mapStatusUnit(save: SaveData, hero: string): UnitPublic {
     initiative: cls.init ?? 0, initiativeRoll: cls.init ?? 0, mov: Math.max(1, Math.round((stats.mov + gearBonus.mov) * diseaseKeep)), movLeft: Math.max(1, Math.round((stats.mov + gearBonus.mov) * diseaseKeep)), minRange: cls.minRange, maxRange: cls.maxRange,
     moved: false, acted: false, x: save.overworldPos.col, y: save.overworldPos.row, level, xp: save.xp[hero] ?? 0,
     bag: save.bags[hero] ?? { mid: 0, weak: 0, potent: 0, disease: 0, manaSmall: 0, manaMid: 0, manaLarge: 0, lockpick: 0 },
-    spells: emptySpells, weaponId: save.equipped[hero] ?? null, weaponEnh: 0, size: cls.size, diseased: save.heroDiseases[hero] === true, poisoned: false, bleeding: false, shock: null,
+    spells: emptySpells, weaponId: save.equipped[hero] ?? null, weaponEnh: 0, size: cls.size, diseased: save.heroDiseases[hero] === true, poisoned: save.heroPoisons[hero] === true, bleeding: false, shock: null,
     hungry: hungerPenaltyPct > 0, hungerPct: Math.round(hungerPenaltyPct * 100), fullness: save.heroHunger[hero], stunned: false, crippled: false, offHandId: null, summoned: false, asleep: false, restrained: false,
     gear,
   };
@@ -765,10 +799,62 @@ function mergeBattleDiseases(existing: Record<string, boolean>, engine: BattleEn
   return heroDiseases;
 }
 
+function mergeBattlePoisons(existing: Record<string, boolean>, engine: BattleEngine): Record<string, boolean> {
+  const heroPoisons = { ...existing };
+  for (const unit of engine.units) {
+    if (unit.side !== "player" || unit.summoned) continue;
+    if (unit.poisoned) heroPoisons[unit.name] = true;
+    else delete heroPoisons[unit.name];
+  }
+  return heroPoisons;
+}
+
+/** Every familiar a conjurer can summon — preloaded as soon as a conjurer is in the party and
+ * kept loaded (see partyHasConjurer in GameApp), so a summon never waits on art. */
+const FAMILIAR_SPRITES: SpriteId[] = ["familiar", "familiar2", "familiar3", "familiar4", "zombieDog"];
+
+/** Sprites a battle's own units use — loaded before its board opens (see startBattle). */
+function battleSpriteIds(battle: BattleEngine): SpriteId[] {
+  return battle.units.map((u) => u.sprite);
+}
+
 export function GameApp() {
+  useGamePreferences();
   const [resumeEditorDraft] = useState<MapDraft | null>(() => (typeof window === "undefined" ? null : readEditorResume()));
   const [screen, setScreen] = useState<ScreenId>(() => (resumeEditorDraft ? "mapEditor" : "title"));
   const loadingCurtain = useLoadingCurtain(screen);
+  // Up from the instant a battle is requested until BattleCanvas reports "ember:battle-ready"
+  // (art loaded, first frame drawn, every spell shader compiled and linked), so all of that
+  // one-time work happens behind it instead of as stalls mid-fight. The timer is only a
+  // safety net so the curtain can never get stuck.
+  const [battleLoading, setBattleLoading] = useState(false);
+  const [battleLoadingProgress, setBattleLoadingProgress] = useState({ loaded: 0, total: 1 });
+  const battleAssetProgress = useRef({
+    sprites: { loaded: 0, total: 0 },
+    decorations: { loaded: 0, total: 0 },
+    terrain: { loaded: 0, total: 0 },
+  });
+  const reportBattleAssetProgress = useCallback((group: "sprites" | "decorations" | "terrain", loaded: number, total: number) => {
+    battleAssetProgress.current[group] = { loaded, total };
+    const groups = Object.values(battleAssetProgress.current);
+    const loadedAssets = groups.reduce((sum, item) => sum + item.loaded, 0);
+    const assetCount = groups.reduce((sum, item) => sum + item.total, 0);
+    // Keep one final task for the renderer's first complete, warmed frame.
+    setBattleLoadingProgress({ loaded: loadedAssets, total: assetCount + 1 });
+  }, []);
+  useEffect(() => {
+    if (!battleLoading) return;
+    const done = () => {
+      setBattleLoadingProgress((current) => ({ loaded: current.total, total: current.total }));
+      setBattleLoading(false);
+    };
+    window.addEventListener("ember:battle-ready", done);
+    const safety = window.setTimeout(() => setBattleLoading(false), 20000);
+    return () => {
+      window.removeEventListener("ember:battle-ready", done);
+      window.clearTimeout(safety);
+    };
+  }, [battleLoading]);
   // The currently active map style. Normal campaigns persist their choice in SaveData;
   // test mode deliberately remains session-only.
   const [mapMode, setMapMode] = useState<"classic" | "rpg" | null>(null);
@@ -788,6 +874,7 @@ export function GameApp() {
   const [innEntry, setInnEntry] = useState<DialogAction | null>(null);
   const [hud, setHud] = useState<HudSnapshot>(hudBlank);
   const [paused, setPaused] = useState(false);
+  const [companionConversationsOpen, setCompanionConversationsOpen] = useState(false);
   // The mission's outro dialog (see hud.result effect below) — opens once, right when
   // victory is confirmed, and never reopens after being closed even though hud.result
   // stays "victory" for the rest of the battle.
@@ -855,9 +942,17 @@ export function GameApp() {
   // playthrough left off.
   const [testOverworld, setTestOverworld] = useState<SaveData | null>(null);
   const awardedRef = useRef<string | null>(null);
+  // Each hero's level/XP when this battle began: the result screen's XP bar fills from here.
+  // save.xp can't be used — spending a stat point or saving to a slot mid-battle writes the
+  // live XP into it, which left the bar nothing to fill.
+  const battleStartProgressRef = useRef<Record<string, { level: number; xp: number }>>({});
+  // Bumped by every startBattle; a battle whose sprites finish loading after a newer one was
+  // requested is dropped (see startBattle).
+  const battleLoadRef = useRef(0);
   const combatStartRef = useRef<SaveData | null>(null);
   const resumeBattleRef = useRef<BattleSnapshot | null>(null);
   const [slotMode, setSlotMode] = useState<"new" | "continue" | "save" | "load" | null>(null);
+  const [slotReturnScreen, setSlotReturnScreen] = useState<ScreenId>("title");
   const [overwrite, setOverwrite] = useState<number | null>(null);
 
   useEffect(() => {
@@ -925,7 +1020,9 @@ export function GameApp() {
       ...data,
       pendingMission: missionId,
       battle: engine.captureSnapshot(),
+      spellUses: { ...data.spellUses, ...engine.spentTiers() },
       bags: { ...data.bags, ...engine.remainingBags() },
+      affinityScores: { ...engine.affinityScores },
       unitHp: { ...data.unitHp, ...engine.battlePlayerHp() },
       heroHunger: { ...data.heroHunger, ...engine.battlePlayerHunger() },
     };
@@ -957,9 +1054,9 @@ export function GameApp() {
    * nudged onto for a hazard (see BattleEngine.nudgeOffHazard) — never a hardcoded offset
    * that could land on a wall, water, or another unit on a layout this never saw. */
   const TEST_PARTY_CLASS: Record<string, ClassId> = { Kael: "kaelFinal", Neera: "neera", Voss: "voss", Salazar: "salazar", Aldric: "aldric", Malrec: "conjurer" };
-  function addMissingTestHeroes(mission: Mission): Mission {
+  function addAdditionalPartyHeroes(mission: Mission, roster: Record<string, ClassId>): Mission {
     const present = new Set(mission.playerSpawns.map((s) => s.name));
-    const missing = Object.keys(TEST_PARTY_CLASS).filter((name) => !present.has(name));
+    const missing = Object.keys(roster).filter((name) => !present.has(name));
     if (missing.length === 0) return mission;
     const terrain = parseLayout(mission.layout);
     const occupied = new Set([...mission.playerSpawns, ...mission.enemySpawns, ...(mission.neutralSpawns ?? [])].map((s) => hexKey(s.x, s.y)));
@@ -986,10 +1083,64 @@ export function GameApp() {
       }
       if (!placed) continue; // no free cell anywhere reachable — skip rather than overlap
       occupied.add(hexKey(placed.x, placed.y));
-      added.push({ name, classId: TEST_PARTY_CLASS[name]!, x: placed.x, y: placed.y });
+      added.push({ name, classId: roster[name]!, x: placed.x, y: placed.y });
     }
     return added.length > 0 ? { ...mission, playerSpawns: [...mission.playerSpawns, ...added] } : mission;
   }
+
+  /** Taking a floor connector: the party arrives beside the connector on the new floor that
+   * leads back to the floor it just left — where it came in — instead of on the map's authored
+   * start hexes, which only make sense when entering from the world map. Cells are taken in
+   * walking order (BFS over passable ground) out from that connector, skipping waypoint hexes,
+   * blocking decorations, and every enemy/neutral body-type zone. If the floor has no matching
+   * connector or not enough room around it, the authored spawns are kept. */
+  function arriveAtConnector(mission: Mission, fromMissionId: string): Mission {
+    const decorations = mission.decorations ?? [];
+    const back = decorations.find((d) => d.id === "floor-connector" && d.targetMapId === fromMissionId);
+    if (!back || mission.playerSpawns.length === 0) return mission;
+    const terrain = parseLayout(mission.layout);
+    const overlay = buildDecorOverlay(decorations, mission.cols, mission.rows, placedBlockingFootprint, mission.terrainElevations);
+    const waypointCells = new Set(decorations.filter((d) => DECORATIONS[d.id]?.exitKind).flatMap((d) => placedFootprint(d).map((f) => hexKey(d.x + f.dx, d.y + f.dy))));
+    const bodyCells = new Set([...mission.enemySpawns, ...(mission.neutralSpawns ?? [])].flatMap((s) => {
+      const cls = CLASSES[s.classId];
+      return footprint({ x: s.x, y: s.y, size: cls?.size, footprintW: cls?.footprintW, footprintH: cls?.footprintH, footprintOffsets: cls?.footprintOffsets }).map((p) => hexKey(p.x, p.y));
+    }));
+    const walkable = (x: number, y: number) => {
+      if (x < 0 || y < 0 || x >= mission.cols || y >= mission.rows) return false;
+      const i = y * mission.cols + x;
+      return !!TERRAIN[terrain[i]]?.passable && !((overlay[i] ?? 0) & HEX_BLOCKED);
+    };
+    const cells: { x: number; y: number }[] = [];
+    const seen = new Set([hexKey(back.x, back.y)]);
+    const q = [{ x: back.x, y: back.y }];
+    while (q.length && cells.length < mission.playerSpawns.length) {
+      const cur = q.shift()!;
+      for (const n of hexNeighbors(cur.x, cur.y)) {
+        const k = hexKey(n.x, n.y);
+        if (seen.has(k) || !walkable(n.x, n.y)) continue;
+        seen.add(k);
+        q.push(n);
+        if (!waypointCells.has(k) && !bodyCells.has(k) && cells.length < mission.playerSpawns.length) cells.push(n);
+      }
+    }
+    if (cells.length < mission.playerSpawns.length) return mission;
+    return { ...mission, playerSpawns: mission.playerSpawns.map((s, i) => ({ ...s, x: cells[i]!.x, y: cells[i]!.y })) };
+  }
+  function addMissingTestHeroes(mission: Mission): Mission {
+    return addAdditionalPartyHeroes(mission, TEST_PARTY_CLASS);
+  }
+
+  // Familiars are preloaded as soon as a conjurer (Malrec) is in the party, and stay loaded.
+  const partyHasConjurer = Object.entries(TEST_PARTY_CLASS).some(([name, classId]) => rulesClass(classId) === "conjurer" && (testMode || heroRecruited(name, save.completed, save.flags)));
+  useEffect(() => {
+    if (art && partyHasConjurer) void ensureSpriteArt(art, FAMILIAR_SPRITES);
+  }, [art, partyHasConjurer]);
+  // Once a new battle is on screen, drop every sprite the previous one loaded that this one
+  // doesn't use (familiars stay while a conjurer is in the party), so memory follows the
+  // current fight (see releaseSpriteArt).
+  useEffect(() => {
+    if (art && engine) releaseSpriteArt(art, [...battleSpriteIds(engine), ...(partyHasConjurer ? FAMILIAR_SPRITES : [])]);
+  }, [art, engine, partyHasConjurer]);
 
   const startBattle = useCallback(
     (
@@ -1000,6 +1151,8 @@ export function GameApp() {
       enemyLevels?: Record<number, number>,
       neutralLevels?: Record<number, number>,
       resume?: BattleSnapshot,
+      preserveKnockouts = false,
+      arrivedFrom?: string,
     ) => {
       if (!art) return;
       // A real mission start (no override) always clears any leftover playtest identity —
@@ -1011,13 +1164,62 @@ export function GameApp() {
       }
       const resolved = override ?? missionById(id);
       if (!resolved) return;
+      const load = ++battleLoadRef.current;
+      setBattleLoading(true);
+      battleAssetProgress.current = {
+        sprites: { loaded: 0, total: 0 },
+        decorations: { loaded: 0, total: 0 },
+        terrain: { loaded: 0, total: 0 },
+      };
+      setBattleLoadingProgress({ loaded: 0, total: 1 });
+      const tutorialMap = resolved.index <= (missionById("thebridge")?.index ?? 3) && !resolved.id.startsWith("random-encounter-");
+      // The travel clock drives lighting for random maps and "-crossing" maps only for now — other campaign maps keep their authored time of day.
+      const timed = !testMode && !tutorialMap && (resolved.id.startsWith("random-") || resolved.id.endsWith("-crossing")) && resolved.environment !== "indoor" && usesTravelClock(save)
+        ? (() => {
+            const timeOfDay = campaignTimeOfDay(campaignHour(save));
+            const light = TIME_OF_DAY_LIGHT[timeOfDay];
+            return { ...resolved, environment: resolved.environment ?? "outdoor", timeOfDay, sunIntensity: light.key, ambientIntensity: light.ambient };
+          })()
+        : resolved;
       // Companions sit in the walkable Inn as NPCs, but only once they've actually joined.
+      const freedAldric =
+        !testMode && timed.id === "watchtower-prison" && heroRecruited("Aldric", save.completed, save.flags) && timed.neutralSpawns
+          ? { ...timed, neutralSpawns: timed.neutralSpawns.filter((spawn) => spawn.name !== "Aldric") }
+          : timed;
       const seated =
-        resolved.explore && !testMode && resolved.neutralSpawns
-          ? { ...resolved, neutralSpawns: resolved.neutralSpawns.filter((s) => !(s.name in TEST_PARTY_CLASS) || heroRecruited(s.name, save.completed)) }
-          : resolved;
-      // A free-roam map is walked by the party leader alone.
-      const m = testMode && !resolved.explore ? addMissingTestHeroes(seated) : seated;
+        freedAldric.explore && !testMode && freedAldric.neutralSpawns
+          ? { ...freedAldric, neutralSpawns: freedAldric.neutralSpawns.filter((s) => !(s.name in TEST_PARTY_CLASS) || heroRecruited(s.name, save.completed, save.flags)) }
+          : freedAldric;
+      // A free-roam map is walked by the party leader alone. A leader other than Kael takes the
+      // authored walker's place (Kael waits with the rest of the party) and isn't also seated.
+      const leaderName = partyLeaderOf(save.partyLeader, (hero) => heroRecruited(hero, save.completed, save.flags));
+      const led =
+        seated.explore && !testMode && leaderName !== "Kael" && seated.playerSpawns[0]
+          ? {
+              ...seated,
+              playerSpawns: [{ ...seated.playerSpawns[0], name: leaderName, classId: TEST_PARTY_CLASS[leaderName] }, ...seated.playerSpawns.slice(1)],
+              neutralSpawns: seated.neutralSpawns?.filter((s) => s.name !== leaderName),
+            }
+          : seated;
+      let m = testMode && !resolved.explore
+        ? addMissingTestHeroes(led)
+        : !testMode && led.id.startsWith("watchtower-") && heroRecruited("Aldric", save.completed, save.flags)
+          ? addAdditionalPartyHeroes(led, { Aldric: "aldric" })
+          : led;
+      // Advancing through a dungeon connector carries wounds forward. Heroes who fell on
+      // the previous floor stay out of the next one instead of respawning at full HP
+      // because zero was treated like a missing HP value.
+      if (preserveKnockouts) {
+        m = { ...m, playerSpawns: m.playerSpawns.filter((spawn) => carried[spawn.name] !== 0) };
+      }
+      if (arrivedFrom && !resume) m = arriveAtConnector(m, arrivedFrom);
+      if (!testMode && !resume) {
+        const heroes = m.playerSpawns.filter(spawn => spawn.name in TEST_PARTY_CLASS);
+        const protectedStart = tutorialMap || heroes.some(a => heroes.some(b => hexDist(a, b) > 4))
+          || heroes.some(hero => (CLASSES[hero.classId].size ?? 1) > 1)
+          || heroes.some(hero => m.enemySpawns.some(enemy => hexDist(hero, enemy) <= Math.max(3, CLASSES[enemy.classId].maxRange)));
+        m = applyPartyFormation(m, save.partyFormation, protectedStart);
+      }
       // !!! DO NOT change this back to `m.index + 1` (mission-position level) !!!
       // Test mode exists so the party can be tested at full strength on ANY mission without
       // grinding first — that means DEFAULT_TEST_LEVEL (see its own definition below, also
@@ -1056,10 +1258,9 @@ export function GameApp() {
       const weapons = testMode
         ? undefined
         : Object.fromEntries(Object.entries(save.equipped).map(([hero, id]) => [hero, { id, enh: save.weapons[id] ?? 0 }]));
-      const offHand = testMode
-        ? undefined
-        : Object.fromEntries(
-            Object.entries(save.equipment)
+      // Test mode fights with the same starting off-hand kit as a new game (Neera's dagger).
+      const offHand = Object.fromEntries(
+            Object.entries(testMode ? emptySave().equipment : save.equipment)
               .map(([hero, e]) => [hero, e.offHand] as const)
               .filter((entry): entry is [string, string] => !!entry[1]),
           );
@@ -1068,13 +1269,9 @@ export function GameApp() {
       const equipment = testMode ? undefined : save.equipment;
       const statPointAllocations = testMode ? undefined : save.statPointAllocations;
       const ownedWeaponIds = testMode ? undefined : Object.keys(save.weapons);
-      // Spell tier uses don't refill between missions within the same world-map location's
-      // run (a "scenario") — only once the whole scenario is done, per direct instruction.
-      // Stone Bridge (the tutorial) always resets, and so does the very first mission of any
-      // scenario (nothing to carry over yet).
-      const loc = campaignLocations.find((location) => location.missionIds.includes(m.id));
-      const scenarioStart = !loc || loc.id === "stonebridge" || loc.missionIds.every((mid) => !save.completed.includes(mid));
-      const spellSpent = testMode || scenarioStart ? undefined : save.spellUses;
+      // Loading or re-entering a mission must carry saved expenditure, including
+      // first missions and the tutorial. Replenishment happens at explicit rest/reset events.
+      const spellSpent = testMode ? undefined : save.spellUses;
       // Test mode is god mode (same as promotions/weapons/equipment above) — a real save's
       // starved party must never bleed into a debug fight. Left ungated, a real save with
       // heroHunger at 0 and a maxed hungerStreak benches every hero via heroUnconscious,
@@ -1082,22 +1279,37 @@ export function GameApp() {
       const hungerPenaltyPct = testMode ? 0 : hungerPenaltyFor(save.hungerStreak);
       const heroHunger = testMode ? undefined : save.heroHunger;
       const heroDiseases = testMode ? undefined : save.heroDiseases;
-      const crossingDefeatedSpawns = !testMode && isCrossingDungeon(m) ? save.crossingDefeatedSpawns[m.id] ?? [] : [];
+      const heroPoisons = testMode ? undefined : save.heroPoisons;
+      const crossingDefeatedSpawns = !testMode && keepsDefeatedSpawns(m) ? save.crossingDefeatedSpawns[m.id] ?? [] : [];
       const questPickups = testMode ? undefined : activePickupsFor(save, m.id);
-      const battle = new BattleEngine(m, art, { hp, levels, bags, xp, promotions, weapons, offHand, equipment, statPointAllocations, enemyLevels, neutralLevels, ownedWeaponIds, spellSpent, hungerPenaltyPct, heroHunger, heroDiseases, crossingDefeatedSpawns, questPickups }, Date.now() % 100000, testMode);
+      const battle = new BattleEngine(m, art, { hp, levels, bags, xp, promotions, weapons, offHand, equipment, statPointAllocations, enemyLevels, neutralLevels, ownedWeaponIds, affinityScores: save.affinityScores, partyLeader: testMode ? undefined : leaderName, spellSpent, hungerPenaltyPct, heroHunger, heroDiseases, heroPoisons, crossingDefeatedSpawns, questPickups }, Date.now() % 100000, testMode);
       if (resume && resume.missionId === m.id) battle.applySnapshot(resume);
       if (typeof window !== "undefined" && window.innerWidth < 720) battle.zoom = 0;
-      awardedRef.current = null;
-      setEngine(battle);
-      setMissionId(id);
-      setHud(battle.getHud());
-      setPaused(false);
-      outroDialogShownRef.current = false;
-      setOutroDialogOpen(false);
-      setSlotMode(null);
-      setScreen("battle");
+      // Sprites load per battle (see ensureSpriteArt): the board opens once this battle's own
+      // units (and the familiars, with a conjurer in the party) are loaded. If another
+      // startBattle comes in meanwhile, the newer one wins.
+      const report = (group: "sprites" | "decorations" | "terrain", loaded: number, total: number) => {
+        if (load === battleLoadRef.current) reportBattleAssetProgress(group, loaded, total);
+      };
+      void Promise.all([
+        ensureSpriteArt(art, [...battleSpriteIds(battle), ...(partyHasConjurer ? FAMILIAR_SPRITES : [])], (loaded, total) => report("sprites", loaded, total)),
+        ensureDecorationArt(art, battle.decorations.map(p => p.id), (loaded, total) => report("decorations", loaded, total)),
+        ensureTerrainArt(art, battle.tiles, battle.tileVariants, (loaded, total) => report("terrain", loaded, total)),
+      ]).then(() => {
+        if (load !== battleLoadRef.current) return;
+        awardedRef.current = null;
+        battleStartProgressRef.current = Object.fromEntries(battle.units.filter((u) => u.side === "player").map((u) => [u.name, { level: u.level, xp: u.xp }]));
+        setEngine(battle);
+        setMissionId(id);
+        setHud(battle.getHud());
+        setPaused(false);
+        outroDialogShownRef.current = false;
+        setOutroDialogOpen(false);
+        setSlotMode(null);
+        setScreen("battle");
+      });
     },
-    [art, save, testMode, muted, bank, campaignLocations],
+    [art, save, testMode, muted, bank, campaignLocations, partyHasConjurer, reportBattleAssetProgress],
   );
 
   useEffect(() => {
@@ -1137,6 +1349,7 @@ export function GameApp() {
   const persistVictory = useCallback(() => {
     if (!engine || !mission) return;
     const battleHp = engine.battlePlayerHp();
+    const floorConnector = engine.activeExit?.id === "floor-connector";
     const bags = engine.remainingBags();
     const growth: GrowthLine[] = [];
     const newPromotions: { name: string; options: [ClassId, ClassId] }[] = [];
@@ -1146,16 +1359,18 @@ export function GameApp() {
     for (const u of engine.units.filter((x) => x.side === "player")) {
       // Levels (and any level-ups from XP earned mid-battle) already happened live in the
       // engine — `from` is just whatever was on file before this mission started.
-      const from = levels[u.name] ?? u.level;
+      const from = battleStartProgressRef.current[u.name]?.level ?? levels[u.name] ?? u.level;
       const to = u.level;
       const stFrom = statsFor(u.classId, from);
       const stTo = statsFor(u.classId, to);
       const mag = CLASSES[u.classId].mag > 0;
       const battle = battleHp[u.name] ?? u.hp;
-      const healed = u.alive
-        ? Math.min(stTo.hp, battle + Math.ceil((stTo.hp - battle) * 0.5))
-        : Math.max(1, Math.ceil(stTo.hp * 0.5));
-      const restHp = u.alive ? healed - battle : healed;
+      const healed = floorConnector
+        ? (u.alive ? battle : 0)
+        : u.alive
+          ? Math.min(stTo.hp, battle + Math.ceil((stTo.hp - battle) * 0.5))
+          : Math.max(1, Math.ceil(stTo.hp * 0.5));
+      const restHp = floorConnector ? 0 : u.alive ? healed - battle : healed;
       hp[u.name] = healed;
       growth.push({
         name: u.name,
@@ -1180,7 +1395,7 @@ export function GameApp() {
         resTo: stTo.res,
         fallen: !u.alive,
         xp: u.xp,
-        xpFrom: from === to ? (save.xp?.[u.name] ?? 0) : 0,
+        xpFrom: battleStartProgressRef.current[u.name]?.xp ?? save.xp?.[u.name] ?? 0,
         skillGain: from === to ? undefined : formatSpellUseGains(spellUseGains(u.classId, from, to)),
       });
       if (!testMode && u.alive) {
@@ -1192,17 +1407,20 @@ export function GameApp() {
         newPromotions.push({ name: u.name, options });
       }
     }
-    setLastGrowth(growth);
-    if (newPromotions.length > 0) setPendingPromotions(newPromotions);
     if (awardedRef.current === mission.id) return;
     awardedRef.current = mission.id;
+    setLastGrowth(growth);
+    if (newPromotions.length > 0) setPendingPromotions(newPromotions);
     const completed = save.completed.includes(mission.id) ? save.completed : [...save.completed, mission.id];
     if (!testMode) {
-      const crossingDefeatedSpawns = isCrossingDungeon(mission)
-        ? [...new Set([
-            ...(save.crossingDefeatedSpawns[mission.id] ?? []),
-            ...engine.units.filter((unit) => (unit.side === "enemy" || unit.side === "neutral") && !unit.alive && !unit.summoned).map((unit) => unit.id),
-          ])]
+      const crossingDefeatedSpawns = keepsDefeatedSpawns(mission)
+        ? {
+            ...save.crossingDefeatedSpawns,
+            [mission.id]: [...new Set([
+              ...(save.crossingDefeatedSpawns[mission.id] ?? []),
+              ...engine.units.filter((unit) => (unit.side === "enemy" || unit.side === "neutral") && !unit.alive && !unit.summoned).map((unit) => unit.id),
+            ])],
+          }
         : save.crossingDefeatedSpawns;
       const loot = engine.units
         .filter((x) => x.side === "enemy" && !x.alive)
@@ -1210,7 +1428,10 @@ export function GameApp() {
       const weapons = { ...save.weapons };
       const looseEquipment = { ...save.looseEquipment };
       const heroDiseases = mergeBattleDiseases(save.heroDiseases, engine);
+      const heroPoisons = mergeBattlePoisons(save.heroPoisons, engine);
       const found: string[] = [];
+      const reward = victoryRewardFor(mission, engine.units);
+      if (reward.ember > 0 || reward.rations > 0) found.push(`Recompensa por ajudar: ${reward.ember} Gold e ${reward.rations} rações`);
       // Weapon drops are already resolved and logged live, in-battle, by the engine
       // (kill drops in markDead, chest loot in useLockpick — both ownership- and
       // mission-level-aware). This just folds engine.lootWeapons into the save; it used to
@@ -1253,8 +1474,10 @@ export function GameApp() {
         questKills,
         unitHp: hp,
         bags,
+        affinityScores: { ...engine.affinityScores },
         heroHunger: { ...save.heroHunger, ...engine.battlePlayerHunger() },
         heroDiseases,
+        heroPoisons,
         levels,
         xp,
         weapons,
@@ -1263,8 +1486,8 @@ export function GameApp() {
         // seeded from save.spellUses at battle start unless this mission reset the
         // scenario) — a straight overwrite, not a merge.
         spellUses: engine.spentTiers(),
-        ember: (save.ember ?? 0) + loot + engine.lootEmber,
-        rations: save.rations + engine.lootRations,
+        ember: (save.ember ?? 0) + loot + engine.lootEmber + reward.ember,
+        rations: save.rations + engine.lootRations + reward.rations,
         emberSeeded: true,
         muted,
         pendingMission: null,
@@ -1288,19 +1511,38 @@ export function GameApp() {
     sfxPlay.ui();
   };
 
+  const [missionNotice, setMissionNotice] = useState<string | null>(null);
   const openMission = (id: string) => {
     bootAudio();
+    const flowSave = readMapSave();
+    if (!testMode && isGatedMission(id)) {
+      const rec = readMapSave();
+      if (missionAccess(id, rec, progressionExtras(rec)) !== "available") return;
+    }
+    // Only dungeons can be entered again once done; any other finished mission is closed for good.
+    if (!testMode && save.completed.includes(id)) {
+      const done = missionById(id);
+      if (!done || !keepsDefeatedSpawns(done)) {
+        setMissionNotice("Você não pode repetir missões já completadas.");
+        return;
+      }
+    }
+    setMissionNotice(null);
     const wispForest = campaignLocations.find((location) => location.id === "wisp-forest");
     const enteringWispForest = Boolean(
       wispForest &&
-        !testMode &&
-        !save.seenWispForestIntro &&
+        !flowSave.seenWispForestIntro &&
         wispForest.missionIds.includes(id) &&
-        !wispForest.missionIds.some((mission) => save.completed.includes(mission)),
+        !wispForest.missionIds.some((mission) => flowSave.completed.includes(mission)),
     );
     if (enteringWispForest) {
       setWispForestNextMissionId(id);
       setScreen("wispForestIntro");
+      return;
+    }
+    if (id === "vau" && !flowSave.completed.includes("vau")) {
+      setMissionId(id);
+      setScreen("vauIntro");
       return;
     }
     setWispForestNextMissionId(null);
@@ -1312,7 +1554,11 @@ export function GameApp() {
   const finishWispForestIntro = () => {
     const nextMissionId = wispForestNextMissionId;
     setWispForestNextMissionId(null);
-    persistCurrent({ ...save, seenWispForestIntro: true, pendingMission: null, battle: null });
+    if (testMode) {
+      writeMapSave({ ...readMapSave(), seenWispForestIntro: true, pendingMission: null, battle: null });
+    } else {
+      persistCurrent({ ...save, seenWispForestIntro: true, pendingMission: null, battle: null });
+    }
     if (!nextMissionId) {
       setScreen("overworldMap");
       return;
@@ -1323,8 +1569,11 @@ export function GameApp() {
   };
 
   const finishInnArrivalIntro = () => {
-    const completed = save.completed.includes("estalagem") ? save.completed : [...save.completed, "estalagem"];
-    if (!testMode) {
+    const current = readMapSave();
+    const completed = current.completed.includes("estalagem") ? current.completed : [...current.completed, "estalagem"];
+    if (testMode) {
+      writeMapSave({ ...current, completed, seenInnArrivalIntro: true, pendingMission: null, battle: null });
+    } else {
       persistCurrent({ ...save, completed, seenInnArrivalIntro: true, pendingMission: null, battle: null });
     }
     setScreen("inn");
@@ -1346,7 +1595,7 @@ export function GameApp() {
         startBattle(missionId);
         return;
       }
-      if (!testMode && !save.seenInnArrivalIntro) {
+      if (!readMapSave().seenInnArrivalIntro) {
         setScreen("innArrivalIntro");
         return;
       }
@@ -1432,27 +1681,41 @@ export function GameApp() {
       playTheme("early");
       return;
     }
-    playMenuMusic();
-  }, [screen, muted, missionId, innEntry, save.seenSmithIntro]);
+    // Intro music belongs only to the title. Save slots, map choice and other
+    // transition screens must not restart it after the player starts the game.
+    // The title song carries on through the save-slot screen opened from the title.
+    if (screen === "title" || (screen === "saveSlots" && slotReturnScreen === "title")) playMenuMusic();
+    else stopMusic();
+  }, [screen, muted, missionId, innEntry, save.seenSmithIntro, slotReturnScreen]);
 
-  // Normal campaigns keep the one travel style selected when the campaign began. Test mode
-  // deliberately has no persistent save, so it returns to the choice screen every time.
+  // Campaign maps reuse the mode stored in that save. Debug always opens the chooser so
+  // each test run can select the kind of map independently of the last Debug session.
   const goToMap = useCallback(() => {
-    const mode = testMode ? null : save.mapMode;
-    if (mode) {
-      setMapMode(mode);
-      setScreen(mode === "classic" ? "worldMap" : "overworldMap");
+    if (testMode) {
+      setScreen("mapChoice");
       return;
     }
-    setScreen("mapChoice");
-  }, [save.mapMode, testMode]);
+    // Older campaign records predate the RPG map preference. Returning from a mission
+    // should still land on a playable campaign map instead of restarting at the chooser.
+    const mode = save.mapMode ?? mapMode ?? "classic";
+    setMapMode(mode);
+    if (!save.mapMode) persistCurrent({ ...save, mapMode: mode });
+    setScreen(mode === "classic" ? "worldMap" : "overworldMap");
+  }, [save, mapMode, testMode, persistCurrent]);
 
   const leaveBoot = useCallback(() => {
-    // Entering the world map is a hard music boundary: do not leave intro.mp3 under it.
-    playTheme("worldMap");
-    // Every new campaign chooses its map after the intro, even after a previous game.
-    setScreen("mapChoice");
-  }, []);
+    // Debug boot can still open the travel-mode chooser. A new campaign's vignette
+    // finishes at save-slot selection; the chosen slot then starts O Vau's intro.
+    if (testMode) {
+      playTheme("worldMap");
+      setScreen("mapChoice");
+      return;
+    }
+    setSlotReturnScreen("title");
+    setSlotMode("new");
+    setOverwrite(null);
+    setScreen("saveSlots");
+  }, [testMode]);
 
   const goToTitle = useCallback(() => {
     stopMusic();
@@ -1481,9 +1744,16 @@ export function GameApp() {
       overworldMoveBudgetUsed: fresh.overworldMoveBudgetUsed,
       heroHunger: fresh.heroHunger,
       heroDiseases: fresh.heroDiseases,
+      heroPoisons: fresh.heroPoisons,
       rations: fresh.rations,
       hungerStreak: fresh.hungerStreak,
       exploredHexes: fresh.exploredHexes,
+      // Gear starts as a brand-new save's: each hero's starter weapon in hand, nothing else
+      // owned — never the real slot's collected weapons/equipment.
+      weapons: fresh.weapons,
+      equipped: fresh.equipped,
+      equipment: fresh.equipment,
+      looseEquipment: fresh.looseEquipment,
       // Test mode always starts the party at DEFAULT_TEST_LEVEL, never whatever the real
       // save slot's own progression happens to be (a fresh/new real game reads level 1 here
       // otherwise, since this spreads ...save above) — the whole point of testing is having
@@ -1548,7 +1818,7 @@ export function GameApp() {
     // A ration can clear the whole party's streak the moment it does, same as a completed
     // overworld step would next time it ran — otherwise "Fome Xd" and its stat penalty sit
     // stale on-screen until the party's next move recomputes them.
-    if (next.hungerStreak > 0 && partyIsFed(next, testMode)) next = { ...next, hungerStreak: 0 };
+    if ((next.hungerStreak > 0 || (next.hungerHours ?? 0) > 0) && partyIsFed(next, testMode)) next = { ...next, hungerStreak: 0, hungerHours: 0 };
     writeMapSave(next);
   };
   /** Mochila's "Alimentar todos" — one ration per hero in the given roster, off the shared
@@ -1565,7 +1835,7 @@ export function GameApp() {
       next = after;
     }
     if (fed === 0) return 0;
-    if (next.hungerStreak > 0 && partyIsFed(next, testMode)) next = { ...next, hungerStreak: 0 };
+    if ((next.hungerStreak > 0 || (next.hungerHours ?? 0) > 0) && partyIsFed(next, testMode)) next = { ...next, hungerStreak: 0, hungerHours: 0 };
     writeMapSave(next);
     return fed;
   };
@@ -1659,9 +1929,20 @@ export function GameApp() {
     [readMapSave, writeMapSave],
   );
 
+  // A location with no visible missions stays off both map views until its gate reveals one.
+  // The overworld simulation still receives campaignLocations so hidden sites retain their
+  // authored hex encounter biome before the marker is discovered.
+  const mapVisibleLocations = campaignLocations.filter((location) =>
+    testMode || location.missionIds.length === 0 || location.missionIds.some((id) => missionAccessFor(id) !== "hidden"),
+  );
+
   return (
     <main className="relative h-dvh min-h-0 bg-bg text-fg overflow-hidden">
-      <LoadingCurtain visible={loadingCurtain} />
+      <LoadingCurtain
+        visible={loadingCurtain || battleLoading}
+        progress={battleLoading || screen === "battle" ? Math.floor((battleLoadingProgress.loaded / Math.max(1, battleLoadingProgress.total)) * 100) : null}
+        status={battleLoading || screen === "battle" ? `Preparando batalha · ${battleLoadingProgress.loaded}/${battleLoadingProgress.total} recursos` : undefined}
+      />
       {screen === "boot" && (
         <CutsceneScreen src="/game/title-open.mp4" onSkip={leaveBoot} />
       )}
@@ -1681,13 +1962,17 @@ export function GameApp() {
             bootAudio();
             setTestMode(false);
             setOverwrite(null);
+            setSlotReturnScreen("title");
             setSlotMode("new");
+            setScreen("boot");
           }}
           onContinue={() => {
             bootAudio();
             setTestMode(false);
             setOverwrite(null);
+            setSlotReturnScreen("title");
             setSlotMode("continue");
+            setScreen("saveSlots");
           }}
           onTest={() => {
             bootAudio();
@@ -1720,14 +2005,7 @@ export function GameApp() {
           onPick={(mode) => {
             setMapMode(mode);
             if (!testMode) persistCurrent({ ...save, mapMode: mode });
-            // Picking the RPG map on a brand-new campaign (nothing completed, nothing in
-            // progress) plays its own intro before O Vau's briefing instead of landing on
-            // the hex map first — a returning campaign, or the classic map, skips straight
-            // to its usual screen same as ever.
-            if (mode === "rpg" && !testMode && save.completed.length === 0 && !save.pendingMission) {
-              setScreen("vauIntro");
-              return;
-            }
+            // Open the map at the saved starting hex. The first trip is a player action.
             setScreen(mode === "classic" ? "worldMap" : "overworldMap");
           }}
         />
@@ -1744,11 +2022,11 @@ export function GameApp() {
       )}
 
       {screen === "wispForestIntro" && (
-        <CutsceneScreen src="/game/wisp-entrance.mp4" onSkip={finishWispForestIntro} />
+        <CutsceneScreen src="/game/wisp-entrance.mp4" subtitles={{ pt: "/game/subtitles/wisp-entrance.pt.vtt", en: "/game/subtitles/wisp-entrance.en.vtt" }} onSkip={finishWispForestIntro} />
       )}
 
       {screen === "innArrivalIntro" && (
-        <CutsceneScreen src="/game/inn-arrival.mp4" onSkip={finishInnArrivalIntro} />
+        <CutsceneScreen src="/game/inn-arrival.mp4" subtitles={{ pt: "/game/subtitles/inn-arrival.pt.vtt", en: "/game/subtitles/inn-arrival.en.vtt" }} onSkip={finishInnArrivalIntro} />
       )}
 
       {screen === "mapEditor" && art && (
@@ -1770,8 +2048,9 @@ export function GameApp() {
 
       {screen === "campaign" && (
         <CampaignScreen
-          missions={campaignMissions}
-          locations={campaignLocations}
+          missions={campaignMissions.filter((mission) => testMode || missionAccessFor(mission.id) !== "hidden")}
+          locations={mapVisibleLocations}
+          missionAccessFor={missionAccessFor}
           completed={save.completed}
           test={testMode}
           ember={testMode ? testEmber : (save.ember ?? 0)}
@@ -1782,7 +2061,7 @@ export function GameApp() {
 
       {screen === "worldMap" && (
         <WorldMapScreen
-          locations={campaignLocations}
+          locations={mapVisibleLocations}
           status={(loc) => locationStatus(loc, save.completed, testMode, campaignLocations, missionAccessFor)}
           missionStatus={(id) => missionStatus(id, save.completed, testMode, campaignLocations, campaignMissions.map((mission) => mission.id), missionAccessFor)}
           missionsOf={visibleMissionsOf}
@@ -1794,7 +2073,7 @@ export function GameApp() {
             setMutedUi((v) => !v);
           }}
           autoOpenLocationId={openLocationOnMap}
-          centerLocationId={campaignLocations.find((location) => location.missionIds.some((id) => !save.completed.includes(id)))?.id ?? null}
+          centerLocationId={mapVisibleLocations.find((location) => location.missionIds.some((id) => !save.completed.includes(id)))?.id ?? null}
           onBack={() => setScreen(testMode ? "testMenu" : "title")}
           onPick={openMission}
           onOpenList={() => setScreen("campaign")}
@@ -1803,7 +2082,22 @@ export function GameApp() {
 
       {screen === "overworldMap" && (
         <OverworldMapScreen
-          locations={campaignLocations}
+          onSaveFormation={order => {
+            const formation = cleanPartyFormation(order);
+            // Test mode keeps it for the test session only, like every other test-mode map state.
+            if (testMode) {
+              writeMapSave({ ...readMapSave(), partyFormation: formation });
+              return { ok: true, test: true };
+            }
+            persistCurrent({ ...readMapSave(), partyFormation: formation });
+            // Proof, not a promise: read the slot back from storage and compare.
+            const stored = activeSave(loadBank()).partyFormation ?? [];
+            return { ok: JSON.stringify(stored) === JSON.stringify(formation), test: false };
+          }}
+          onSaveLeader={hero => {
+            if (!testMode) persistCurrent({ ...readMapSave(), partyLeader: cleanPartyLeader(hero) });
+          }}
+          locations={mapVisibleLocations}
           status={(loc) => locationStatus(loc, save.completed, testMode, campaignLocations, missionAccessFor)}
           missionStatus={(id) => missionStatus(id, save.completed, testMode, campaignLocations, campaignMissions.map((mission) => mission.id), missionAccessFor)}
           missionsOf={visibleMissionsOf}
@@ -1813,6 +2107,12 @@ export function GameApp() {
           onMute={() => {
             unlockAudio();
             setMutedUi((v) => !v);
+          }}
+          onSave={() => {
+            setOverwrite(null);
+            setSlotReturnScreen("overworldMap");
+            setSlotMode("save");
+            setScreen("saveSlots");
           }}
           overworldPos={overworldSave.overworldPos}
           gameClock={overworldSave.gameClock}
@@ -1841,6 +2141,15 @@ export function GameApp() {
           onBack={() => setScreen(testMode ? "testMenu" : "title")}
           onPick={openMission}
         />
+      )}
+      {missionNotice && (screen === "campaign" || screen === "worldMap" || screen === "overworldMap") && (
+        <button
+          type="button"
+          onClick={() => setMissionNotice(null)}
+          className="fixed z-50 top-24 left-1/2 -translate-x-1/2 ember-plate px-3 py-1.5 text-xs"
+        >
+          {missionNotice}
+        </button>
       )}
       {screen === "overworldMap" && !overworldSave.seenOverworldIntro && (
         <OverworldIntroScreen
@@ -1908,14 +2217,89 @@ export function GameApp() {
             writeMapSave({ ...next, ember: testMode ? rec.ember : next.ember });
             return fed;
           }}
+          onPassNight={(heroes: string[]) => {
+            const rec = readMapSave();
+            const cost = heroes.length * NIGHT_REST_PRICE;
+            const balance = testMode ? testEmber : rec.ember ?? 0;
+            if (heroes.length === 0 || balance < cost) return false;
+            const unitHp = { ...rec.unitHp };
+            let healed = 0;
+            for (const hero of heroes) {
+              const target = mapStatusUnit(rec, hero);
+              const missing = Math.max(0, target.maxHp - target.hp);
+              if (missing <= 0) continue;
+              const amount = Math.min(missing, Math.ceil(missing * 0.75));
+              unitHp[hero] = target.hp + amount;
+              healed += amount;
+            }
+            if (testMode) setTestEmber(balance - cost);
+            const next = {
+              ...rec,
+              ember: testMode ? rec.ember : balance - cost,
+              gameClock: rec.gameClock + 1,
+              gameHour: usesTravelClock(rec) ? 8 : rec.gameHour,
+              unitHp,
+              spellUses: {},
+            };
+            writeMapSave(next);
+            return { day: next.gameClock, healed };
+          }}
           bags={overworldSave.bags}
           ember={testMode ? testEmber : (save.ember ?? 0)}
           muted={muted}
           weapons={overworldSave.weapons}
           equipped={overworldSave.equipped}
           heroClass={Object.fromEntries(
-            [...DEFAULT_HEROES, ...(testMode ? TEST_EXTRA_HEROES : [])].map((h) => [h.name, overworldSave.promotions[h.name] ?? h.classId]),
+            [...DEFAULT_HEROES, ...TEST_EXTRA_HEROES.filter((h) => testMode || heroRecruited(h.name, save.completed, save.flags))].map((h) => [h.name, overworldSave.promotions[h.name] ?? h.classId]),
           )}
+          healerTargets={[
+            ...DEFAULT_HEROES,
+            ...TEST_EXTRA_HEROES.filter((h) => testMode || heroRecruited(h.name, save.completed, save.flags)),
+          ].filter((h) => testMode || heroRecruited(h.name, save.completed, save.flags)).map((h) => {
+            const unit = mapStatusUnit(overworldSave, h.name);
+            return { name: h.name, hp: unit.hp, maxHp: unit.maxHp, sprite: unit.sprite, diseased: unit.diseased, poisoned: unit.poisoned };
+          })}
+          onHealerCast={(hero: string) => {
+            const rec = readMapSave();
+            const balance = testMode ? testEmber : rec.ember ?? 0;
+            if (balance < HEALER_CAST_PRICE) return false;
+            const target = mapStatusUnit(rec, hero);
+            const missing = target.maxHp - target.hp;
+            if (missing <= 0 || target.hp <= 0) return false;
+            const amount = Math.min(Math.max(1, Math.ceil(target.maxHp * 0.25)), missing);
+            if (amount <= 0) return false;
+            if (testMode) setTestEmber(balance - HEALER_CAST_PRICE);
+            writeMapSave({
+              ...rec,
+              ember: testMode ? rec.ember : balance - HEALER_CAST_PRICE,
+              unitHp: { ...rec.unitHp, [hero]: target.hp + amount },
+            });
+            sfxPlay.heal();
+            return amount;
+          }}
+          onHealerCureAilments={(heroes: string[]) => {
+            const rec = readMapSave();
+            const affected = heroes.filter((hero) => rec.heroDiseases[hero] || rec.heroPoisons[hero]);
+            if (affected.length === 0) return 0;
+            const cost = affected.length * HEALER_AILMENT_PRICE;
+            const balance = testMode ? testEmber : rec.ember ?? 0;
+            if (balance < cost) return false;
+            const heroDiseases = { ...rec.heroDiseases };
+            const heroPoisons = { ...rec.heroPoisons };
+            for (const hero of affected) {
+              delete heroDiseases[hero];
+              delete heroPoisons[hero];
+            }
+            if (testMode) setTestEmber(balance - cost);
+            writeMapSave({
+              ...rec,
+              ember: testMode ? rec.ember : balance - cost,
+              heroDiseases,
+              heroPoisons,
+            });
+            sfxPlay.heal();
+            return affected.length;
+          }}
           save={testMode ? { ...overworldSave, ember: testEmber } : overworldSave}
           test={testMode}
           onMute={() => {
@@ -1923,6 +2307,10 @@ export function GameApp() {
             setMutedUi((v) => !v);
           }}
           startInSmith={innEntry === "smith"}
+          startInHealer={innEntry === "healer"}
+          startInMerchant={innEntry === "merchant"}
+          startInMerchantGear={innEntry === "merchantGear"}
+          merchantBackdrop={missionId === "random-encounter-14" ? "/game/assets/merchant-snow-market-background-001.jpg" : "/game/assets/merchant-road-background-001.jpg"}
           onLeave={
             innEntry
               ? () => {
@@ -1982,7 +2370,7 @@ export function GameApp() {
             let next = rec;
             if (!(rec.npcTalked ?? []).includes(npcId)) next = { ...next, npcTalked: [...(rec.npcTalked ?? []), npcId] };
             const extras = progressionExtras(next);
-            const offered = questsFor(npcId as "brue" | "mudo" | "porao").filter((quest) => questStatus(next, quest) === "available" && evaluate(quest.availability, next, extras) && !(next.questsDiscovered ?? []).includes(quest.id));
+            const offered = questsFor(npcId as "brue" | "mudo" | "suspicious" | "porao").filter((quest) => questStatus(next, quest) === "available" && evaluate(quest.availability, next, extras) && !(next.questsDiscovered ?? []).includes(quest.id));
             if (offered.length > 0) next = { ...next, questsDiscovered: [...(next.questsDiscovered ?? []), ...offered.map((quest) => quest.id)] };
             if (next !== rec) writeMapSave(next);
           }}
@@ -2129,6 +2517,7 @@ export function GameApp() {
                 ? "/game/thebridge-intro.mp4"
                 : "/game/asherah-rite.mp4"
           }
+          subtitles={missionId === "aldeia" ? { pt: "/game/subtitles/aldeia-intro.pt.vtt", en: "/game/subtitles/aldeia-intro.en.vtt" } : undefined}
           onSkip={() => startBattle(missionId === "aldeia" ? "aldeia" : missionId === "thebridge" ? "thebridge" : "templo")}
         />
       )}
@@ -2150,7 +2539,36 @@ export function GameApp() {
           save={save}
           playtest={!!customMission}
           fleeable={!customMission && !!missionId && isRandomEncounter(missionId)}
+          onAffinityChange={() => {
+            if (!testMode && !customMission) persistCurrent({ ...readMapSave(), affinityScores: { ...engine.affinityScores } });
+          }}
           onDialogAction={(action) => {
+            if (action === "acceptSuspectHostageQuest") {
+              if (testMode || customMission) return;
+              const rec = readMapSave();
+              const quest = questById("suspeito-watchtower-captive");
+              if (!quest) return;
+              const intelFlag = "suspeito-watchtower-intel";
+              const flags = rec.flags ?? [];
+              const discovered = rec.questsDiscovered ?? [];
+              const active = rec.questsActive ?? [];
+              writeMapSave({
+                ...rec,
+                flags: flags.includes(intelFlag) ? flags : [...flags, intelFlag],
+                questsDiscovered: discovered.includes(quest.id) ? discovered : [...discovered, quest.id],
+                questsActive: active.includes(quest.id) ? active : [...active, quest.id],
+              });
+              return;
+            }
+            if (action === "recruitAldric") {
+              if (testMode || customMission) return;
+              const rec = activeSave(bank);
+              const flag = "recruited:Aldric";
+              if (!(rec.flags ?? []).includes(flag)) {
+                persistCurrent(withLiveBattle({ ...rec, flags: [...(rec.flags ?? []), flag] }));
+              }
+              return;
+            }
             setInnEntry(action);
             setScreen("inn");
           }}
@@ -2209,11 +2627,13 @@ export function GameApp() {
             return true;
           }}
           onHud={onHud}
-          onPause={() => setPaused(true)}
+          onPause={() => { pauseMusic(); setPaused(true); }}
+          onTitle={goToTitle}
           onResume={() => {
             setSlotMode(null);
             setOverwrite(null);
             setPaused(false);
+            resumeMusic();
           }}
           onMute={() => {
             unlockAudio();
@@ -2221,11 +2641,15 @@ export function GameApp() {
           }}
           onSave={() => {
             setOverwrite(null);
+            setSlotReturnScreen("battle");
             setSlotMode("save");
+            setScreen("saveSlots");
           }}
           onLoad={() => {
             setOverwrite(null);
+            setSlotReturnScreen("battle");
             setSlotMode("load");
+            setScreen("saveSlots");
           }}
           onQuit={() => {
             setPaused(false);
@@ -2240,9 +2664,11 @@ export function GameApp() {
                 persistCurrent({
                   ...rec,
                   bags: { ...rec.bags, ...engine.remainingBags() },
+                  affinityScores: { ...engine.affinityScores },
                   unitHp: { ...rec.unitHp, ...engine.battlePlayerHp() },
                   heroHunger: { ...rec.heroHunger, ...engine.battlePlayerHunger() },
                   heroDiseases: mergeBattleDiseases(rec.heroDiseases, engine),
+                  heroPoisons: mergeBattlePoisons(rec.heroPoisons, engine),
                   pendingMission: null,
                   battle: null,
                 });
@@ -2288,7 +2714,11 @@ export function GameApp() {
               : hud.activeExit?.id === "escape-exit"
                 ? "Vocês escaparam a tempo."
                 : hud.activeExit?.id === "floor-connector"
-                  ? hud.activeExit.returnConnector
+                  ? mission.id === "estalagem"
+                    ? "Subir para o Segundo andar"
+                    : mission.id === "estalagem-andar-2"
+                      ? "Descer para o Primeiro andar"
+                      : hud.activeExit.returnConnector
                     ? "Vocês voltam ao andar anterior."
                     : "Vocês seguem mais fundo na masmorra."
                   : "O campo ficou em silêncio."
@@ -2299,11 +2729,12 @@ export function GameApp() {
           advanceLabel={hud.activeExit?.id === "floor-connector" ? (hud.activeExit.returnConnector ? "Voltar" : "Avançar") : undefined}
           onAdvance={
             hud.activeExit?.id === "floor-connector" && hud.activeExit.targetMapId
-              ? () => startBattle(hud.activeExit!.targetMapId!, save.unitHp)
+              ? () => startBattle(hud.activeExit!.targetMapId!, save.unitHp, undefined, undefined, undefined, undefined, undefined, true, mission.id)
               : undefined
           }
+          resting={hud.activeExit?.id !== "floor-connector"}
           turn={hud.turn}
-          growth={lastGrowth}
+          growth={mission.id === "estalagem" || mission.id.startsWith("estalagem-andar-") ? null : lastGrowth}
           loot={lastLoot}
           art={briefArt(mission.id)}
           innOpen={!customMission && innUnlocked(save.completed) && mission.index <= 11}
@@ -2335,7 +2766,7 @@ export function GameApp() {
             goToMap();
           }}
           mapLabel={customMission ? "Voltar ao editor" : "Mapa"}
-          onTitle={goToTitle}
+
           // The raw "next mission by global index" shortcut this used to offer could skip
           // straight past an entire other location (missions aren't numbered in location
           // order) — hasNext is always false below now, so this never fires; onMap is the
@@ -2345,7 +2776,7 @@ export function GameApp() {
         />
       )}
 
-      {screen === "victory" && pendingPromotions.length > 0 && (
+      {screen === "victory" && mission && mission.id !== "estalagem" && !mission.id.startsWith("estalagem-andar-") && pendingPromotions.length > 0 && (
         <PromotionScreen pending={pendingPromotions} onPick={choosePromotion} />
       )}
 
@@ -2357,7 +2788,7 @@ export function GameApp() {
           turn={hud.turn}
           growth={null}
           art={briefArt(mission.id)}
-          onTitle={goToTitle}
+
           onNext={() => startBattle(mission.id, save.unitHp, customMission ?? undefined)}
           onMap={
             customMission
@@ -2373,7 +2804,7 @@ export function GameApp() {
         />
       )}
 
-      {slotMode && (
+      {screen === "saveSlots" && slotMode && (
         <SlotScreen
           mode={slotMode}
           bank={bank}
@@ -2382,11 +2813,12 @@ export function GameApp() {
           onClose={() => {
             setSlotMode(null);
             setOverwrite(null);
+            setScreen(slotReturnScreen);
           }}
           onPick={(index) => {
             bootAudio();
             if (slotMode === "new") {
-              const next = writeSlot(bank, index, emptySave(muted));
+              const next = writeSlot(bank, index, { ...emptySave(muted), pendingMission: "vau", mapMode: "rpg" });
               applySlot(next);
               setSlotMode(null);
               setOverwrite(null);
@@ -2394,7 +2826,7 @@ export function GameApp() {
               setLastLoot([]);
               setMissionId(null);
               setEngine(null);
-              setScreen("boot");
+              setScreen("vauIntro");
               return;
             }
             if (slotMode === "continue" || slotMode === "load") {
@@ -2410,6 +2842,12 @@ export function GameApp() {
               return;
             }
             const snapshot = (() => {
+              // Map saves must use the current map record. combatStartRef holds the
+              // snapshot from before the last battle/map transition, so using it here
+              // silently reset travel progress when a player saved from the RPG map.
+              if (slotReturnScreen === "overworldMap" || slotReturnScreen === "worldMap" || slotReturnScreen === "campaign") {
+                return { ...readMapSave(), muted };
+              }
               if (engine && missionId) {
                 const levels = { ...save.levels };
                 const xp = { ...save.xp };
@@ -2423,6 +2861,7 @@ export function GameApp() {
                   pendingMission: missionId,
                   battle: engine.captureSnapshot(),
                   bags: { ...save.bags, ...engine.remainingBags() },
+                  affinityScores: { ...engine.affinityScores },
                   unitHp: { ...save.unitHp, ...engine.battlePlayerHp() },
                   heroHunger: { ...save.heroHunger, ...engine.battlePlayerHunger() },
                   spellUses: engine.spentTiers(),
@@ -2438,21 +2877,45 @@ export function GameApp() {
             setSlotMode(null);
             setOverwrite(null);
             setPaused(false);
+            setScreen(slotReturnScreen);
           }}
         />
       )}
+      {!testMode && (screen === "worldMap" || screen === "overworldMap" || screen === "campaign") && <>
+        <button type="button" className="absolute bottom-4 right-4 z-30 ember-btn ember-btn-sm" onClick={() => setCompanionConversationsOpen(true)}>Conversations</button>
+        {companionConversationsOpen && <CompanionConversations
+          save={save}
+          leader={partyLeaderOf(save.partyLeader, h => heroRecruited(h, save.completed, save.flags))}
+          heroes={AFFINITY_HEROES.filter(h => heroRecruited(h, save.completed, save.flags))}
+          onClose={() => setCompanionConversationsOpen(false)}
+          onLeader={hero => persistCurrent({ ...readMapSave(), partyLeader: hero })}
+          onReply={(reply, leader) => {
+            const rec = readMapSave();
+            const resolved = resolveCompanionReply(rec.affinityScores, rec.companionConversations, reply, leader);
+            persistCurrent({ ...rec, affinityScores: resolved.scores, companionConversations: resolved.memory });
+          }}
+        />}
+      </>}
     </main>
   );
 }
 
-function CutsceneScreen({
+export function CutsceneScreen({
   src,
+  subtitles,
   onSkip,
 }: {
   src: string;
+  subtitles?: Translations;
   onSkip: () => void;
 }) {
+  const prefs = useGamePreferences();
   const ref = useRef<HTMLVideoElement>(null);
+  const [soundOn, setSoundOn] = useState(() => !isMuted());
+  const englishSubtitles = CUTSCENE_SUBTITLES[src] ?? subtitles?.en;
+  useEffect(() => {
+    syncEnglishSubtitles(ref.current?.textTracks, prefs.subtitles);
+  }, [prefs.subtitles, englishSubtitles]);
   const [portrait, setPortrait] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 720px) and (orientation: portrait)").matches,
   );
@@ -2475,11 +2938,13 @@ function CutsceneScreen({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    // Cutscene audio is its own setting (see the "Cutscenes" slider in Áudio/Volumes),
-    // always on by default — never tied to the game's own master mute toggle.
+    // The cutscene volume slider sets its level; the sound toggle silences everything.
     const cutsceneVolume = getAudioVolumes().cutscene;
     el.volume = cutsceneVolume;
-    el.muted = cutsceneVolume <= 0;
+    el.muted = isMuted() || cutsceneVolume <= 0;
+    setSoundOn(!el.muted);
+    const syncSound = () => setSoundOn(!el.muted && el.volume > 0);
+    el.addEventListener("volumechange", syncSound);
     let stuckTimer = 0;
     const clearStuckTimer = () => {
       if (stuckTimer) {
@@ -2509,22 +2974,44 @@ function CutsceneScreen({
     return () => {
       el.removeEventListener("canplay", kick);
       el.removeEventListener("playing", clearStuckTimer);
+      el.removeEventListener("volumechange", syncSound);
       clearStuckTimer();
     };
   }, [src, onSkip]);
   return (
     <section className="relative h-dvh w-dvw bg-black overflow-hidden">
       <div className="cutscene-stage">
-        <video ref={ref} src={src} playsInline autoPlay preload="auto" onEnded={onSkip} onError={onSkip} />
+        <video ref={ref} src={src} playsInline autoPlay preload="auto" onEnded={onSkip} onError={onSkip}>
+          {englishSubtitles && <track key={englishSubtitles} kind="subtitles" src={englishSubtitles} srcLang="en" label="English" default={prefs.subtitles} onLoad={() => syncEnglishSubtitles(ref.current?.textTracks, prefs.subtitles)} />}
+        </video>
       </div>
       {portrait && (
         <p className="pointer-events-none absolute inset-x-0 top-[max(0.75rem,env(safe-area-inset-top))] text-center text-[11px] tracking-[0.16em] uppercase text-muted">
-          Deite o telefone
+          {uiText("Deite o telefone")}
         </p>
       )}
+      <div className="absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-20 flex gap-1 p-2">
+        <button
+          type="button"
+          className="grid size-9 place-items-center rounded bg-black/40 text-white/90"
+          aria-label={uiText(soundOn ? "Silenciar" : "Ativar som")}
+          aria-pressed={soundOn}
+          onClick={() => {
+            const video = ref.current;
+            if (!video) return;
+            const enable = video.muted || video.volume <= 0;
+            if (enable && video.volume <= 0) video.volume = getAudioVolumes().cutscene || 1;
+            video.muted = !enable;
+            setSoundOn(enable);
+            if (enable) void video.play().catch(() => {});
+          }}
+        >
+          {soundOn ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+        </button>
+      </div>
       <div className="absolute inset-x-0 bottom-0 z-10 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] flex justify-end">
         <Button size="md" variant="ghost" onClick={onSkip}>
-          Pular
+          {uiText("Pular")}
         </Button>
       </div>
     </section>
@@ -2554,6 +3041,7 @@ function TitleScreen({
   onContinue: () => void;
   onTest: () => void;
 }) {
+  useGamePreferences();
   const progress = useArtLoadProgress(ready);
   return (
     <section className="relative min-h-dvh flex flex-col overflow-hidden">
@@ -2563,8 +3051,8 @@ function TitleScreen({
         <button
           type="button"
           onClick={onMute}
-          className="size-11 grid place-items-center rounded-md border border-border text-fg"
-          aria-label={muted ? "Ativar som" : "Silenciar"}
+          className="size-11 grid place-items-center ember-icon-btn"
+          aria-label={uiText(muted ? "Ativar som" : "Silenciar")}
         >
           {muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
         </button>
@@ -2582,25 +3070,26 @@ function TitleScreen({
       {/* Menu column lifted to leave room for the loading bar underneath it; the tiny "Modo teste"
           button stays where it was, bottom-left. */}
       <div className="relative z-10 flex flex-1 flex-col justify-end px-5 pb-[max(6.5rem,calc(env(safe-area-inset-bottom)+5.5rem))] max-w-xl mx-auto w-full">
-        <p className="text-sm tracking-[0.28em] uppercase text-muted mb-3">Táticas em cinzas</p>
+        <p className="text-sm tracking-[0.28em] uppercase text-muted mb-3">{uiText("Táticas em cinzas")}</p>
         <h1 className="font-display text-5xl sm:text-7xl font-medium tracking-tight leading-none mb-4">Ember</h1>
         <p className="text-[11px] tracking-[0.18em] uppercase text-muted -mt-3 mb-4">Version {DISPLAY_VERSION}</p>
         <p className="text-muted text-base leading-relaxed mb-8 max-w-md">
-          Seis sobreviventes. Um tabuleiro de guerra. Cada casa conta.
+          {uiText("Seis sobreviventes. Um tabuleiro de guerra. Cada casa conta.")}
         </p>
         <div className="flex flex-col gap-3">
-          <Button size="xl" disabled={!ready} onClick={onNew}>
-            {ready ? "Nova campanha" : "Carregando…"}
+          <Button size="xl" className="ember-btn ember-btn-primary" disabled={!ready} onClick={onNew}>
+            {uiText(ready ? "Nova campanha" : "Carregando…")}
           </Button>
           {hasProgress && (
-            <Button size="lg" variant="ghost" disabled={!ready} onClick={onContinue}>
-              Continuar
+            <Button size="lg" variant="ghost" className="ember-btn ember-btn-ghost" disabled={!ready} onClick={onContinue}>
+              {uiText("Continuar")}
             </Button>
           )}
-          <Button size="lg" variant="quiet" onClick={onHelp}>
-            Como jogar
+          <Button size="lg" variant="quiet" className="ember-btn ember-btn-ghost" onClick={onHelp}>
+            {uiText("Como jogar")}
           </Button>
         </div>
+        <div className="mt-3"><OptionsButton muted={muted} onMute={onMute} /></div>
         {error && <p className="mt-4 text-sm text-danger">{error}</p>}
       </div>
       <TitleLoader progress={progress} ready={ready} />
@@ -2609,6 +3098,8 @@ function TitleScreen({
   );
 }
 
+// LOCKED (2026-10-06): the title loading bar — real % only, smooth fill, no stripes, never an
+// indeterminate/fake sweep. Do not change; see "Loading bars" in CLAUDE.md's Locked behavior.
 /** Real art-loading progress for the title screen, kept monotonic (the raw ratio can dip when a
  * later batch of images is requested) and never shown as 100% before loading has truly finished. */
 function useArtLoadProgress(ready: boolean): number {
@@ -2722,6 +3213,7 @@ const SKILL_CLASS: Partial<Record<SpellKind, ClassId>> = {
   summonFamiliar2: "conjurer",
   summonFamiliar3: "conjurer",
   summonFamiliar4: "conjurer",
+  summonZombieDog: "conjurer",
   webOfDreams: "conjurer",
   longShot: "archer",
   piercing: "archer",
@@ -2743,7 +3235,7 @@ const SKILL_CLASS: Partial<Record<SpellKind, ClassId>> = {
 };
 
 const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula: string | ((x: number) => string); param?: "level"; note: string }[] = [
-  { name: BLESS.name, cls: "healer", tier: spellTier("bless")!, formula: "—", note: `Healer nível ${BLESS.unlockLevel}. Raio ${BLESS.radius}; +1% de acerto por nível até +10% no nível 13. Duração: 3 turnos no nível 3; 4 no 5; 5 no 7; 6 no 9; 7 no 12; 8 no 15.` },
+  { name: BLESS.name, cls: "healer" as const, tier: spellTier("bless")!, formula: "—", note: `Healer nível ${BLESS.unlockLevel}. Raio ${BLESS.radius}; +1% de acerto por nível até +10% no nível 13. Duração: 3 turnos no nível 3; 4 no 5; 5 no 7; 6 no 9; 7 no 12; 8 no 15.` },
   { name: MAGIC_MISSILE.name, cls: SKILL_CLASS.magicMissile!, tier: spellTier("magicMissile")!, formula: (mag: number) => spellFormula(mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus), note: "Nunca erra. 1 míssil, 2 no nível 3, 3 no nível 6 — um alvo cada." },
   {
     name: LONG_SHOT.name,
@@ -2839,7 +3331,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     param: "level" as const,
     note: `Passiva: cura sozinho ao cair a ${Math.round(SECOND_WIND.badlyWoundedPct * 100)}% de HP ou menos. Não é um golpe do atalho.`,
   },
-  { name: CURES.cureLight.name, cls: SKILL_CLASS.cureLight!, tier: spellTier("cureLight")!, formula: (mag: number) => `${healFormula(mag, "cureLight")} (cura)`, note: "Igual à Cura Média da Clériga, usos próprios do Paladino." },
+  { name: CURES.cureLight.name, cls: SKILL_CLASS.cureLight!, tier: spellTier("cureLight")!, formula: (mag: number) => `${healFormula(mag, "cureLight")} (cura)`, note: "Entre Cura Menor e Cura Média; usos próprios do Paladino." },
   {
     name: AURA_OF_PROTECTION.name,
     cls: SKILL_CLASS.auraOfProtection!,
@@ -2891,74 +3383,107 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
   },
 ].sort((a, b) => a.tier - b.tier);
 
+const SKILL_DAMAGE_NOTES_EN: Record<string, string> = {
+  [BLESS.name]: `Healer, level ${BLESS.unlockLevel}. Radius ${BLESS.radius}; +1% hit chance per level, up to +10% at level 13. Duration: 3 turns at level 3; 4 at 5; 5 at 7; 6 at 9; 7 at 12; 8 at 15.`,
+  [MAGIC_MISSILE.name]: "Never misses. 1 missile, 2 at level 3, 3 at level 6 — each targets one unit.",
+  [LONG_SHOT.name]: "Range 7. Damage die increases at levels 2, 3, 5, 7, 9, 12, and 14.",
+  [CURES.cureMinor.name]: "—",
+  [DOUBLE_STRIKE.name]: "Attacks twice; each hit rolls its own bonus (bonuses do not stack).",
+  [PIERCING_THRUST.name]: "Hits in a line; the second target takes half damage.",
+  [SUMMON_FAMILIAR.name]: `Summons an ally with ${Math.round(SUMMON_FAMILIAR.statScale * 100)}% of your current stats. It can cast Magic Missile on its own.`,
+  [SUMMON_FAMILIAR2.name]: `Summons a greater ally with ${Math.round(SUMMON_FAMILIAR2.statScale * 100)}% of your current stats. It can cast Magic Missile or Life Drain on its own.`,
+  [SUMMON_FAMILIAR4.name]: `Summons a radiant ally with ${Math.round(SUMMON_FAMILIAR4.statScale * 100)}% of your current stats. It can cast Magic Missile or Life Drain on its own.`,
+  [SUMMON_FAMILIAR3.name]: `Summons an ally with ${Math.round(SUMMON_FAMILIAR3.statScale * 100)}% of your current stats. It can cast Fireball on its own.`,
+  [LIGHTNING.name]: `Pierces cover and barricades. Echoes to another adjacent target for ${diceFormula(LIGHTNING.echoDice, LIGHTNING.echoFaces, LIGHTNING.echoBonus)}.`,
+  [LIGHTNING_T3.name]: `Elementalist T5. Pierces cover and barricades. Echo: ${diceFormula(LIGHTNING_T3.echoDice, LIGHTNING_T3.echoFaces, LIGHTNING_T3.echoBonus)}.`,
+  [PIERCING.name]: "Multiplier increases at levels 6, 10, and 13.",
+  [CURES.cureWounds.name]: "—",
+  [CLEAVE.name]: `Hits up to ${CLEAVE.hexes} hexes. x${CLEAVE.largeMul} against large creatures (${CLEAVE.largeHexes}+ hexes). Damage die increases at levels 9, 11, and 14.`,
+  [SWEEP.name]: `Enemies within ${SWEEP.radius} hexes; knocks them back ${SWEEP.knockback} hex. Shows the area before confirming.`,
+  [WEB_OF_DREAMS.name]: `Range ${WEB_OF_DREAMS.range}. Radius ${WEB_OF_DREAMS.size} (2 at level 7, 3 at level 12). ${Math.round(WEB_OF_DREAMS.sleepChance * 100)}% chance to sleep for ${diceFormula(WEB_OF_DREAMS.sleepDice, WEB_OF_DREAMS.sleepFaces, 0)} turns (+${Math.round(WEB_OF_DREAMS.sleepBonusDamage * 100)}% damage when awakened); movement is limited to 1 hex in the area for ${WEB_OF_DREAMS.durationRounds} turns.`,
+  [TRIP.name]: `Causes Bleeding (1D8 at the start of each action); −${Math.round(TRIP.statPenalty * 100)}% to stats for the rest of the battle.`,
+  [FIREBALL.name]: `Area radius ${FIREBALL.size}.`,
+  [CURE_DISEASE.name]: "Cleric T3. Cures disease and poison. Teal light.",
+  [CAUSTIC_VENOM.name]: `Range ${CAUSTIC_VENOM.range}. Poisons the target: 1D4 at the start of each turn until cured. Radius ${CAUSTIC_VENOM.size}; affects both sides.`,
+  [MULTI_SHOT.name]: "2 targets (3 at level 11), range 6. Damage die increases at levels 8 and 13.",
+  [SECOND_WIND.name]: `Passive: automatically heals when HP falls to ${Math.round(SECOND_WIND.badlyWoundedPct * 100)}% or lower. It is not an action-bar attack.`,
+  [CURES.cureLight.name]: "Between Minor and Medium Heal; exclusive uses for the Paladin.",
+  [AURA_OF_PROTECTION.name]: "Instant, centered on self — no aiming. Scales at levels 20, 22, 24, 26, 28, and 30.",
+  [DIVINE_WRATH.name]: `Aimed straight line, range ${DIVINE_WRATH.range} — never hits allies. Damage die increases at levels 19, 22, 26, and 30.`,
+  [SHOULDER_SMASH.name]: `Requires no shield. Hex arc grows to 4; knocks targets back ${SHOULDER_SMASH.knockback} hexes.`,
+  [INTIMIDATING_PRESENCE.name]: "Instant, centered on self — no aiming. The opposite of Aura of Protection, with the same scaling.",
+  [STAMPEDE.name]: `Aimed straight line, range ${STAMPEDE.range} — hits allies too. Damage die increases at levels 21, 24, 27, and 30.`,
+};
+
+function helpFormulaText(value: string): string {
+  const english = value
+    .replaceAll("dano de arma", "weapon damage")
+    .replaceAll("arma", "weapon")
+    .replaceAll("cura", "healing")
+    .replaceAll("centro", "center")
+    .replaceAll("respingo", "splash")
+    .replaceAll("raio", "radius")
+    .replaceAll("% de RES", "% RES")
+    .replaceAll("% dano", "% damage")
+    .replaceAll("dano", "damage")
+    .replaceAll("armadura", "armor");
+  return uiText(value, { en: english });
+}
+
 function HelpModal({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<"basicos" | "tabelas" | "loot" | "dano">("basicos");
   return (
-    <div className="absolute inset-0 z-20 bg-bg/80 flex items-end sm:items-center justify-center p-4">
-      <div className="w-full max-w-lg max-h-[85dvh] overflow-y-auto ember-window rounded-xl p-6">
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <h2 className="font-display text-2xl">Como jogar</h2>
-          <button type="button" onClick={onClose} className="size-11 grid place-items-center" aria-label="Fechar">
-            <X className="size-5" />
+    <div className="absolute inset-0 z-20 ember-veil flex items-end sm:items-center justify-center p-4">
+      {/* The framed panel stays put and only the inner area scrolls, so the panel's gold
+          corners don't scroll away with the content. */}
+      <div className="relative w-full max-w-lg max-h-[85dvh] flex flex-col ember-panel p-6">
+        <div className="flex items-start justify-between gap-4 mb-4 shrink-0">
+          <h2 className="font-display text-2xl leading-none ember-title">{uiText("Como jogar")}</h2>
+          <button type="button" onClick={onClose} className="size-8 grid place-items-center ember-icon-btn" aria-label={uiText("Fechar")}>
+            <X className="size-4" />
           </button>
         </div>
-        <div className="flex gap-1 mb-4 border-b border-border">
-          <button
-            type="button"
-            onClick={() => setTab("basicos")}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === "basicos" ? "border-accent text-fg" : "border-transparent text-muted"}`}
-          >
-            Básicos
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("tabelas")}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === "tabelas" ? "border-accent text-fg" : "border-transparent text-muted"}`}
-          >
-            Usos
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("dano")}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === "dano" ? "border-accent text-fg" : "border-transparent text-muted"}`}
-          >
-            Dano
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("loot")}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === "loot" ? "border-accent text-fg" : "border-transparent text-muted"}`}
-          >
-            Loot
-          </button>
+        <div className="grid grid-cols-4 gap-1 mb-4 shrink-0">
+          <Button size="sm" variant={tab === "basicos" ? undefined : "quiet"} className={`ember-btn ember-btn-sm ${tab === "basicos" ? "ember-btn-primary" : "ember-btn-ghost"}`} onClick={() => setTab("basicos")}>
+            {uiText("Básicos")}
+          </Button>
+          <Button size="sm" variant={tab === "tabelas" ? undefined : "quiet"} className={`ember-btn ember-btn-sm ${tab === "tabelas" ? "ember-btn-primary" : "ember-btn-ghost"}`} onClick={() => setTab("tabelas")}>
+            {uiText("Usos")}
+          </Button>
+          <Button size="sm" variant={tab === "dano" ? undefined : "quiet"} className={`ember-btn ember-btn-sm ${tab === "dano" ? "ember-btn-primary" : "ember-btn-ghost"}`} onClick={() => setTab("dano")}>
+            {uiText("Dano")}
+          </Button>
+          <Button size="sm" variant={tab === "loot" ? undefined : "quiet"} className={`ember-btn ember-btn-sm ${tab === "loot" ? "ember-btn-primary" : "ember-btn-ghost"}`} onClick={() => setTab("loot")}>
+            {uiText("Loot")}
+          </Button>
         </div>
+        <div className="min-h-0 flex-1 overflow-y-auto ember-scrollbar pr-1">
         {tab === "basicos" ? (
           <ul className="space-y-3 text-sm text-muted leading-relaxed">
-            <li>Toque numa aliada para ver movimento (azul) e ataque (vermelho).</li>
-            <li>Toque num inimigo para ver HP, alcance e a área vermelha de perigo.</li>
-            <li>Golpe de arma: AT − DF, dentro do alcance da ficha.</li>
-            <li>Magia ofensiva: o dado − RES, no alcance da magia.</li>
-            <li>Todo mundo tem AT, MAG, DF, RES, Mov e Alc. Nada fica de fora da ficha.</li>
-            <li>Terreno alto (barranco, tronco morto, casa abandonada): +2 de dano. A arqueira também ganha +1 de alcance. No alto, outro hex alto na frente não corta a flecha.</li>
-            <li>Barricada (estacas, 3 hexes): ninguém passa. De trás você atira. Projéteis não acertam quem está atrás.</li>
-            <li>Depois de mover, dois cliques no personagem = Esperar e passa ao próximo.</li>
+            <li>{uiText("Toque numa aliada para ver movimento (azul) e ataque (vermelho).")}</li>
+            <li>{uiText("Toque num inimigo para ver HP, alcance e a área vermelha de perigo.")}</li>
+            <li>{uiText("Golpe de arma: AT − DF, dentro do alcance da ficha.")}</li>
+            <li>{uiText("Magia ofensiva: o dado − RES, no alcance da magia.")}</li>
+            <li>{uiText("Todo mundo tem AT, MAG, DF, RES, Mov e Alc. Nada fica de fora da ficha.")}</li>
+            <li>{uiText("Terreno alto (barranco, tronco morto, casa abandonada): +2 de dano. A arqueira também ganha +1 de alcance. No alto, outro hex alto na frente não corta a flecha.")}</li>
+            <li>{uiText("Barricada (estacas, 3 hexes): ninguém passa. De trás você atira. Projéteis não acertam quem está atrás.")}</li>
+            <li>{uiText("Depois de mover, dois cliques no personagem = Esperar e passa ao próximo.")}</li>
           </ul>
         ) : tab === "tabelas" ? (
           <div className="space-y-5">
             <p className="text-sm text-muted leading-relaxed">
-              Cada classe tem uma velocidade de conjuração — ela decide quantos usos de cada tier (1 a 5) a
-              classe tem em cada nível. As tabelas abaixo mostram os números exatos, nível a nível.
+              {uiText("Cada classe tem uma velocidade de conjuração — ela decide quantos usos de cada tier (1 a 5) a classe tem em cada nível. As tabelas abaixo mostram os números exatos, nível a nível.")}
             </p>
             {SKILL_SPEED_GROUPS.map((g) => (
               <div key={g.label}>
                 <p className="text-sm font-medium">
-                  {g.label} <span className="text-muted font-normal">· {g.classes}</span>
+                  {uiText(g.label)} <span className="text-muted font-normal">· {g.classes.split(", ").map((name) => uiText(name)).join(", ")}</span>
                 </p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs tabular-nums border-collapse">
                     <thead>
                       <tr className="text-muted">
-                        <th className="text-left font-normal pr-2 py-1">Nv</th>
+                        <th className="text-left font-normal pr-2 py-1">{uiText("Nv")}</th>
                         {Array.from({ length: g.maxTier }, (_, i) => i + 1).map((t) => (
                           <th key={t} className="text-right font-normal px-1.5 py-1">
                             T{t}
@@ -2987,55 +3512,50 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <div className="space-y-5">
             <div className="space-y-2">
               <p className="text-sm leading-relaxed">
-                <span className="text-accent">Ataque normal</span> = metade do seu ATK (ou MAG, se for
-                conjurador) + dados da arma + terreno − metade da DEF do alvo (RES, contra magia).
-                Metades não contam: arredonda pra baixo. Mínimo 1 de dano.
+                <span className="text-accent">{uiText("Ataque normal")}</span> = {uiText("metade do seu ATK (ou MAG, se for conjurador) + dados da arma + terreno − metade da DEF do alvo (RES, contra magia). Metades não contam: arredonda pra baixo. Mínimo 1 de dano.")}
               </p>
               <p className="text-sm leading-relaxed">
-                <span className="text-accent">Magia</span> = a mesma conta, com a sua metade de MAG
-                multiplicada pelo peso da magia e os dados dela no lugar da arma. Todo peso é maior que 1,
-                e o resultado nunca fica abaixo de um ataque normal — conjurar sempre vale mais que bater.
+                <span className="text-accent">{uiText("Magia")}</span> = {uiText("a mesma conta, com a sua metade de MAG multiplicada pelo peso da magia e os dados dela no lugar da arma. Todo peso é maior que 1, e o resultado nunca fica abaixo de um ataque normal — conjurar sempre vale mais que bater.")}
               </p>
               <p className="text-xs text-muted leading-relaxed">
-                Por isso a tabela abaixo mostra a fórmula por MAG, não por nível: uma magia cresce junto
-                com quem conjura, não numa tabela própria.
+                {uiText("Por isso a tabela abaixo mostra a fórmula por MAG, não por nível: uma magia cresce junto com quem conjura, não numa tabela própria.")}
               </p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs border-collapse">
                 <thead>
                   <tr className="text-muted">
-                    <th className="text-left font-normal pr-2 py-1">Habilidade</th>
-                    <th className="text-left font-normal px-1.5 py-1">Classe</th>
+                    <th className="text-left font-normal pr-2 py-1">{uiText("Habilidade")}</th>
+                    <th className="text-left font-normal px-1.5 py-1">{uiText("Classe")}</th>
                     <th className="text-center font-normal px-1.5 py-1">Tier</th>
-                    <th className="text-left font-normal px-1.5 py-1">Fórmula</th>
-                    <th className="text-left font-normal pl-1.5 py-1">Efeito</th>
+                    <th className="text-left font-normal px-1.5 py-1">{uiText("Fórmula")}</th>
+                    <th className="text-left font-normal pl-1.5 py-1">{uiText("Efeito")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {SKILL_DAMAGE_ROWS.map((row) => (
                     <tr key={row.name} className="border-t border-border/60 align-top">
-                      <td className="text-left py-1 pr-2 font-medium whitespace-nowrap">{row.name}</td>
-                      <td className="text-left px-1.5 py-1 text-muted whitespace-nowrap">{CLASSES[row.cls].name}</td>
+                      <td className="text-left py-1 pr-2 font-medium whitespace-nowrap">{uiText(row.name)}</td>
+                      <td className="text-left px-1.5 py-1 text-muted whitespace-nowrap">{uiText(CLASSES[row.cls].name)}</td>
                       <td className="text-center px-1.5 py-1 text-muted">T{row.tier}</td>
                       <td className="text-left px-1.5 py-1 tabular-nums">
                         {typeof row.formula === "string" ? (
-                          row.formula
+                          helpFormulaText(row.formula)
                         ) : row.param === "level" ? (
                           <span className="space-x-1.5">
-                            <span>Nv1: {row.formula(1)}</span>
-                            <span className="text-muted">· Nv7: {row.formula(7)}</span>
-                            <span className="text-muted">· Nv14: {row.formula(14)}</span>
+                            <span>{uiText("Nv1")}: {helpFormulaText(row.formula(1))}</span>
+                            <span className="text-muted">· {uiText("Nv7")}: {helpFormulaText(row.formula(7))}</span>
+                            <span className="text-muted">· {uiText("Nv14")}: {helpFormulaText(row.formula(14))}</span>
                           </span>
                         ) : (
                           <span className="space-x-1.5">
-                            <span>MAG 10: {row.formula(10)}</span>
-                            <span className="text-muted">· MAG 20: {row.formula(20)}</span>
-                            <span className="text-muted">· MAG 40: {row.formula(40)}</span>
+                            <span>{uiText("MAG 10")}: {helpFormulaText(row.formula(10))}</span>
+                            <span className="text-muted">· {uiText("MAG 20")}: {helpFormulaText(row.formula(20))}</span>
+                            <span className="text-muted">· {uiText("MAG 40")}: {helpFormulaText(row.formula(40))}</span>
                           </span>
                         )}
                       </td>
-                      <td className="text-left pl-1.5 py-1 text-muted">{row.note}</td>
+                      <td className="text-left pl-1.5 py-1 text-muted">{uiText(row.note, { en: SKILL_DAMAGE_NOTES_EN[row.name] })}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -3045,27 +3565,25 @@ function HelpModal({ onClose }: { onClose: () => void }) {
         ) : (
           <div className="space-y-5">
             <p className="text-sm text-muted leading-relaxed">
-              Chances de drop, do jeito que estão programadas agora.
+              {uiText("Chances de drop, do jeito que estão programadas agora.")}
             </p>
             <div>
-              <p className="text-sm font-medium">Poções em baú (por baú)</p>
+              <p className="text-sm font-medium">{uiText("Poções em baú (por baú)")}</p>
               <p className="text-xs text-muted leading-relaxed mb-2">
-                Todo baú dá Gold + uma poção garantida (sorteada abaixo) + uma chance separada de item. Se quem abriu já
-                estiver no máximo daquela poção (5), ela passa para o próximo personagem que vai agir; se todos estiverem
-                cheios, é descartada.
+                {uiText("Todo baú dá Gold + uma poção garantida (sorteada abaixo) + uma chance separada de item. Se quem abriu já estiver no máximo daquela poção (5), ela passa para o próximo personagem que vai agir; se todos estiverem cheios, é descartada.")}
               </p>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs tabular-nums border-collapse">
                   <thead>
                     <tr className="text-muted">
-                      <th className="text-left font-normal pr-2 py-1">Poção</th>
-                      <th className="text-right font-normal pl-1.5 py-1">Chance</th>
+                      <th className="text-left font-normal pr-2 py-1">{uiText("Poção")}</th>
+                      <th className="text-right font-normal pl-1.5 py-1">{uiText("Chance")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {POTION_LOOT_ROWS.map((r) => (
                       <tr key={r.name} className="border-t border-border/60">
-                        <td className="text-left py-0.5 pr-2">{r.name}</td>
+                        <td className="text-left py-0.5 pr-2">{uiText(r.name)}</td>
                         <td className="text-right pl-1.5 py-0.5">{((r.weight / POTION_LOOT_TOTAL) * 100).toFixed(0)}%</td>
                       </tr>
                     ))}
@@ -3074,25 +3592,25 @@ function HelpModal({ onClose }: { onClose: () => void }) {
               </div>
             </div>
             <div className="text-sm text-muted leading-relaxed space-y-1">
-              <p className="text-fg font-medium text-sm">Gold e item de baú</p>
+              <p className="text-fg font-medium text-sm">{uiText("Gold e item de baú")}</p>
               <p>
-                Gold: {CHEST_LOOT.emberBase}–{CHEST_LOOT.emberBase + CHEST_LOOT.emberDice - 1} por baú.
+                {uiText("Gold:")} {CHEST_LOOT.emberBase}–{CHEST_LOOT.emberBase + CHEST_LOOT.emberDice - 1} {uiText("por baú.")}
               </p>
-              <p>Chance extra de arma ou equipamento: {Math.round(CHEST_LOOT.gearChance * 100)}%.</p>
+              <p>{uiText("Chance extra de arma ou equipamento:")} {Math.round(CHEST_LOOT.gearChance * 100)}%.</p>
             </div>
             <div className="text-sm text-muted leading-relaxed space-y-1">
-              <p className="text-fg font-medium text-sm">Drop ao matar inimigo</p>
-              <p>Inimigo comum: {(KILL_DROP_CHANCE * 100).toFixed(0)}% de chance de largar uma arma.</p>
-              <p>Chefes nomeados (drop garantido): sempre largam arma ou equipamento ao morrer.</p>
+              <p className="text-fg font-medium text-sm">{uiText("Drop ao matar inimigo")}</p>
+              <p>{uiText("Inimigo comum:")} {(KILL_DROP_CHANCE * 100).toFixed(0)}% {uiText("de chance de largar uma arma.")}</p>
+              <p>{uiText("Chefes nomeados (drop garantido): sempre largam arma ou equipamento ao morrer.")}</p>
             </div>
             <p className="text-xs text-muted leading-relaxed">
-              Toda arma/equipamento largado é sorteado por preço — quanto mais caro, mais raro — e limitado ao
-              nível de itens da missão atual, então cada trecho da campanha só solta o que faz sentido pra ele.
+              {uiText("Toda arma/equipamento largado é sorteado por preço — quanto mais caro, mais raro — e limitado ao nível de itens da missão atual, então cada trecho da campanha só solta o que faz sentido pra ele.")}
             </p>
           </div>
         )}
-        <Button className="mt-5 w-full" onClick={onClose}>
-          Entendi
+        </div>
+        <Button className="mt-5 w-full shrink-0 ember-btn ember-btn-primary" onClick={onClose}>
+          {uiText("Entendi")}
         </Button>
       </div>
     </div>
@@ -3190,6 +3708,7 @@ function DevControlsScreen({ onBack }: { onBack: () => void }) {
         </div>
       </header>
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-5 max-w-3xl mx-auto w-full">
+        <GraphicsQualityControl />
         <VfxDebugPanel />
         <DevGfxPreview />
         <button type="button" onClick={() => setHd2dTest(true)} className="rounded-xl border border-accent bg-bg/40 px-5 py-4 text-left font-display text-xl hover:bg-accent/10">
@@ -3236,21 +3755,24 @@ function DevControlsScreen({ onBack }: { onBack: () => void }) {
  * demo relies on — never gets silently swapped out from under it. */
 function MapChoiceScreen({ onBack, onPick }: { onBack: () => void; onPick: (mode: "classic" | "rpg") => void }) {
   return (
-    <section className="h-dvh min-h-0 flex flex-col bg-bg">
-      <header className="flex items-center gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-4 border-b border-border">
-        <button type="button" onClick={onBack} className="size-10 grid place-items-center rounded-md border border-border" aria-label="Voltar">
+    <section className="relative h-dvh min-h-0 flex flex-col overflow-hidden bg-[#080a0d] text-fg">
+      <img src="/game/ui/travel-board.png" alt="" className="absolute inset-0 size-full object-cover object-center" />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/5 to-black/35" aria-hidden="true" />
+      <header className="relative z-10 flex items-center gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-4 border-b border-white/10 bg-black/10">
+        <button type="button" onClick={onBack} className="size-10 grid place-items-center rounded-md border border-white/25 bg-black/45" aria-label="Voltar">
           <ChevronLeft className="size-5" />
         </button>
         <div className="flex-1 min-w-0">
-          <p className="text-sm uppercase tracking-[0.18em] text-muted">Mapa</p>
-          <h1 className="font-display text-3xl leading-none">Como quer viajar?</h1>
+          <p className="text-sm uppercase tracking-[0.18em] text-slate-300">Mapa</p>
+          <h1 className="font-display text-3xl leading-none text-white">Como quer viajar?</h1>
         </div>
       </header>
-      <div className="flex-1 min-h-0 flex flex-col justify-center gap-3 p-5 max-w-md mx-auto w-full">
+      <div className="relative z-10 flex-1 min-h-0 flex items-end justify-center p-4 sm:p-8 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className="grid w-full max-w-5xl grid-cols-1 md:grid-cols-2 gap-3">
         <button
           type="button"
           onClick={() => onPick("classic")}
-          className="text-left rounded-xl border border-border bg-bg/40 px-5 py-4 hover:border-accent"
+          className="text-left rounded-lg border border-white/25 bg-black/45 backdrop-blur-sm px-4 py-3 hover:border-accent sm:px-5 sm:py-4"
         >
           <p className="font-display text-2xl leading-tight">Classic Tactical</p>
           <p className="text-sm text-muted mt-1">O mapa de sempre: escolha qualquer local desbloqueado e vá direto pra missão.</p>
@@ -3258,11 +3780,12 @@ function MapChoiceScreen({ onBack, onPick }: { onBack: () => void; onPick: (mode
         <button
           type="button"
           onClick={() => onPick("rpg")}
-          className="text-left rounded-xl border border-border bg-bg/40 px-5 py-4 hover:border-accent"
+          className="text-left rounded-lg border border-white/25 bg-black/45 backdrop-blur-sm px-4 py-3 hover:border-accent sm:px-5 sm:py-4"
         >
           <p className="font-display text-2xl leading-tight">RPG Map</p>
           <p className="text-sm text-muted mt-1">O grupo viaja hexágono por hexágono; cada passo custa um dia — suprimentos, encontros e recuperação entram em jogo.</p>
         </button>
+        </div>
       </div>
     </section>
   );
@@ -3341,7 +3864,7 @@ function blankDraft(): MapDraft {
     ambientIntensity: DEFAULT_AMBIENT_INTENSITY,
     mistIntensity: 0.2,
     mistSpeed: 1,
-    mistType: "mist2",
+    mistType: "none",
     bloomIntensity: DEFAULT_BLOOM_INTENSITY,
     wispIntensity: 0.02,
     wispSpeed: 1,
@@ -3397,7 +3920,7 @@ function missionToDraft(m: Mission): MapDraft {
     ambientIntensity: m.ambientIntensity ?? DEFAULT_AMBIENT_INTENSITY,
     mistIntensity: m.mistIntensity ?? 0.2,
     mistSpeed: m.mistSpeed ?? 1,
-    mistType: m.mistType ?? "mist2",
+    mistType: m.mistType ?? "none",
     bloomIntensity: m.bloomIntensity ?? DEFAULT_BLOOM_INTENSITY,
     wispIntensity: m.wispIntensity ?? 0.02,
     wispSpeed: m.wispSpeed ?? 1,
@@ -3407,12 +3930,18 @@ function missionToDraft(m: Mission): MapDraft {
     rows: m.rows,
     tiles: parseLayout(m.layout),
     tileVariants: Array.from({ length: n }, (_, i) => variants[i] ?? 0),
+    terrainElevations: m.terrainElevations?.slice(),
+    waterLevels: m.waterLevels?.slice(),
+    waterVersion: m.waterVersion,
+    waterPatches: m.waterPatches?.map(p => ({ ...p })),
+    waterFootprints: m.waterFootprints?.map(p => p ? { ...p } : null),
     baseTile: m.baseTile,
     baseVariant: m.baseVariant,
     tileRots: Array.from({ length: n }, (_, i) => m.tileRots?.[i] ?? 0),
     music: m.music ?? "",
     decorations: m.decorations ?? [],
     elementalFx: m.elementalFx ?? [],
+    lockPartyFormation: m.lockPartyFormation,
     playerSpawns: m.playerSpawns.map((s) => ({ ...s, level: DEFAULT_TEST_LEVEL })),
     enemySpawns: m.enemySpawns.map((s) => ({ ...s, level: enemyLevelFor(m.index) })),
     neutralSpawns: (m.neutralSpawns ?? []).map((s) => ({ ...s, level: enemyLevelFor(m.index) })),
@@ -3420,6 +3949,7 @@ function missionToDraft(m: Mission): MapDraft {
     introDialogEnabled: m.introDialogEnabled,
     outroDialog: m.outroDialog,
     outroDialogEnabled: m.outroDialogEnabled,
+    victoryReward: m.victoryReward,
   };
 }
 
@@ -3430,9 +3960,8 @@ const DEFAULT_HEROES: { name: string; classId: ClassId }[] = [
   { name: "Salazar", classId: "salazar" },
 ];
 
-/** Aldric and Malrec join later in the story but aren't in HERO_NAMES/DEFAULT_HEROES yet,
- * so the Inn/Smith never lists them normally. Test mode adds them so their gear/weapon
- * compatibility can be reviewed ahead of that. */
+/** Heroes who join later are added to the test party before recruitment; normal party menus
+ * include them once their story flag or authored joining mission makes them available. */
 const TEST_EXTRA_HEROES: { name: string; classId: ClassId }[] = [
   { name: "Aldric", classId: "aldric" },
   { name: "Malrec", classId: "conjurer" },
@@ -3482,8 +4011,8 @@ const EDITOR_HEROES: { name: string; classId: ClassId }[] = [
 
 /** Writes the draft to src/game/maps/<id><serial>.json through the dev server's
  * /__map-save route (scripts/map-save-plugin.mjs). Only reachable while `npm run dev`
- * is running — a built/deployed app has no repo to write to, and falls back to the
- * browser-local store below. */
+ * is running; a built/deployed app has no project-file route, so the save must fail
+ * clearly instead of claiming a browser-local copy is a game map. */
 async function saveMapToRepo(draft: MapDraft): Promise<{ ok: true; serial: number; file: string } | { ok: false; error: string }> {
   try {
     const res = await fetch("/__map-save", {
@@ -3491,11 +4020,20 @@ async function saveMapToRepo(draft: MapDraft): Promise<{ ok: true; serial: numbe
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...draft, id: normalizeScenarioId(draft.id) }),
     });
-    const body = (await res.json()) as { ok?: boolean; serial?: number; file?: string; error?: string };
-    if (!res.ok || !body.ok) return { ok: false, error: body.error ?? `HTTP ${res.status}` };
-    return { ok: true, serial: body.serial ?? 0, file: body.file ?? "" };
+    let body: { ok?: boolean; serial?: number; file?: string; error?: string };
+    try {
+      body = (await res.json()) as typeof body;
+    } catch {
+      return { ok: false, error: `a rota /__map-save respondeu HTTP ${res.status}, sem confirmação válida` };
+    }
+    if (!res.ok || !body.ok) return { ok: false, error: body.error ?? `a rota /__map-save respondeu HTTP ${res.status}` };
+    if (!Number.isInteger(body.serial) || (body.serial ?? 0) < 1 || typeof body.file !== "string" || !body.file) {
+      return { ok: false, error: "a rota /__map-save não confirmou o arquivo e a versão gravados" };
+    }
+    return { ok: true, serial: body.serial!, file: body.file };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    const detail = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `não foi possível acessar /__map-save (${detail})` };
   }
 }
 
@@ -3583,7 +4121,7 @@ const BUILDER_TERRAIN: TerrainId[] = [
  * than deleted: variant indices are positional, so dropping one would shift every later
  * variant and repaint saved maps. plains 15 = "Trilha de Terra". */
 const HIDDEN_VARIANTS: Partial<Record<TerrainId, number[]>> = {
-  plains: [15, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37],
+  plains: [15, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38],
   // Keep these saved-map indices intact while removing them from the water picker.
   water: [3, 7],
 };
@@ -3604,20 +4142,28 @@ const VARIANT_LABEL: Partial<Record<TerrainId, string[]>> = {
     "Piso de tábuas usadas",
     "Piso de taverna clássica",
     "Piso de taverna tranquila",
+    "City · Solo contínuo 001",
+    "Planície · Solo contínuo 001",
+    "Madeira discreta · Solo contínuo 001",
+    "Grama alta · Solo contínuo 001",
+    "Planície escura · Solo contínuo 001",
   ],
-  woods: ["Solo de bosque", "Bosque sombrio", "Bosque", "Sebes", "Pinhal", "Bosque 04", "Terra", "Bosque 12", "Bosque 13"],
-  ruins: ["Ruínas sombrias", "Ruínas originais", "Pedra 02", "Pedra 03", "Pedra 04", "Pátio mosaico", "Lajes partidas"],
-  water: ["Água costeira", "Antiga", "Praia", "Pântano", "Costa baixo", "Costa esq.", "Costa dir.", "Mar fundo", "Mar fundo 2", "Costa 01", "Costa 02", "Ponta baixo 01", "Ponta baixo 02", "Água rasa", "Água rasa 2", "Água costa", "Água costa 2", "Pântano escuro", "Praia", "Rio", "Mar", "Mar profundo"],
-  ember: ["Brasa", "Brasa 2", "Antiga", "Cinzas", "Brasa viva"],
-  hill: ["Platô rochoso", "Trilha elevada", "Ruínas elevadas", "Platô musgoso"],
-  flame: ["Chama", "Antiga", "Fogo"],
-  nave: ["Laje", "Laje Negra"],
-  column: ["Coluna", "Antiga"],
+  woods: ["Solo de bosque", "Bosque sombrio", "Bosque", "Sebes", "Pinhal", "Bosque 04", "Terra", "Bosque 12", "Bosque 13", "Bosque · Solo contínuo 001"],
+  ruins: ["Ruínas sombrias", "Ruínas originais", "Pedra 02", "Pedra 03", "Pedra 04", "Pátio mosaico", "Lajes partidas", "Ruínas · Solo contínuo 001"],
+  water: ["Água costeira", "Antiga", "Praia", "Pântano", "Costa baixo", "Costa esq.", "Costa dir.", "Mar fundo", "Mar fundo 2", "Costa 01", "Costa 02", "Ponta baixo 01", "Ponta baixo 02", "Água rasa", "Água rasa 2", "Água costa", "Água costa 2", "Pântano escuro", "Praia", "Rio", "Mar", "Mar profundo", "Água · Solo contínuo 001"],
+  ember: ["Brasa", "Brasa 2", "Antiga", "Cinzas", "Brasa viva", "Brasa · Solo contínuo 001"],
+  hill: ["Platô rochoso", "Trilha elevada", "Ruínas elevadas", "Platô musgoso", "Colina · Solo contínuo 001"],
+  flame: ["Chama", "Antiga", "Fogo", "Chama · Solo contínuo 001"],
+  nave: ["Laje", "Laje Negra", "Laje · Solo contínuo 001", "Templo antigo · Calcário contínuo 001", "Templo antigo · Basalto contínuo 001", "Masmorra · Lajes contínuas 001", "Masmorra · Tijolos contínuos 001", "Caverna · Solo contínuo 001", "Caverna com cristais · Solo contínuo 001", "Caverna · Cristais marcantes 002"],
+  column: ["Coluna", "Antiga", "Coluna · Solo contínuo 001"],
   snow: [
     "Neve Rasa 4", "Neve Rasa 5", "Neve Funda 2",
     "Mato Seco", "Folhas Mortas", "Pinhal Ressequido", "Bosque Gelado",
     "Pinhal Frio", "Folhas Congeladas", "Brejo Congelado", "Urze Gelada",
     "Planície Ressequida", "Planície Congelada", "Encosta Morta", "Arbustos Frios",
+    "Neve · Solo contínuo 001",
+    "Tundra sem neve · Solo contínuo 001",
+    "Tundra com neve · Solo contínuo 001",
   ],
 };
 
@@ -3696,7 +4242,7 @@ function ResizableEditorPanel({
   );
 }
 
-function MapEditorScreen({
+export function MapEditorScreen({
   art,
   onBack,
   onPlaytest,
@@ -3710,10 +4256,9 @@ function MapEditorScreen({
   initialDraft?: MapDraft | null;
   onDraftChange?: (draft: MapDraft) => void;
 }) {
-  const [showPreview, setShowPreview] = useState(false);
-  // Rebuilding the preview's BattleEngine on every keystroke (typing a title, nudging a
-  // spawn's level) would be wasted work it can't even show — debounce to the pause after a
-  // real edit instead.
+  const [showPreview, setShowPreview] = useState(true);
+  const [showTechnicalMap, setShowTechnicalMap] = useState(false);
+  // Keep the visual preview current with placement, deletion, and orientation edits.
   const [previewMission, setPreviewMission] = useState<Mission | null>(null);
   const immediateFxPreviewDraftRef = useRef<MapDraft | null>(null);
   /** Which DialogTree the DialogEditor modal is currently open for, if any — the mission's
@@ -3794,12 +4339,22 @@ function MapEditorScreen({
     setDraft(nextState);
   }, [draft, draftFuture]);
   const [brush, setBrush] = useState<TerrainId>("plains");
+  const [terrain3D, setTerrain3D] = useState(false);
+  const [elevationTool, setElevationTool] = useState<"raise" | "lower" | "level">("raise");
+  const [elevationLevel, setElevationLevel] = useState(0);
+  const [elevationRadius, setElevationRadius] = useState(0);
+  const [waterErase, setWaterErase] = useState(false);
+  const [waterLevel, setWaterLevel] = useState(0.5);
+  const [waterRadius, setWaterRadius] = useState(0);
+  const [waterSize, setWaterSize] = useState(1);
+  const [waterShape, setWaterShape] = useState<"round" | "square">("round");
   const [variant, setVariant] = useState(0);
   const [cityMode, setCityMode] = useState(false);
   // While armed, clicking a hex in Terreno mode turns it instead of painting it.
   const [turning, setTurning] = useState(false);
   const [turningDeco, setTurningDeco] = useState(false);
   const [decoBrush, setDecoBrush] = useState<string>(Object.keys(DECORATIONS)[0]!);
+  const [wallOrientation, setWallOrientation] = useState<"horizontal" | "vertical">("horizontal");
   // A placed prop is selected by clicking any hex of its footprint; Delete removes this exact placement.
   const [selectedPlacedDecoration, setSelectedPlacedDecoration] = useState<{ id: string; x: number; y: number; rot?: number } | null>(null);
   const [decoSection, setDecoSection] = useState("Todas");
@@ -3808,17 +4363,20 @@ function MapEditorScreen({
   const [pixelFxBrush, setPixelFxBrush] = useState<PixelElement>("fire");
   const [pixelFxPresetId, setPixelFxPresetId] = useState("procedural_pixel_fire");
   const [pixelFxSettings, setPixelFxSettings] = useState<PixelElementSettings>(() => pixelDefaults("fire"));
-  const [mode, setMode] = useState<"paint" | "player" | "enemy" | "npc" | "summon" | "decoration" | "elementalFx">("paint");
+  const [mode, setMode] = useState<"paint" | "elevation" | "water" | "player" | "enemy" | "npc" | "summon" | "decoration" | "architecture" | "elementalFx">("paint");
   // Which summon class the "Invocação" brush drops. Summons live in playerSpawns alongside
   // the heroes — the class itself says which of the two a spawn is (isSummonClass), so
   // there is no third list to keep in sync and no saved map to migrate.
   const [summonBrush, setSummonBrush] = useState<ClassId>(SUMMON_CLASSES[0] ?? "familiar");
+  const [npcBrush, setNpcBrush] = useState<EncounterNpcId | "breadLady">("breadLady");
   // Summons exist on every side — the Conjurer's familiar, whatever an enemy caster brings
   // up, and wild things that belong to nobody. The brush drops into whichever this points at.
   const [summonSide, setSummonSide] = useState<"player" | "enemy" | "neutral">("player");
   const [gridStyle, setGridStyle] = useState<"hex" | "square">("hex");
   const [exportText, setExportText] = useState<string | null>(null);
   const [copyOk, setCopyOk] = useState(false);
+  const [savingMap, setSavingMap] = useState(false);
+  const savingMapRef = useRef(false);
   // Every message carries a serial so repeating an action visibly re-fires: saving twice in
   // a row used to leave the same sentence sitting there, indistinguishable from nothing
   // having happened.
@@ -3841,8 +4399,7 @@ function MapEditorScreen({
       immediateFxPreviewDraftRef.current = null;
       return;
     }
-    const t = window.setTimeout(() => setPreviewMission(draftToMission(draft)), 400);
-    return () => window.clearTimeout(t);
+    setPreviewMission(draftToMission(draft));
   }, [draft, showPreview]);
 
   const [showLocations, setShowLocations] = useState(false);
@@ -4344,7 +4901,9 @@ function MapEditorScreen({
           : mode === "player"
             ? { name: `Herói ${plain + 1}`, classId: "swordsman", x, y, level: DEFAULT_TEST_LEVEL }
             : mode === "npc"
-              ? { name: `Civil ${plain + 1}`, classId: "breadLady", x, y, level: enemyLevelFor(0) }
+              ? npcBrush === "breadLady"
+                ? { name: `Civil ${plain + 1}`, classId: "breadLady", x, y, level: enemyLevelFor(0) }
+                : { ...encounterNpcSpawn(npcBrush, x, y), level: enemyLevelFor(0) }
               : { name: `Inimigo ${plain + 1}`, classId: "soldier", x, y, level: enemyLevelFor(0) };
       return { ...d, [key]: [...list, spawn] };
     });
@@ -4365,7 +4924,8 @@ function MapEditorScreen({
       }
       const def = DECORATIONS[hit.id];
       if (!def) return d;
-      const turned = { ...hit, rot: (((hit.rot ?? 0) + 1) % 6) };
+      const nextRot = (((hit.rot ?? 0) + 1) % (def.model3d ? 4 : 6));
+      const turned: DecorationPlacement = { ...hit, rot: nextRot, ...(def.model3d ? { wallOrientation: nextRot % 2 ? "vertical" : "horizontal" } : {}) };
       const before = placedFootprint(hit);
       const after = placedFootprint(turned);
       // A Waypoint is a flat ground marking, not a physical object — turning it can't "bump
@@ -4394,7 +4954,8 @@ function MapEditorScreen({
           if (i >= 0) tiles[i] = def.tile;
         }
       }
-      setNote(`${def.name} em ${hit.x},${hit.y}: girada para ${turned.rot * 60}°${turned.rot === 0 ? " (de volta ao original)" : ""}.`);
+      setNote(`${def.name} em ${hit.x},${hit.y}: girada para ${(turned.rot ?? 0) * (def.model3d ? 90 : 60)}°${(turned.rot ?? 0) === 0 ? " (de volta ao original)" : ""}.`);
+      if (def.model3d) setSelectedPlacedDecoration({ id: turned.id, x: turned.x, y: turned.y, rot: turned.rot });
       return { ...d, tiles, tileVariants, tileRots, decorations: d.decorations.map((p) => (p === hit ? turned : p)) };
     });
   };
@@ -4412,6 +4973,21 @@ function MapEditorScreen({
   const selectedPlacementIsSolidHouse = !!selectedPlacement && (
     HOUSE_DECOR_IDS.has(selectedPlacement.id) || BIG_HOUSE_DECOR_IDS.has(selectedPlacement.id) || SOLID_HOUSE_DECOR_IDS.has(selectedPlacement.id)
   );
+  const selectedPlacementIsSolidCart = !!selectedPlacement && SOLID_CART_DECOR_IDS.has(selectedPlacement.id);
+  const selectedArchitecture = selectedPlacement ? DECORATIONS[selectedPlacement.id]?.model3d : undefined;
+  const selectedPlacementIsSolidArchitecture = selectedArchitecture === "wall" || selectedArchitecture === "door" || selectedArchitecture === "secretDoor";
+  const activeWallOrientation = selectedArchitecture
+    ? selectedPlacement?.wallOrientation ?? ((selectedPlacement?.rot ?? 0) % 2 ? "vertical" : "horizontal")
+    : wallOrientation;
+  const changeWallOrientation = (orientation: "horizontal" | "vertical") => {
+    setWallOrientation(orientation);
+    if (!selectedPlacement || !selectedArchitecture) return;
+    const rot = orientation === "vertical" ? 1 : 0;
+    setDraft(d => ({ ...d, decorations: d.decorations.map(p =>
+      p.id === selectedPlacement.id && p.x === selectedPlacement.x && p.y === selectedPlacement.y
+        ? { ...p, rot, wallOrientation: orientation } : p) }));
+    setSelectedPlacedDecoration({ id: selectedPlacement.id, x: selectedPlacement.x, y: selectedPlacement.y, rot });
+  };
 
   /**
    * Flip one of a placement's rule switches. Off is stored as absent rather than
@@ -4519,6 +5095,16 @@ function MapEditorScreen({
   }, [removeSelectedDecoration]);
   const toggleDecoration = (x: number, y: number) => {
     const clicked = draft.decorations.find((p) => placedFootprint(p).some((f) => p.x + f.dx === x && p.y + f.dy === y));
+    if (clicked && DECORATIONS[clicked.id]?.model3d && DECORATIONS[decoBrush]?.model3d && clicked.id !== decoBrush) {
+      const replacement: DecorationPlacement = {
+        ...clicked, id: decoBrush, blocksPath: undefined, yieldsHighGround: undefined,
+      };
+      setDraft(d => ({ ...d, decorations: d.decorations.map(p =>
+        p.id === clicked.id && p.x === clicked.x && p.y === clicked.y ? replacement : p) }));
+      setSelectedPlacedDecoration(null);
+      setNote(`${DECORATIONS[decoBrush]?.name} colocada em ${clicked.x},${clicked.y}.`);
+      return;
+    }
     // A Waypoint (Escape/Dungeon Exit, floor connector) is a flat ground marking, not a
     // physical object — it can share a hex with anything already there, including another
     // Waypoint, instead of being blocked by it or redirecting the click to it. Placing two
@@ -4554,8 +5140,10 @@ function MapEditorScreen({
       // Barricade-family City props block like a real barricade without repainting the
       // hex to barricade's dirt/rubble ground art — defaulted on here instead of the
       // author having to remember to check "Bloquear caminho" every time. Houses too.
-      const blocksByDefault = BARRICADE_LIKE_DECOR.has(decoBrush) || HOUSE_DECOR_IDS.has(decoBrush) || BIG_HOUSE_DECOR_IDS.has(decoBrush) || SOLID_HOUSE_DECOR_IDS.has(decoBrush);
-      const placed = blocksByDefault ? { id: decoBrush, x, y, blocksPath: true } : { id: decoBrush, x, y };
+      const blocksByDefault = BARRICADE_LIKE_DECOR.has(decoBrush) || HOUSE_DECOR_IDS.has(decoBrush) || BIG_HOUSE_DECOR_IDS.has(decoBrush) || SOLID_HOUSE_DECOR_IDS.has(decoBrush) || SOLID_CART_DECOR_IDS.has(decoBrush) || SOLID_ROCK_DECOR_IDS.has(decoBrush);
+      const placed: DecorationPlacement = def.model3d
+        ? { id: decoBrush, x, y, rot: wallOrientation === "vertical" ? 1 : 0, wallOrientation }
+        : blocksByDefault ? { id: decoBrush, x, y, blocksPath: true } : { id: decoBrush, x, y };
       // No auto-selection of any sort, per direct instruction: placing stays on the current
       // brush so the author can keep placing more of the same thing; they select something
       // else (to inspect/delete/edit rules) only by clicking it themselves.
@@ -4596,16 +5184,83 @@ function MapEditorScreen({
     }
   };
 
-  const onCellClick = (x: number, y: number) => {
+  const onCellClick = (x: number, y: number, point?: { x: number; y: number }) => {
     const i = y * draft.cols + x;
-    if (mode === "paint") {
+    if (mode === "water") {
+      setDraft(d => {
+        const waterLevels = Array.from({ length: d.cols * d.rows }, (_, index) => d.waterLevels?.[index] ?? null);
+        let waterPatches = (d.waterPatches ?? []).map(p => ({ ...p }));
+        const waterFootprints = Array.from({ length: d.cols * d.rows }, (_, index) => d.waterFootprints?.[index] ?? null);
+        let frontier = [{ x, y }];
+        const visited = new Set<number>();
+        for (let ring = 0; ring <= waterRadius; ring++) {
+          const next: { x: number; y: number }[] = [];
+          for (const cell of frontier) {
+            if (cell.x < 0 || cell.y < 0 || cell.x >= d.cols || cell.y >= d.rows) continue;
+            const index = cell.y * d.cols + cell.x;
+            if (visited.has(index)) continue;
+            visited.add(index);
+            if (d.tiles[index] !== "void" || waterErase) {
+              if (point) {
+                const px = point.x + Math.sqrt(3) * (cell.x - x + 0.5 * ((cell.y & 1) - (y & 1)));
+                const py = point.y + 1.5 * (cell.y - y);
+                if (waterErase) {
+                  waterPatches = waterPatches.filter(p => {
+                    const distance = waterShape === "square" ? Math.max(Math.abs(p.x-px), Math.abs(p.y-py)) : Math.hypot(p.x-px,p.y-py);
+                    return distance > (waterSize + p.size) * 1.25;
+                  });
+                  waterLevels[index] = null; waterFootprints[index] = null;
+                } else {
+                  waterPatches = waterPatches.filter(p => !(Math.hypot(p.x-px,p.y-py) < 0.001 && p.size === waterSize && p.shape === waterShape && p.level === waterLevel));
+                  waterPatches.push({ x: px, y: py, level: waterLevel, size: waterSize, shape: waterShape });
+                }
+              } else {
+                const px = Math.sqrt(3) * (cell.x + 0.5 * (cell.y & 1) + 0.5);
+                const py = 2.4 + 1.5 * cell.y + 1;
+                if (waterErase) {
+                  waterPatches = waterPatches.filter(p => Math.hypot(p.x-px,p.y-py) > (waterSize+p.size)*1.25);
+                  waterLevels[index] = null; waterFootprints[index] = null;
+                } else {
+                  waterPatches = waterPatches.filter(p => !(Math.hypot(p.x-px,p.y-py) < 0.001 && p.size === waterSize && p.shape === waterShape && p.level === waterLevel));
+                  waterPatches.push({ x: px, y: py, level: waterLevel, size: waterSize, shape: waterShape });
+                }
+              }
+            }
+            next.push(...hexNeighbors(cell.x, cell.y));
+          }
+          frontier = next;
+        }
+        return { ...d, waterLevels, waterFootprints, waterPatches };
+      });
+    } else if (mode === "elevation") {
+      setDraft(d => {
+        const terrainElevations = Array.from({ length: d.cols * d.rows }, (_, index) =>
+          d.terrainElevations?.[index] ?? TERRAIN[d.tiles[index] ?? "plains"].height ?? 0);
+        let frontier = [{ x, y }];
+        const visited = new Set<number>();
+        for (let ring = 0; ring <= elevationRadius; ring++) {
+          const next: { x: number; y: number }[] = [];
+          for (const cell of frontier) {
+            if (cell.x < 0 || cell.y < 0 || cell.x >= d.cols || cell.y >= d.rows) continue;
+            const index = cell.y * d.cols + cell.x;
+            if (visited.has(index)) continue;
+            visited.add(index);
+            if (d.tiles[index] !== "void") terrainElevations[index] = elevationTool === "level" ? elevationLevel
+              : Math.max(0, Math.min(12, terrainElevations[index]! + (elevationTool === "raise" ? 1 : -1)));
+            next.push(...hexNeighbors(cell.x, cell.y));
+          }
+          frontier = next;
+        }
+        return { ...d, terrainElevations };
+      });
+    } else if (mode === "paint") {
       if (turning) {
         turnTile(i);
         const now = (((draft.tileRots?.[i] ?? 0) + 1) % 6) * 60;
         setNote(`${TERRAIN[draft.tiles[i]!].name} em ${x},${y}: girado para ${now}°${now === 0 ? " (de volta ao original)" : ""}.`);
       } else setTile(i, brush);
     }
-    else if (mode === "decoration") {
+    else if (mode === "decoration" || mode === "architecture") {
       if (turningDeco) {
         turnDecoration(x, y);
         return;
@@ -4628,7 +5283,7 @@ function MapEditorScreen({
       turnTile(i);
       const now = (((draft.tileRots?.[i] ?? 0) + 1) % 6) * 60;
       setNote(`${TERRAIN[draft.tiles[i]!].name} em ${x},${y}: girado para ${now}°${now === 0 ? " (de volta ao original)" : ""}.`);
-    } else if (mode === "decoration") {
+    } else if (mode === "decoration" || mode === "architecture") {
       turnDecoration(x, y);
     } else onCellClick(x, y);
   };
@@ -4641,12 +5296,18 @@ function MapEditorScreen({
       const tiles: TerrainId[] = [];
       const tileVariants: number[] = [];
       const tileRots: number[] = [];
+      const terrainElevations: number[] = [];
+      const waterLevels: (number | null)[] = [];
+      const waterFootprints: NonNullable<MapDraft["waterFootprints"]> = [];
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           const inOld = r < d.rows && c < d.cols;
+          waterFootprints.push(inOld ? (d.waterFootprints?.[r * d.cols + c] ?? null) : null);
+          waterLevels.push(inOld ? (d.waterLevels?.[r * d.cols + c] ?? null) : null);
           tiles.push(inOld ? (d.tiles[r * d.cols + c] ?? base.tile) : base.tile);
           tileVariants.push(inOld ? (d.tileVariants[r * d.cols + c] ?? base.variant) : base.variant);
           tileRots.push(inOld ? (d.tileRots?.[r * d.cols + c] ?? 0) : 0);
+          terrainElevations.push(inOld ? (d.terrainElevations?.[r * d.cols + c] ?? TERRAIN[d.tiles[r * d.cols + c] ?? base.tile].height ?? 0) : 0);
         }
       }
       const inBounds = (s: Spawn) => s.x < cols && s.y < rows;
@@ -4662,6 +5323,10 @@ function MapEditorScreen({
         tiles,
         tileVariants,
         tileRots,
+        terrainElevations: d.terrainElevations ? terrainElevations : undefined,
+        waterLevels: d.waterLevels ? waterLevels : undefined,
+        waterPatches: d.waterPatches?.filter(p => p.x >= 0 && p.x < (cols + 0.5) * Math.sqrt(3) && p.y >= 2.4 && p.y < 2.4 + rows * 1.5 + 0.5),
+        waterFootprints: d.waterFootprints ? waterFootprints : undefined,
         decorations,
         elementalFx: (d.elementalFx ?? []).filter((p) => p.x >= 0 && p.y >= 0 && p.x < cols && p.y < rows),
         playerSpawns: d.playerSpawns.filter(inBounds),
@@ -4684,6 +5349,7 @@ function MapEditorScreen({
   };
 
   const selectPreviewUnit = (unit: PreviewUnitSelection) => {
+    setSelectedPlacedDecoration(null);
     setNote(`${unit.name}: pressione Delete para remover, ou arraste para outro hex pra mover.`);
   };
 
@@ -4804,60 +5470,50 @@ function MapEditorScreen({
     }
   };
 
-  /** Saves the map as a file in the repo — src/game/maps/<id><serial>.json — and keeps
-   * a browser-local copy as the fallback for when the dev server isn't there to write
-   * one (a built app, a deployed preview). Whichever path ran is what the note says: a
-   * save that didn't happen never reports success. */
-  const doSave = async () => {
-    const canonicalId = normalizeScenarioId(draft.id);
-    const canonicalTitle = canonicalId === "thebridge" ? "A Ponte de Pedra" : draft.title;
-    const savedDraft = canonicalId === draft.id && canonicalTitle === draft.title
-      ? draft
-      : { ...draft, id: canonicalId, title: canonicalTitle };
-    if (savedDraft !== draft) setDraft(savedDraft);
-    const list = versionStore[savedDraft.id] ?? [];
-    const localSerial = (list[list.length - 1]?.serial ?? 0) + 1;
-    const next = { ...versionStore, [savedDraft.id]: [...list, { serial: localSerial, draft: savedDraft, savedAt: Date.now() }] };
-    setVersionStore(next);
-    const localOk = saveVersionStore(next);
+  /** A map is saved only when /__map-save confirms its project file was written and read
+   * back. Browser storage is not a substitute for the game's map file. */
+  const doSave = async (draftToSave: MapDraft = draft) => {
+    if (savingMapRef.current) return false;
+    savingMapRef.current = true;
+    setSavingMap(true);
+    try {
+      const canonicalId = normalizeScenarioId(draftToSave.id);
+      const canonicalTitle = canonicalId === "thebridge" ? "A Ponte de Pedra" : draftToSave.title;
+      const savedDraft = canonicalId === draftToSave.id && canonicalTitle === draftToSave.title
+        ? draftToSave
+        : { ...draftToSave, id: canonicalId, title: canonicalTitle };
+      if (savedDraft !== draftToSave) setDraft(savedDraft);
+      armEditorResume(savedDraft);
+      const repo = await saveMapToRepo(savedDraft);
+      if (!repo.ok) {
+        setNote(`NÃO SALVO: ${repo.error}. O rascunho continua aberto; nenhum arquivo do jogo foi confirmado.`);
+        return false;
+      }
 
-    // "Salvar" makes this the version that actually plays, full stop — no separate
-    // "Ativar" step required. That used to only happen for a scenario already activated
-    // once before (see doActivate/doActivateFile); a scenario saved for the first time
-    // kept the shipped/static mission (or whatever older version was last activated)
-    // live in the real campaign despite the editor confidently reporting "Salvo" — a
-    // save that looked successful but never actually reached the game, which is what was
-    // reading as "changes don't stick" / "reverts on reload" (missionById resolves real
-    // play from loadActiveDrafts()/ALL_MISSIONS, neither of which a plain, never-activated
-    // save ever touched — see missionById's own doc comment in mapstore.ts).
-    const nextActive = { ...activeVersions, [savedDraft.id]: localSerial };
-    saveActiveDrafts({ ...loadActiveDrafts(), [savedDraft.id]: savedDraft });
-    saveActiveVersions(nextActive);
-    setActiveVersions(nextActive);
-    // Makes this save "the" content for its scenario id everywhere in the running app —
-    // Debug, the world map, an in-progress battle — this instant, no reload required.
-    registerSessionMapOverride(savedDraft);
-    window.dispatchEvent(new CustomEvent("ember:missions-saved"));
-
-    armEditorResume(savedDraft);
-    const repo = await saveMapToRepo(savedDraft);
-    if (repo.ok) {
-      await refreshRepoFiles(savedDraft.id);
-      await refreshSavedLocationMaps();
-      setNote(`Salvo em ${repo.file}.`);
-      return;
+      // Publish the confirmed file into the running campaign immediately. On the next
+      // launch, mapstore reads that same highest-serial project file from disk.
+      registerSessionMapOverride(savedDraft);
+      window.dispatchEvent(new CustomEvent("ember:missions-saved"));
+      const nextActive = { ...activeVersions, [savedDraft.id]: repo.serial };
+      setActiveVersions(nextActive);
+      try {
+        await refreshRepoFiles(savedDraft.id);
+        await refreshSavedLocationMaps();
+      } catch {
+        // The project file was already confirmed by the save route; list refresh is separate.
+      }
+      setNote(`Salvo: ${repo.file} (v${serialLabel(repo.serial)}).`);
+      return true;
+    } finally {
+      savingMapRef.current = false;
+      setSavingMap(false);
     }
-    if (localOk) {
-      setNote(`Sem servidor de dev: salvo só neste navegador como ${serialLabel(localSerial)} de "${savedDraft.id}" (${repo.error}). Use Ativar pra valer pra campanha.`);
-      return;
-    }
-    setNote(`NÃO SALVOU: nem arquivo (${repo.error}) nem navegador. O mapa só existe nesta tela — exporte antes de sair.`);
   };
 
   const doExport = () => {
-    void doSave();
     setExportText(JSON.stringify(draftToMission(draft), null, 2));
     setCopyOk(false);
+    setNote("Exportado para copiar — isso não salva o mapa no jogo.");
   };
 
   /** Copies one browser-local version into src/game/maps/ without overwriting it.
@@ -5001,13 +5657,20 @@ function MapEditorScreen({
     }
     return [...heroes.sort((a, b) => byName(a.label, b.label)), ...rest.sort((a, b) => byName(a.label, b.label))];
   })();
-  const decorOptions = Object.values(DECORATIONS).sort((a, b) => byName(a.name, b.name));
+  const decorOptions = Object.values(DECORATIONS).filter(dec => !dec.model3d).sort((a, b) => byName(a.name, b.name));
+  const [architectureDecorations, setArchitectureDecorations] = useState(false);
+  const [thickWalls, setThickWalls] = useState(false);
+  const architectureOptions = Object.values(DECORATIONS).filter(dec => !!dec.model3d && !!(dec.rockStyle || dec.treeModel || dec.propModel) === architectureDecorations
+    && (architectureDecorations || !!dec.thickWall === thickWalls))
+    .sort((a, b) => Number(a.model3d === "wall") - Number(b.model3d === "wall"));
   const decorationSectionFor = (id: string) => {
     if (DECORATIONS[id]?.exitKind) return "Waypoints";
+    if (id === "merchant-covered-cart-001" || id === "city-market-stall" || id === "city-market-stall-2" || id === "city-market-wagon-new") return "Shops";
     // Everything that emits light (see LIGHT_DEFS), burning houses included, in one place.
     if (LIGHT_DEFS[id]) return "Lights";
     if (HOUSE_DECOR_IDS.has(id) || BIG_HOUSE_DECOR_IDS.has(id)) return "Houses";
     if (DEADWOODS_DECOR_IDS.has(id)) return "Madeira Morta";
+    if (FOREST_DECOR_IDS.has(id)) return "Forest";
     if (
       id === "barricade" ||
       id === "wooden-barricade-1" ||
@@ -5023,6 +5686,7 @@ function MapEditorScreen({
     )
       return "Barricada";
     if (id.startsWith("wilds-")) return "Wilds";
+    if (id.startsWith("cave-")) return "Cave";
     if (id.startsWith("torture-")) return "Torture";
     if (id.startsWith("city-")) return "City";
     if (id.includes("bridge") || id.includes("ember-channels")) return "Pontes";
@@ -5033,15 +5697,17 @@ function MapEditorScreen({
   };
   // "Todas" stays pinned first (it's the "show everything" reset, not a real category);
   // every actual category below it is kept in alphabetical order.
-  const decorationSections = ["Todas", "Barricada", "City", "Houses", "Lights", "Madeira Morta", "Natureza", "Objetos", "Pedras e relevo", "Pontes", "Ruínas e construções", "Torture", "Waypoints", "Wilds"];
-  const visibleDecorOptions = decoSection === "Todas" ? decorOptions : decorOptions.filter((dec) => decorationSectionFor(dec.id) === decoSection);
+  const decorationSections = ["Todas", "Barricada", "Cave", "City", "Forest", "Houses", "Lights", "Madeira Morta", "Natureza", "Objetos", "Pedras e relevo", "Pontes", "Ruínas e construções", "Shops", "Torture", "Waypoints", "Wilds"];
+  const visibleDecorOptions = mode === "architecture" ? architectureOptions : decoSection === "Todas" ? decorOptions : decorOptions.filter((dec) => decorationSectionFor(dec.id) === decoSection);
 
   // Clicking a placed prop is also a lookup action: open its palette section and arm the
   // exact matching brush, so the highlighted menu entry always tells the author its name.
   useEffect(() => {
     const id = selectedPlacedDecoration?.id;
     if (!id || !DECORATIONS[id]) return;
-    setDecoBrush(id);
+    if (!DECORATIONS[id]?.model3d || mode !== "architecture") setDecoBrush(id);
+    if (DECORATIONS[id]?.model3d) setMode("architecture");
+    else if (mode === "architecture") setMode("decoration");
     setDecoSection(decorationSectionFor(id));
   }, [selectedPlacedDecoration]);
 
@@ -5062,7 +5728,7 @@ function MapEditorScreen({
   };
 
   return (
-    <section className="map-editor h-dvh min-h-0 flex flex-col bg-bg">
+    <section className="map-editor h-dvh min-h-0 min-w-0 w-full flex flex-col bg-bg">
       <header className="flex items-center gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-4 border-b border-border">
         <button type="button" onClick={onBack} className="size-10 grid place-items-center rounded-md border border-border" aria-label="Voltar">
           <ChevronLeft className="size-5" />
@@ -5073,7 +5739,7 @@ function MapEditorScreen({
         </div>
       </header>
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-4">
+      <div className="flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-4 flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <Button
             variant="ghost"
@@ -5284,6 +5950,27 @@ function MapEditorScreen({
               onChange={(e) => setDraft((d) => ({ ...d, briefing: e.target.value }))}
             />
           </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-muted text-xs uppercase tracking-wide">Recompensa · Gold</span>
+            <input type="number" min={0} step={1} className="bg-bg border border-border rounded-md px-2 py-1.5" value={draft.victoryReward?.ember ?? 0}
+              onChange={(e) => setDraft((d) => ({ ...d, victoryReward: { ...d.victoryReward, ember: Math.max(0, Math.floor(Number(e.target.value) || 0)), rations: d.victoryReward?.rations ?? 0 } }))} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-muted text-xs uppercase tracking-wide">Recompensa · rações</span>
+            <input type="number" min={0} step={1} className="bg-bg border border-border rounded-md px-2 py-1.5" value={draft.victoryReward?.rations ?? 0}
+              onChange={(e) => setDraft((d) => ({ ...d, victoryReward: { ...d.victoryReward, ember: d.victoryReward?.ember ?? 0, rations: Math.max(0, Math.floor(Number(e.target.value) || 0)) } }))} />
+          </label>
+          <div className="flex flex-col gap-1 col-span-2">
+            <span className="text-muted text-xs uppercase tracking-wide">NPCs necessários para a recompensa</span>
+            {[...new Set([...(draft.neutralSpawns ?? []).filter(s => s.dialog).map(s => s.name), ...(draft.victoryReward?.requiredNpcNames ?? [])])].map(name => (
+              <label key={name} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={draft.victoryReward?.requiredNpcNames?.includes(name) ?? false}
+                  onChange={(e) => { const checked = e.target.checked; setDraft((d) => ({ ...d, victoryReward: { ember: d.victoryReward?.ember ?? 0, rations: d.victoryReward?.rations ?? 0, requiredNpcNames: checked ? [...new Set([...(d.victoryReward?.requiredNpcNames ?? []), name])] : (d.victoryReward?.requiredNpcNames ?? []).filter(value => value !== name) } })); }} />
+                {name}
+              </label>
+            ))}
+            <span className="text-muted text-[11px]">Pagamento ao concluir a vitória, com todos os inimigos derrotados e os NPCs indicados vivos.</span>
+          </div>
           <div className="flex flex-col gap-1">
             <span className="text-muted text-xs uppercase tracking-wide">Diálogo de abertura</span>
             <div className="flex items-center gap-2">
@@ -5384,6 +6071,10 @@ function MapEditorScreen({
                 </label>
               );
             })()}
+          <label className="flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={!!draft.lockPartyFormation} onChange={e => setDraft(d => ({ ...d, lockPartyFormation: e.target.checked }))} />
+            Preservar posições iniciais (ignorar formação do grupo)
+          </label>
           <label className="flex items-center gap-2 mt-5">
             <input type="checkbox" checked={draft.hub} onChange={(e) => setDraft((d) => ({ ...d, hub: e.target.checked }))} />
             <span className="text-muted">É um hub (sem combate)</span>
@@ -5501,7 +6192,7 @@ function MapEditorScreen({
             <span className="text-muted w-28 shrink-0">Tipo de névoa</span>
             <select
               className="bg-bg border border-border rounded-md px-2 py-1 flex-1"
-              value={draft.mistType ?? "mist2"}
+              value={draft.mistType ?? "none"}
               onChange={(e) =>
                 setDraft((d) => ({
                   ...d,
@@ -5583,11 +6274,11 @@ function MapEditorScreen({
             />
           </label>
           <p className="text-xs text-muted">
-            Estes controles só valem para a batalha de verdade (ou "Testar"/Playtest) — esta prévia usa o renderizador 2D antigo e não muda com eles.
+            A vista 3D mostra estes ajustes na prévia; Testar também usa a iluminação salva no mapa.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           <label className="flex items-center gap-1">
             <span className="text-muted text-xs uppercase tracking-wide">Col</span>
             <input
@@ -5625,14 +6316,22 @@ function MapEditorScreen({
             ))}
           </div>
           <div className="flex rounded-md border border-border overflow-hidden text-xs">
-            {(["paint", "decoration", "player", "enemy", "npc", "summon"] as const).map((m) => (
+            {(["paint", "elevation", "water", "decoration", "architecture", "props3d", "player", "enemy", "npc", "summon"] as const).map((m) => (
               <button
                 key={m}
                 type="button"
-                onClick={() => setMode(m)}
-                className={`px-2.5 py-1.5 ${mode === m ? "bg-accent text-bg" : "bg-bg text-muted"}`}
+                onClick={() => {
+                  setMode(m === "props3d" ? "architecture" : m);
+                  if (m === "architecture" || m === "props3d") {
+                    setArchitectureDecorations(m === "props3d");
+                    setDecoBrush(m === "props3d" ? "rock-3d-layered" : thickWalls ? "castle-3d-thick" : "wall-3d-stone");
+                  }
+                  if (m === "elevation" || m === "water") setTerrain3D(true);
+                  if (m === "decoration" && DECORATIONS[decoBrush]?.model3d) setDecoBrush(decorOptions[0]!.id);
+                }}
+                className={`px-2.5 py-1.5 ${(m === "props3d" ? mode === "architecture" && architectureDecorations : m === "architecture" ? mode === "architecture" && !architectureDecorations : mode === m) ? "bg-accent text-bg" : "bg-bg text-muted"}`}
               >
-                {m === "paint" ? "Terreno" : m === "decoration" ? "Decoração" : m === "player" ? "Herói" : m === "enemy" ? "Inimigo" : m === "npc" ? "NPC" : "Invocação"}
+                {m === "paint" ? "Terreno" : m === "elevation" ? "Elevação" : m === "water" ? "Água 3D" : m === "decoration" ? "Decoração" : m === "architecture" ? "3D Walls" : m === "props3d" ? "3D Decorations" : m === "player" ? "Herói" : m === "enemy" ? "Inimigo" : m === "npc" ? "NPC" : "Invocação"}
               </button>
             ))}
           </div>
@@ -5656,6 +6355,22 @@ function MapEditorScreen({
           <p className="text-xs text-muted ml-auto">Nível de cada um é editável na lista abaixo.</p>
         </div>
 
+        {mode === "water" && <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Button size="sm" variant={!waterErase ? "primary" : "ghost"} onClick={() => setWaterErase(false)}>Pintar água</Button>
+          <Button size="sm" variant={waterErase ? "primary" : "ghost"} onClick={() => setWaterErase(true)}>Remover água</Button>
+          <label>Versão <select aria-label="Versão da água" value={draft.waterVersion ?? "v2"} onChange={e => setDraft(d => ({ ...d, waterVersion: e.target.value as "v1" | "v2" | "v3" | "v4" }))} className="bg-bg border border-border rounded px-1 py-1"><option value="v1">Água V1 — clássica</option><option value="v2">Água V2 — lago realista</option><option value="v3">3D Water V3</option><option value="v4">3D Water V4</option></select></label>
+          <label>Formato <select aria-label="Formato do pincel de água" value={waterShape} onChange={e => setWaterShape(e.target.value as "round" | "square")} className="bg-bg border border-border rounded px-1 py-1"><option value="round">Redondo</option><option value="square">Quadrado</option></select></label>
+          <label>Tamanho <select aria-label="Tamanho do pincel de água" value={waterSize} onChange={e => setWaterSize(Number(e.target.value))} className="bg-bg border border-border rounded px-1 py-1">{[0.25, 0.5, 0.75, 1].map(size => <option key={size} value={size}>{size * 100}%</option>)}</select></label>
+          <label>Nível <input aria-label="Nível da água" type="number" min={0} max={12} step={0.25} value={waterLevel} onChange={e => setWaterLevel(Math.max(0, Math.min(12, Number(e.target.value) || 0)))} className="w-16 bg-bg border border-border rounded px-1 py-1" /></label>
+          <label>Área <select aria-label="Área do pincel de água" value={waterRadius} onChange={e => setWaterRadius(Number(e.target.value))} className="bg-bg border border-border rounded px-1 py-1">{[0, 1, 2, 3].map(r => <option key={r} value={r}>{r === 0 ? "Uma célula" : r === 1 ? "1 anel" : r + " anéis"}</option>)}</select></label>
+          <span className="text-muted">Superfície contínua com ondas. Use o mesmo nível para um lago; o terreno acima da água forma as margens. Ctrl+Z desfaz.</span>
+        </div>}
+        {mode === "elevation" && <div className="flex flex-wrap items-center gap-2 text-xs">
+          {(["raise", "lower", "level"] as const).map(tool => <Button key={tool} size="sm" variant={elevationTool === tool ? "primary" : "ghost"} onClick={() => setElevationTool(tool)}>{tool === "raise" ? "Elevar +1" : tool === "lower" ? "Baixar −1" : "Nivelar"}</Button>)}
+          <label>Nível <input aria-label="Nível de elevação" type="number" min={0} max={12} value={elevationLevel} onChange={e => setElevationLevel(Math.max(0, Math.min(12, Number(e.target.value) || 0)))} className="w-14 bg-bg border border-border rounded px-1 py-1" /></label>
+          <label>Área <select aria-label="Área do pincel de elevação" value={elevationRadius} onChange={e => setElevationRadius(Number(e.target.value))} className="bg-bg border border-border rounded px-1 py-1">{[0, 1, 2, 3].map(r => <option key={r} value={r}>{r === 0 ? "Uma célula" : r === 1 ? "1 anel" : `${r} anéis`}</option>)}</select></label>
+          <span className="text-muted">Clique para esculpir. Níveis 0–12; Nivelar em 0 remove a elevação. Ctrl+Z desfaz.</span>
+        </div>}
         {mode === "paint" && (
           <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -5694,10 +6409,10 @@ function MapEditorScreen({
                         setBrush(terrain);
                         if (key === "city") {
                           setCityMode(true);
-                          setVariant((v) => (v >= 21 && v <= 37 ? v : 21));
+                          setVariant((v) => (v >= 21 && v <= 38 && v !== 22 ? v : 21));
                         } else {
                           setCityMode(false);
-                          setVariant((v) => (terrain === "plains" && v >= 21 && v <= 37 ? 0 : Math.min(v, (TILE_VARIANT_COUNT[terrain] ?? 1) - 1)));
+                          setVariant((v) => (terrain === "plains" && v >= 21 && v <= 38 ? 0 : Math.min(v, (TILE_VARIANT_COUNT[terrain] ?? 1) - 1)));
                         }
                       }}
                       className={`text-xs px-1.5 py-1 rounded-md border flex items-center gap-1.5 ${selected ? "border-accent" : "border-border"}`}
@@ -5708,6 +6423,9 @@ function MapEditorScreen({
                   );
                 })}
             </div>
+            {brush === "hill" && (
+              <p className="text-xs text-muted">Colina cria relevo. Use Elevação para esculpir vários níveis e ver o resultado na prévia 3D.</p>
+            )}
             <section className="flex flex-col gap-2 rounded-md border border-border bg-bg/30 p-2" aria-label="Icelands">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Icelands</h3>
@@ -5758,7 +6476,7 @@ function MapEditorScreen({
                         original variant index i (art file, saved-map value), so re-sorting
                         this list can never relabel or repaint an existing tile. */}
                     {Array.from({ length: TILE_VARIANT_COUNT[brush] ?? 1 }, (_, i) => i)
-                      .filter((i) => cityMode && brush === "plains" ? i >= 21 && i <= 37 : !HIDDEN_VARIANTS[brush]?.includes(i))
+                      .filter((i) => cityMode && brush === "plains" ? i >= 21 && i <= 38 && i !== 22 : !HIDDEN_VARIANTS[brush]?.includes(i))
                       .sort((a, b) => byName(VARIANT_LABEL[brush]?.[a] ?? String(a + 1).padStart(3, "0"), VARIANT_LABEL[brush]?.[b] ?? String(b + 1).padStart(3, "0")))
                       .map((i) => (
                   <button
@@ -5778,12 +6496,26 @@ function MapEditorScreen({
             )}
           </div>
         )}
-        {mode === "decoration" && (
+        {(mode === "decoration" || mode === "architecture") && (
           <div className="flex flex-col gap-2">
+            {mode === "architecture" && !architectureDecorations && (
+              <div className="flex gap-2">
+                {[false, true].map(thick => (
+                  <Button key={String(thick)} size="sm" variant={thickWalls === thick ? "primary" : "ghost"}
+                    onClick={() => {
+                      setThickWalls(thick);
+                      setDecoBrush(thick ? "castle-3d-thick" : "wall-3d-stone");
+                    }}>
+                    {thick ? "Thick Walls" : "Regular Walls"}
+                  </Button>
+                ))}
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-xs text-muted flex-1 min-w-[12rem]">
-                Clique na casa âncora pra colocar; clique em qualquer casa que a decoração cubra pra remover. Toda casa
-                coberta fica intransponível e bloqueia visão/tiro, não importa o terreno por baixo.
+                {mode === "architecture"
+                  ? "Coloque paredes em linhas e colunas para formar salas retangulares contínuas. Paredes e portas fechadas bloqueiam movimento e visão; passagens abertas permitem atravessar. Selecione uma peça e use Delete para remover."
+                  : "Clique na casa âncora pra colocar; clique em qualquer casa que a decoração cubra pra remover. Toda casa coberta fica intransponível e bloqueia visão/tiro, não importa o terreno por baixo."}
               </p>
               <Button
                 size="sm"
@@ -5792,22 +6524,22 @@ function MapEditorScreen({
                   setTurningDeco((v) => !v);
                   setNote(
                     turningDeco
-                      ? "Pincel de volta: clicar coloca e remove decoração."
-                      : "Girar objeto armado: cada clique numa decoração vira ela 60°, com toda a área junto. Seis cliques voltam ao original.",
+                      ? mode === "architecture" ? "Pincel 3D ativo: clique para colocar ou selecionar uma peça." : "Pincel de volta: clicar coloca e remove decoração."
+                      : mode === "architecture" ? "Girar peça 3D armado: cada clique vira a peça 90°. Quatro cliques voltam ao original." : "Girar objeto armado: cada clique numa decoração vira ela 60°, com toda a área junto. Seis cliques voltam ao original.",
                   );
                 }}
-                title="Gira a decoração 60° por clique. Uma que ocupa vários hexes gira a área inteira de uma vez — um hexágono cai sobre si mesmo a cada 60°, então essas são as únicas voltas que ainda caem em casas reais."
+                title={mode === "architecture" ? "Gira a peça 3D 90° por clique." : "Gira a decoração 60° por clique. Uma que ocupa vários hexes gira a área inteira de uma vez — um hexágono cai sobre si mesmo a cada 60°, então essas são as únicas voltas que ainda caem em casas reais."}
               >
-                {turningDeco ? "Girando — clique numa decoração" : "Girar objeto"}
+                {turningDeco ? mode === "architecture" ? "Girando — clique numa peça 3D" : "Girando — clique numa decoração" : "Girar objeto"}
               </Button>
             </div>
-            <p className="text-xs text-muted">
+            {mode === "decoration" && <p className="text-xs text-muted">
               O dado em cada uma liga/desliga se ela pode sair no sorteio de "Gerar terreno" — aceso participa, apagado só
               entra no mapa se você colocar à mão.
-            </p>
+            </p>}
 
-            <div className="ember-scrollbar overflow-x-auto overflow-y-hidden border border-border rounded-md p-1.5 bg-bg/40 h-28 min-h-[104px] min-w-[280px]">
-              <div className="grid grid-rows-2 grid-flow-col auto-cols-max gap-1.5">
+            <div className={mode === "architecture" ? "border border-border rounded-md p-1.5 bg-bg/40" : "ember-scrollbar overflow-x-auto overflow-y-hidden border border-border rounded-md p-1.5 bg-bg/40 h-28 min-h-[104px] min-w-[280px]"}>
+              <div className={mode === "architecture" ? "grid grid-cols-2 xl:grid-cols-3 gap-1.5" : "grid grid-rows-2 grid-flow-col auto-cols-max gap-1.5"}>
                 {visibleDecorOptions.map((dec) => {
                   const excluded = shuffleExclude.has(dec.id);
                   return (
@@ -5818,21 +6550,22 @@ function MapEditorScreen({
                       <button
                         type="button"
                         title={`${dec.name} · ${dec.footprint.length} hexes`}
-                        onClick={() => setDecoBrush(dec.id)}
+                        aria-pressed={decoBrush === dec.id}
+                        onClick={() => { setDecoBrush(dec.id); setSelectedPlacedDecoration(null); setTurningDeco(false); }}
                         className="flex items-center gap-1.5"
                       >
-                        <img
-                          src={decorationImage(dec.id)}
+                        {dec.model3d && !dec.wallTexture ? <span className="size-6 grid place-items-center rounded-sm border border-border text-[10px] font-semibold">3D</span> : <img
+                          src={dec.wallTexture ?? decorationImage(dec.id)}
                           alt=""
                           className="size-6 rounded-sm object-cover bg-bg"
                           onError={(e) => {
                             e.currentTarget.onerror = null;
                             e.currentTarget.src = decorationImageWebp(dec.id);
                           }}
-                        />
+                        />}
                         {dec.name}
                       </button>
-                      <button
+                      {!dec.model3d && <button
                         type="button"
                         onClick={() => toggleShuffleExclude(dec.id)}
                         className={`px-1 ${excluded ? "text-muted" : "text-accent"}`}
@@ -5844,7 +6577,7 @@ function MapEditorScreen({
                         }
                       >
                         <Dices className="size-3.5" />
-                      </button>
+                      </button>}
                     </div>
                   );
                 })}
@@ -5853,21 +6586,31 @@ function MapEditorScreen({
 
             <div className="flex flex-col gap-1.5 border border-border rounded-md p-2 bg-bg/40">
               <div className="flex items-center gap-2 text-xs">
-                <span className="uppercase tracking-wide text-muted">Regras da decoração</span>
+                <span className="uppercase tracking-wide text-muted">{mode === "architecture" ? "Regras da peça 3D" : "Regras da decoração"}</span>
                 <span className="text-muted">
                   {selectedPlacement
                     ? `${DECORATIONS[selectedPlacement.id]?.name ?? selectedPlacement.id} em ${selectedPlacement.x},${selectedPlacement.y}`
-                    : "clique numa decoração no mapa"}
+                    : mode === "architecture" ? "clique numa peça 3D no mapa" : "clique numa decoração no mapa"}
                 </span>
               </div>
-              <label
+              {mode === "architecture" ? (
+                <div className="flex gap-2" role="group" aria-label="Orientação da peça 3D">
+                  {(["horizontal", "vertical"] as const).map(orientation => (
+                    <button key={orientation} type="button" aria-pressed={activeWallOrientation === orientation}
+                      onClick={() => changeWallOrientation(orientation)}
+                      className={`flex-1 rounded border px-3 py-2 text-sm ${activeWallOrientation === orientation ? "border-accent bg-accent/15 text-accent" : "border-border text-muted"}`}>
+                      {orientation === "horizontal" ? "Horizontal" : "Vertical"}
+                    </button>
+                  ))}
+                </div>
+              ) : <><label
                 className={`flex items-center gap-2 text-sm ${selectedPlacement ? "" : "opacity-50"}`}
                 title="Ligado, o hexágono deixa de ser navegável. Nesta engine sólido é sólido: também passa a barrar flecha e névoa."
               >
                 <input
                   type="checkbox"
-                  disabled={!selectedPlacement || selectedPlacementIsSolidHouse}
-                  checked={!!selectedPlacement?.blocksPath || selectedPlacementIsSolidHouse}
+                  disabled={!selectedPlacement || selectedPlacementIsSolidHouse || selectedPlacementIsSolidCart || selectedPlacementIsSolidArchitecture}
+                  checked={!!selectedPlacement?.blocksPath || selectedPlacementIsSolidHouse || selectedPlacementIsSolidCart || selectedPlacementIsSolidArchitecture}
                   onChange={() => toggleDecorationRule("blocksPath")}
                 />
                 <span className="text-muted">Bloquear caminho</span>
@@ -5883,10 +6626,21 @@ function MapEditorScreen({
                   onChange={() => toggleDecorationRule("yieldsHighGround")}
                 />
                 <span className="text-muted">Alto terreno</span>
-              </label>
+              </label></>}
+              {mode === "architecture" && (selectedArchitecture === "door" || selectedArchitecture === "doorway" || selectedArchitecture === "secretDoor") && selectedPlacement && (
+                <Button size="sm" onClick={() => {
+                  const style = DECORATIONS[selectedPlacement.id]?.doorStyle ?? "oak";
+                  const pair = THREE_D_DOOR_VARIANTS[style];
+                  const id = selectedArchitecture === "door" || selectedArchitecture === "secretDoor" ? pair.open : pair.closed;
+                  setDraft(d => ({ ...d, decorations: d.decorations.map(p =>
+                    p.id === selectedPlacement.id && p.x === selectedPlacement.x && p.y === selectedPlacement.y
+                      ? { ...p, id, blocksPath: undefined } : p) }));
+                  setSelectedPlacedDecoration({ ...selectedPlacement, id });
+                }}>{selectedArchitecture === "door" || selectedArchitecture === "secretDoor" ? "Abrir porta" : "Fechar passagem"}</Button>
+              )}
               <p className="text-xs text-muted">
-                Os dois só acrescentam: desligados, o hexágono mantém a regra do terreno que está embaixo. Uma barricada
-                segue intransponível com "Bloquear caminho" desligado, porque é a definição dela que a torna sólida.
+                {mode === "architecture" ? "Escolha a orientação para colocar novas peças ou mudar a peça selecionada. Paredes, portas fechadas e passagens secretas bloqueiam o caminho; vãos abertos permitem atravessar."
+                  : 'Os dois só acrescentam: desligados, o hexágono mantém a regra do terreno que está embaixo. Uma barricada segue intransponível com "Bloquear caminho" desligado, porque é a definição dela que a torna sólida.'}
               </p>
             </div>
 
@@ -5926,6 +6680,15 @@ function MapEditorScreen({
           </p>
         )}
 
+        {mode === "npc" && (
+          <label className="flex flex-col gap-1 text-sm">
+            Personagem
+            <select className="rounded border border-border bg-bg p-2" value={npcBrush} onChange={(event) => setNpcBrush(event.target.value as EncounterNpcId | "breadLady")}>
+              {(["breadLady", ...ENCOUNTER_NPC_IDS] as const).map((id) => <option key={id} value={id}>{uiText(CLASSES[id].name)}</option>)}
+            </select>
+            <span className="text-xs text-muted">Os novos personagens têm animação de quatro quadros e diálogo próprio.</span>
+          </label>
+        )}
         {mode === "summon" && (
           <div className="flex flex-col gap-2 border border-border rounded-md p-2 bg-bg/40">
             <div className="flex flex-wrap items-center gap-2">
@@ -6019,16 +6782,18 @@ function MapEditorScreen({
             >
               ↷ Refazer
             </Button>
-            <label className="flex items-center gap-1 rounded-md border border-border bg-bg px-2 py-1 text-xs" title="Categoria atualmente exibida na paleta de decorações">
+            {mode !== "architecture" && <label className="flex items-center gap-1 rounded-md border border-border bg-bg px-2 py-1 text-xs" title="Categoria atualmente exibida na paleta de decorações">
               <span className="text-muted">Decorações</span>
               <select className="max-w-36 bg-transparent text-fg outline-none" value={decoSection} onChange={(e) => setDecoSection(e.target.value)}>
                 {decorationSections.map((section) => (
                   <option key={section} value={section}>{section}</option>
                 ))}
               </select>
-            </label>            <Button
+            </label>}
+            <Button
               size="sm"
               variant={showPreview ? "quiet" : "ghost"}
+              aria-pressed={showPreview}
               onClick={() => {
                 const next = !showPreview;
                 setShowPreview(next);
@@ -6036,6 +6801,15 @@ function MapEditorScreen({
               }}
             >
               {showPreview ? "Ocultar prévia" : "Mostrar prévia"}
+            </Button>
+            <Button
+              size="sm"
+              variant={showTechnicalMap ? "quiet" : "ghost"}
+              aria-pressed={showTechnicalMap}
+              title="Mostrar ou ocultar a grade técnica de edição do mapa"
+              onClick={() => setShowTechnicalMap((visible) => !visible)}
+            >
+              {showTechnicalMap ? "Ocultar mapa técnico" : "Mostrar mapa técnico"}
             </Button>
           </div>
         </div>
@@ -6086,7 +6860,7 @@ function MapEditorScreen({
         )}
         {showPreview && (
           <ResizableEditorPanel
-            className="overflow-hidden border border-border rounded-md bg-black h-[40vh] min-h-[220px] min-w-[280px]"
+            className="map-preview-window overflow-hidden border border-border rounded-md bg-black h-[40vh] min-h-[220px] min-w-[280px]"
             title="Arraste esta alça para redimensionar a prévia"
             minHeight={220}
           >
@@ -6095,13 +6869,16 @@ function MapEditorScreen({
                 mission={previewMission}
                 art={art}
                 onCellClick={onCellClick}
-                selectedDecorationId={mode === "decoration" ? decoBrush : undefined}
+                tacticsView={terrain3D}
+                onTacticsViewChange={setTerrain3D}
+                selectedDecorationId={mode === "decoration" || mode === "architecture" ? decoBrush : undefined}
                 selectedPlacedDecoration={selectedPlacedDecoration}
                 onUnitSelect={selectPreviewUnit}
                 onHeldUnitDelete={deleteHeldPreviewUnit}
                 onUnitPlace={placePreviewUnit}
                 onDecorationSelect={selectPreviewDecoration}
                 onDecorationPlace={placePreviewDecoration}
+                primaryObjectDrag={!turningDeco}
               />
             ) : (
               <div className="h-full w-full grid place-items-center text-xs text-muted">Carregando prévia…</div>
@@ -6109,13 +6886,14 @@ function MapEditorScreen({
           </ResizableEditorPanel>
         )}
 
-        <ResizableEditorPanel
+        {showTechnicalMap && <ResizableEditorPanel
           className="overflow-hidden border border-border rounded-md p-2 bg-black h-[60vh] min-h-[320px] min-w-[280px]"
           contentClassName="ember-scrollbar h-full w-full overflow-auto"
-          title="Arraste esta alça para redimensionar o mapa"
+          title="Mapa técnico de edição — arraste esta alça para redimensionar"
           minHeight={320}
         >
           <div className="grid min-h-full min-w-full w-max place-items-center">
+            <p className="sticky left-0 top-0 z-10 w-full bg-black/90 px-2 py-1 text-xs uppercase tracking-wide text-muted">Mapa técnico de edição</p>
             {gridStyle === "square" ? (
               <div
                 className="grid gap-px w-max"
@@ -6225,22 +7003,22 @@ function MapEditorScreen({
             })()
             )}
           </div>
-        </ResizableEditorPanel>
+        </ResizableEditorPanel>}
 
         {draft.decorations.length > 0 && (
           <div className="flex flex-col gap-1.5">
             <p className="text-xs uppercase tracking-wide text-muted">Decorações ({draft.decorations.length})</p>
             {draft.decorations.map((p, i) => (
               <div key={i} className="flex items-center gap-1.5 text-xs bg-bg border border-border rounded-md px-2 py-1">
-                <img
-                  src={decorationImage(p.id)}
+                {DECORATIONS[p.id]?.model3d && !DECORATIONS[p.id]?.wallTexture ? <span className="size-6 grid place-items-center rounded-sm border border-border text-[10px] font-semibold">3D</span> : <img
+                  src={DECORATIONS[p.id]?.wallTexture ?? decorationImage(decorationPlacementArt(p))}
                   alt=""
                   className="size-6 rounded-sm object-cover"
                   onError={(e) => {
                     e.currentTarget.onerror = null;
-                    e.currentTarget.src = decorationImageWebp(p.id);
+                    e.currentTarget.src = decorationImageWebp(decorationPlacementArt(p));
                   }}
-                />
+                />}
                 <span className="flex-1 min-w-0 truncate">{DECORATIONS[p.id]?.name ?? p.id}</span>
                 <span className="text-muted tabular-nums">{p.x},{p.y}</span>
                 <button
@@ -6463,7 +7241,7 @@ function MapEditorScreen({
         {exportText && (
           <label className="flex flex-col gap-1">
             <span className="text-muted text-xs uppercase tracking-wide">
-              Exportado — copia e manda pro Claude colar em data.ts
+              Exportado para copiar — não salvo no jogo
             </span>
             <textarea readOnly className="bg-bg border border-border rounded-md px-2 py-1.5 text-xs font-mono h-40" value={exportText} />
           </label>
@@ -6504,7 +7282,17 @@ function MapEditorScreen({
           </div>
         )}
         {note && (
-          <p key={note.n} className="text-sm leading-snug font-medium text-accent bg-accent/15 border border-accent/60 rounded-md px-2 py-1.5">
+          <p
+            key={note.n}
+            role={note.text.startsWith("NÃO SALVO:") ? "alert" : "status"}
+            className={`text-sm leading-snug font-medium rounded-md px-2 py-1.5 ${
+              note.text.startsWith("NÃO SALVO:")
+                ? "text-red-300 bg-red-500/20 border border-red-500"
+                : note.text.startsWith("Salvo:")
+                  ? "text-emerald-300 bg-emerald-500/20 border border-emerald-400"
+                  : "text-accent bg-accent/15 border border-accent/60"
+            }`}
+          >
             {note.text}
           </p>
         )}
@@ -6527,8 +7315,8 @@ function MapEditorScreen({
             Testar
           </Button>
 
-          <Button variant="quiet" className="flex-1 h-[22px] px-2.5 text-xs min-w-0" onClick={() => void doSave()}>
-            Salvar mapa
+          <Button variant="quiet" className="flex-1 h-[22px] px-2.5 text-xs min-w-0" disabled={savingMap} onClick={() => void doSave()}>
+            {savingMap ? "Salvando…" : "Salvar mapa"}
           </Button>
           <Button variant="quiet" className="flex-1 h-[22px] px-2.5 text-xs min-w-0" onClick={doExport}>
             Exportar
@@ -6836,7 +7624,7 @@ function MapEditorScreen({
                 return (
                   <div key={region.id} className="border border-border rounded-md p-2.5">
                     <div className="flex items-center gap-2 mb-2">
-                      <p className="flex-1 text-xs uppercase tracking-wide text-muted">{region.name} · {maps.length} encontro{maps.length === 1 ? "" : "s"}</p>
+                      <p className="flex-1 text-xs uppercase tracking-wide text-muted">{uiText(region.name)} · {maps.length} encontro{maps.length === 1 ? "" : "s"}</p>
                       <button
                         type="button"
                         onClick={() => {
@@ -6916,10 +7704,12 @@ function MapEditorScreen({
                 ? draft.outroDialog
                 : draft.neutralSpawns?.[dialogEditorTarget.index]?.dialog
           }
-          onChange={(tree) => {
-            if (dialogEditorTarget.kind === "intro") setDraft((d) => ({ ...d, introDialog: tree }));
-            else if (dialogEditorTarget.kind === "outro") setDraft((d) => ({ ...d, outroDialog: tree }));
-            else updateSpawn("neutralSpawns", dialogEditorTarget.index, { dialog: tree });
+          onChange={async (tree) => {
+            const next = dialogEditorTarget.kind === "intro" ? { ...draft, introDialog: tree }
+              : dialogEditorTarget.kind === "outro" ? { ...draft, outroDialog: tree }
+              : { ...draft, neutralSpawns: (draft.neutralSpawns ?? []).map((spawn, index) => index === dialogEditorTarget.index ? { ...spawn, dialog: tree } : spawn) };
+            setDraft(next);
+            return await doSave(next);
           }}
           onClose={() => setDialogEditorTarget(null)}
           portraitOptions={portraitOptions}
@@ -6932,6 +7722,7 @@ function MapEditorScreen({
 function CampaignScreen({
   missions = ALL_MISSIONS,
   locations = ALL_LOCATIONS,
+  missionAccessFor,
   completed,
   test,
   ember,
@@ -6940,6 +7731,7 @@ function CampaignScreen({
 }: {
   missions?: Mission[];
   locations?: WorldLocation[];
+  missionAccessFor?: MissionAccessFn;
   completed: string[];
   test: boolean;
   ember: number;
@@ -6960,7 +7752,7 @@ function CampaignScreen({
       </header>
       <ol className="flex-1 min-h-0 overflow-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col gap-2">
         {missions.map((m, campaignNumber) => {
-          const lock = lockedMission(m.id, completed, test, locations, missions.map((mission) => mission.id));
+          const lock = lockedMission(m.id, completed, test, locations, missions.map((mission) => mission.id), missionAccessFor);
           const done = completed.includes(m.id);
           const openInn = !!m.hub && !lock;
           return (
@@ -6973,9 +7765,10 @@ function CampaignScreen({
                   openInn ? "inn-open" : "border-border"
                 }`}
               >
-                <p className="text-sm uppercase tracking-[0.16em] text-muted">
+                <p className="flex items-center gap-2 text-sm uppercase tracking-[0.16em] text-muted">
                   {String(campaignNumber + 1).padStart(2, "0")} · {m.place}
                   {m.hub && !lock ? " · aberta" : done ? " · feito" : ""}
+                  {lock && <Lock className="size-4 shrink-0" aria-label="Cenário bloqueado" />}
                 </p>
                 <p className="font-display text-2xl">{m.title}</p>
                 <p className="text-base text-muted">{m.objective}</p>
@@ -7004,7 +7797,11 @@ function BriefingScreen({
   // One shared backdrop for the currently shipped random encounters. Keep this routing
   // isolated here so future encounter-specific art can replace it by id without touching
   // authored campaign briefings.
-  const art = isRandomEncounter(mission.id) ? "/game/ui/random-encounter-briefing.jpg" : briefArt(mission.id);
+  const art = mission.id === "random-encounter-14"
+    ? "/game/assets/merchant-snow-market-background-001.jpg"
+    : mission.id === "random-encounter-11"
+      ? "/game/assets/merchant-road-background-001.jpg"
+    : isRandomEncounter(mission.id) ? "/game/ui/random-encounter-briefing.jpg" : briefArt(mission.id);
   return (
     <section className="relative h-dvh min-h-0 flex flex-col overflow-hidden bg-surface">
       {art && (
@@ -7014,39 +7811,45 @@ function BriefingScreen({
         </>
       )}
       <header className="relative z-10 flex items-center gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-4 sm:px-6">
-        <button type="button" onClick={onBack} className="size-10 grid place-items-center rounded-md border border-border bg-surface/90" aria-label="Voltar">
+        <button type="button" onClick={onBack} className="size-10 grid place-items-center ember-icon-btn" aria-label="Voltar">
           <ChevronLeft className="size-5" />
         </button>
         <div className="flex-1">
-          <p className="text-sm uppercase tracking-[0.18em] text-muted">{mission.place}</p>
-          <h1 className="font-display text-3xl leading-none">{mission.title}</h1>
+          <p className="text-sm ember-kicker">{mission.place}</p>
+          <h1 className="font-display text-3xl leading-none ember-title">{mission.title}</h1>
         </div>
         <button
           type="button"
           onClick={onMute}
-          className="size-10 grid place-items-center rounded-md border border-border bg-surface/90 text-fg"
+          className="size-10 grid place-items-center ember-icon-btn"
           aria-label={muted ? "Ativar som" : "Silenciar"}
         >
           {muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}
         </button>
       </header>
       <div className="relative z-10 flex-1 min-h-0 overflow-y-auto px-4 pb-4 sm:px-6">
-        <div className="max-w-xl rounded-xl border border-border bg-surface/90 p-5 shadow-lg shadow-bg/30">
+        <div className="relative max-w-xl ember-panel p-5">
           <p className="text-lg leading-relaxed text-fg">{mission.briefing}</p>
-          <div className="mt-5 border-t border-border pt-4">
-            <p className="text-xs uppercase tracking-[0.16em] text-muted">Objetivo</p>
+          <div className="mt-5 ember-rule pt-4">
+            <p className="text-xs ember-kicker">Objetivo</p>
             <p className="mt-1 text-base font-medium text-accent">{mission.objective}</p>
           </div>
         </div>
       </div>
       <div className="relative z-10 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
-        <Button size="xl" className="w-full max-w-xl" onClick={onStart}>
+        <Button size="xl" className="w-full max-w-xl ember-btn ember-btn-primary" onClick={onStart}>
           <Swords className="size-5" /> {mission.id === "estalagem" ? "Entrar" : "Entrar em combate"}
         </Button>
       </div>
     </section>
   );
 }
+
+/** Battles whose intro dialog has already opened. Saving (or loading/cancelling from the slot
+ * screen) leaves and re-mounts BattleScreen with the same engine — without this, every return
+ * re-ran the lazy init below and reopened the intro. A new battle is a new engine, so it still
+ * gets its intro once. */
+const introDialogShown = new WeakSet<BattleEngine>();
 
 function BattleScreen({
   onUseRation,
@@ -7062,6 +7865,7 @@ function BattleScreen({
   onSave,
   onLoad,
   onQuit,
+  onTitle,
   onEquipWeapon,
   onEquipItem,
   onAdjustStatPoint,
@@ -7070,6 +7874,7 @@ function BattleScreen({
   playtest = false,
   fleeable = false,
   onDialogAction,
+  onAffinityChange,
 }: {
   engine: BattleEngine;
   onUseRation: (hero: string) => void;
@@ -7084,6 +7889,7 @@ function BattleScreen({
   onSave: () => void;
   onLoad: () => void;
   onQuit: () => void;
+  onTitle: () => void;
   /** Persist a mid-battle gear change. `alsoOwn` is true when the item came out of a chest
    * this battle and therefore is not in the save's owned lists yet. */
   onEquipWeapon?: (hero: string, weaponId: string, alsoOwn: boolean) => void;
@@ -7099,6 +7905,7 @@ function BattleScreen({
   fleeable?: boolean;
   /** An NPC reply that opens one of the Inn's menus (Brue's tavern, Vargan's smith). */
   onDialogAction?: (action: DialogAction) => void;
+  onAffinityChange?: () => void;
 }) {
   const [showStatus, setShowStatus] = useState(false);
   const [showLog, setShowLog] = useState(false);
@@ -7115,6 +7922,41 @@ function BattleScreen({
   const [heldTile, setHeldTile] = useState(false);
   // Keep turn order tucked away until the player opens it.
   const [showTurnOrder, setShowTurnOrder] = useState(false);
+  const [cameraTilt, setCameraTilt] = useState(engine.cameraTilt);
+  const [cameraTiltSide, setCameraTiltSide] = useState(engine.cameraTiltSide);
+  const [tacticsCamera, setTacticsCamera] = useState(false);
+  const cameraAnimation = useRef<number | null>(null);
+  const moveCamera = (tilt: number, side: number) => {
+    if (cameraAnimation.current !== null) cancelAnimationFrame(cameraAnimation.current);
+    const startTilt = engine.cameraTilt;
+    const startSide = engine.cameraTiltSide;
+    const start = performance.now();
+    setCameraTilt(tilt);
+    setCameraTiltSide(side);
+    const step = (now: number) => {
+      const progress = Math.min(1, (now - start) / 240);
+      const eased = progress * progress * (3 - 2 * progress);
+      engine.cameraTilt = startTilt + (tilt - startTilt) * eased;
+      engine.cameraTiltSide = startSide + (side - startSide) * eased;
+      if (progress < 1) cameraAnimation.current = requestAnimationFrame(step);
+      else {
+        // Normalize only after the transition so crossing 360 degrees takes the short route.
+        engine.cameraTiltSide = ((side + 180) % 360 + 360) % 360 - 180;
+        setCameraTiltSide(engine.cameraTiltSide);
+        cameraAnimation.current = null;
+      }
+    };
+    cameraAnimation.current = requestAnimationFrame(step);
+  };
+  useEffect(() => {
+    setCameraTilt(engine.cameraTilt);
+    setCameraTiltSide(engine.cameraTiltSide);
+    setTacticsCamera(false);
+    return () => {
+      if (cameraAnimation.current !== null) cancelAnimationFrame(cameraAnimation.current);
+      cameraAnimation.current = null;
+    };
+  }, [engine]);
   const [hotbars, setHotbars] = useState<Record<string, (SlotAction | null)[]>>({});
   const [editingSlots, setEditingSlots] = useState(false);
   const [pickerSlot, setPickerSlot] = useState<number | null>(null);
@@ -7127,7 +7969,10 @@ function BattleScreen({
   // The mission's intro dialog — lazy-init so it only ever opens once, right as this screen
   // first mounts (a fresh mount happens per battle: see BattleEngine construction in
   // startBattle), never on a re-render.
-  const [introDialogOpen, setIntroDialogOpen] = useState(() => !!engine.mission.introDialog && engine.mission.introDialogEnabled !== false);
+  const [introDialogOpen, setIntroDialogOpen] = useState(() => !introDialogShown.has(engine) && !!engine.mission.introDialog && engine.mission.introDialogEnabled !== false);
+  useEffect(() => {
+    if (introDialogOpen) introDialogShown.add(engine);
+  }, [introDialogOpen, engine]);
   const wasWinAvailable = useRef(false);
   const previousExitKey = useRef<string | null>(null);
   useEffect(() => {
@@ -7211,9 +8056,12 @@ function BattleScreen({
   // finds never showed up until the mission ended. Patch a live view in for the duration of
   // the battle instead of touching the screens themselves, which are also used from the Inn
   // (no `engine` there, where `save` genuinely is the whole truth).
-  const liveWeapons = { ...save.weapons };
+  // Test battles show a brand-new save's gear (starter weapon in hand, nothing else), never
+  // the real slot's collected weapons/equipment.
+  const gearBase = playtest ? emptySave() : save;
+  const liveWeapons = { ...gearBase.weapons };
   for (const id of engine.lootWeapons) if (!(id in liveWeapons)) liveWeapons[id] = 0;
-  const liveLooseEquipment = { ...save.looseEquipment };
+  const liveLooseEquipment = { ...gearBase.looseEquipment };
   for (const id of engine.lootEquipment) liveLooseEquipment[id] = (liveLooseEquipment[id] ?? 0) + 1;
   const liveSave: SaveData = {
     ...save,
@@ -7222,6 +8070,8 @@ function BattleScreen({
     rations: save.rations + engine.lootRations,
     bags: { ...save.bags, ...Object.fromEntries(engine.units.filter((u) => u.side === "player").map((u) => [u.name, u.bag])) },
     weapons: liveWeapons,
+    equipped: gearBase.equipped,
+    equipment: gearBase.equipment,
     looseEquipment: liveLooseEquipment,
   };
   const foe = hud.pendingFoe ?? (hud.inspected && hud.inspected.side === "enemy" && hud.selected ? hud.inspected : null);
@@ -7286,6 +8136,9 @@ function BattleScreen({
       case "causticVenom":
         engine.startCausticVenom();
         break;
+      case "minorVenom":
+        engine.startMinorVenom();
+        break;
       case "lightning":
         engine.startLightning();
         break;
@@ -7293,6 +8146,7 @@ function BattleScreen({
         engine.startLightningTier3();
         break;
       case "shock":
+        engine.startShock();
         break;
       case "magicMissile":
         engine.startMagicMissile();
@@ -7341,6 +8195,9 @@ function BattleScreen({
         break;
       case "summonFamiliar4":
         engine.startSummonFamiliar4();
+        break;
+      case "summonZombieDog":
+        engine.startSummonZombieDog();
         break;
       case "webOfDreams":
         engine.startWebOfDreams();
@@ -7395,6 +8252,16 @@ function BattleScreen({
     return false;
   }
 
+  /** Why a greyed-out slot can't be used right now, shown in its tooltip so it never looks like a bug. */
+  function slotDisabledReason(action: SlotAction): string | null {
+    if (!actor) return null;
+    if (hud.busy) return "aguarde a ação atual terminar";
+    if (slotCount(action, actor) <= 0) return "sem usos restantes";
+    if (actor.acted) return `${actor.name} já agiu neste turno`;
+    if (!showAct) return "termine ou cancele a ação atual primeiro";
+    return null;
+  }
+
   function slotActive(action: SlotAction): boolean {
     if (action.kind === "potion") return hud.mode === "awaitPotion";
     return hud.mode === "awaitSpell" && hud.spellKind === action.spell;
@@ -7434,19 +8301,19 @@ function BattleScreen({
           onTileReadout={setHeldTile}
         />
         {hud.turnQueue.length > 0 && (
-          <div className="pointer-events-none absolute left-3 right-3 top-[max(0.75rem,env(safe-area-inset-top))] flex flex-col items-start gap-2">
+          <div className="pointer-events-none absolute left-2 right-2 top-[max(0.5rem,env(safe-area-inset-top))] flex flex-col items-start gap-1">
             <button type="button" aria-expanded={showTurnOrder} aria-label={showTurnOrder ? "Ocultar ordem de turnos" : "Mostrar ordem de turnos"}
               onClick={() => setShowTurnOrder((open) => !open)}
-              className="pointer-events-auto flex items-center gap-2 rounded-lg border border-white/15 bg-[#111b22]/95 px-3 py-2 text-xs text-slate-300 transition-colors hover:bg-[#25313b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#cdd3dc]">
-              <ListOrdered className="size-4" /><span>Ordem</span>
+              className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-white/15 bg-[#111b22]/95 px-2 py-1 text-[10px] leading-none text-slate-300 transition-colors hover:bg-[#25313b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#cdd3dc]">
+              <ListOrdered className="size-3" /><span>Ordem</span>
             </button>
             {showTurnOrder && (
-              <div className="flex max-w-full gap-1.5 overflow-x-auto rounded-lg border border-white/10 bg-[#111b22]/90 p-1.5 text-xs">
+              <div className="flex w-fit max-w-[calc(100vw-1rem)] flex-wrap gap-0.5 rounded-md border border-white/10 bg-[#111b22]/85 p-1 text-[11px] leading-none">
                 {hud.turnQueue.map((q, i) => (
-                  <span key={q.id} className={`flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1.5 ${q.active ? "border-[#dce2eb]/60 bg-[#dce2eb]/10 text-[#dce2eb]" : q.acted ? "border-transparent text-slate-500" : "border-white/10 text-slate-300"}`}>
-                    <span className="text-[10px] tabular-nums text-slate-500">{String(i + 1).padStart(2, "0")}</span>
-                    <span className={q.acted ? "line-through" : ""}>{q.name}</span>
-                    {q.active && <span className="text-[9px] font-bold uppercase">Agora</span>}
+                  <span key={q.id} title={`${q.name}${q.active ? " · agora" : q.acted ? " · já agiu" : ""}`} aria-label={`${q.name}${q.active ? ", agora" : q.acted ? ", já agiu" : ""}`} className={`flex shrink-0 items-center gap-1 rounded border px-1 py-1 ${q.active ? "border-[#dce2eb]/60 bg-[#dce2eb]/10 text-[#dce2eb]" : q.acted ? "border-transparent text-slate-500" : "border-white/10 text-slate-300"}`}>
+                    <span className="shrink-0 text-[9px] tabular-nums text-slate-500">{i + 1}</span>
+                    <span className="max-w-32 truncate">{uiText(q.name)}</span>
+                    {q.active && <span className="size-1 shrink-0 rounded-full bg-current" aria-hidden="true" />}
                     {q.side === "enemy" && !q.active && <span className="size-1.5 rounded-full bg-[#e78573]" aria-label="Inimigo" />}
                   </span>
                 ))}
@@ -7456,10 +8323,10 @@ function BattleScreen({
         )}
         {heldTile && hud.terrain && (
           <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center px-3">
-            <div className="bg-surface/95 border border-border rounded-lg px-3 py-2 max-w-sm shadow-lg">
+            <div className="ember-plate px-3 py-2 max-w-sm">
               {hud.terrain.spellZone ? (
                 <>
-                  <p className="font-display text-base leading-tight">{WEB_OF_DREAMS.name}</p>
+                  <p className="font-display text-base leading-tight">{uiText(WEB_OF_DREAMS.name)}</p>
                   <p className="text-xs text-muted tabular-nums mt-0.5">
                     {hud.terrain.spellZone.roundsLeft} {hud.terrain.spellZone.roundsLeft === 1 ? "rodada restante" : "rodadas restantes"} · movimento limitado a {hud.terrain.spellZone.movementCap} hex
                   </p>
@@ -7469,7 +8336,7 @@ function BattleScreen({
                 </>
               ) : (
                 <>
-                  <p className="font-display text-base leading-tight">{hud.terrain.name}</p>
+                  <p className="font-display text-base leading-tight">{uiText(hud.terrain.name)}</p>
                   <p className="text-xs text-muted tabular-nums mt-0.5">
                     {hud.terrain.passable ? `Mov ${hud.terrain.moveCost}` : "Intransponível"} · Def +{hud.terrain.def} · Atk +{hud.terrain.atk}
                     {hud.terrain.blocksShot ? " · bloqueia tiro/visão" : ""}
@@ -7482,21 +8349,86 @@ function BattleScreen({
           </div>
         )}
         <div className="pointer-events-none absolute inset-x-2 top-[max(0.5rem,env(safe-area-inset-top))] z-20 flex items-start justify-end gap-1">
-          {!engine.mission.explore && (
-            <p className="bg-surface/90 border border-border rounded-md px-1.5 py-0.5 text-[10px] tabular-nums text-muted pointer-events-none">
+          {showTurnOrder && !engine.mission.explore && (
+            <p className="ember-plate mr-1 px-1.5 py-0.5 text-[10px] tabular-nums text-muted pointer-events-none">
               T{hud.turn} · {hud.playerAlive}/{hud.enemyAlive}
             </p>
           )}
           {hud.terrain && (hud.terrain.note || hud.terrain.id === "barricade" || hud.terrain.id === "hill") && (
-            <p className="bg-surface/90 border border-border rounded-md px-1.5 py-0.5 text-[10px] text-accent pointer-events-none max-w-[14rem] truncate">
+            <p className="ember-plate px-1.5 py-0.5 text-[10px] text-accent pointer-events-none max-w-[14rem] truncate">
               {hud.terrain.name}
             </p>
           )}
           <div className="flex items-center gap-1 pointer-events-auto shrink-0">
             <button
               type="button"
+              onClick={() => {
+                const enabled = !tacticsCamera;
+                engine.tacticsCamera = enabled;
+                setTacticsCamera(enabled);
+                moveCamera(enabled ? 45 : 0, enabled ? 30 : 0);
+              }}
+              className="h-7 px-2 ember-plate text-[10px] tracking-[0.14em] uppercase"
+              aria-pressed={tacticsCamera}
+              title="Alternar entre vista normal e vista tática diagonal"
+            >
+              {tacticsCamera ? "Tática" : "Normal"}
+            </button>
+            <button
+              type="button"
+              onClick={() => moveCamera(Math.max(tacticsCamera ? 35 : 0, cameraTilt - 5), cameraTiltSide)}
+              className="size-7 grid place-items-center ember-plate disabled:opacity-40"
+              aria-label={`Diminuir inclinação da câmera (${cameraTilt}°)`}
+              title="Diminuir inclinação da câmera"
+              disabled={cameraTilt <= (tacticsCamera ? 35 : 0)}
+            >
+              <ChevronDown className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => moveCamera(Math.min(55, cameraTilt + 5), cameraTiltSide)}
+              className="size-7 grid place-items-center ember-plate disabled:opacity-40"
+              aria-label={`Aumentar inclinação da câmera (${cameraTilt}°)`}
+              title="Aumentar inclinação da câmera"
+              disabled={cameraTilt >= 55}
+            >
+              <ChevronUp className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => moveCamera(cameraTilt, tacticsCamera ? 30 + Math.round((cameraTiltSide - 30) / 60) * 60 - 60 : cameraTiltSide - 15)}
+              className="size-7 grid place-items-center ember-plate disabled:opacity-40"
+              aria-label={`Girar câmera para a esquerda (${cameraTiltSide}°)`}
+              title="Girar câmera para a esquerda"
+            >
+              <ChevronLeft className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => moveCamera(cameraTilt, tacticsCamera ? 30 + Math.round((cameraTiltSide - 30) / 60) * 60 + 60 : cameraTiltSide + 15)}
+              className="size-7 grid place-items-center ember-plate disabled:opacity-40"
+              aria-label={`Girar câmera para a direita (${cameraTiltSide}°)`}
+              title="Girar câmera para a direita"
+            >
+              <ChevronRight className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                engine.tacticsCamera = false;
+                setTacticsCamera(false);
+                moveCamera(0, 0);
+              }}
+              className="size-7 grid place-items-center ember-plate"
+              aria-label="Voltar ao ângulo normal"
+              title="Voltar ao ângulo normal"
+            >
+              <RotateCcw className="size-3.5" />
+            </button>
+            <button
+              type="button"
               onClick={onMute}
-              className="size-7 grid place-items-center rounded-md border border-border bg-surface/90"
+              className="size-7 grid place-items-center ember-plate"
               aria-label="Som"
             >
               {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
@@ -7504,7 +8436,7 @@ function BattleScreen({
             <button
               type="button"
               onClick={onPause}
-              className="h-7 px-2 rounded-md border border-border bg-surface/90 text-[10px] tracking-[0.14em] uppercase"
+              className="h-7 px-2 ember-plate text-[10px] tracking-[0.14em] uppercase"
             >
               Opções
             </button>
@@ -7512,15 +8444,15 @@ function BattleScreen({
         </div>
         {hud.banner && (
           <div className="pointer-events-none absolute inset-x-0 top-14 flex justify-center">
-            <div className="bg-surface/95 border border-border rounded-md px-4 py-1.5 font-display text-lg tracking-wide">
+            <div className="ember-plate px-4 py-1.5 font-display text-lg tracking-wide ember-title">
               {hud.banner}
             </div>
           </div>
         )}
         {hud.targetPrompt && !hud.result && (
           <div className="pointer-events-none absolute inset-x-0 top-14 flex justify-center px-3">
-            <div className="bg-surface border-2 border-accent rounded-lg px-4 py-2.5 text-center shadow-lg">
-              <p className="font-display text-lg tracking-wide leading-tight">
+            <div className="ember-plate is-accent px-4 py-2.5 text-center">
+              <p className="font-display text-lg tracking-wide leading-tight ember-title">
                 Escolha {hud.targetPrompt.need} alvo{hud.targetPrompt.need > 1 ? "s" : ""}
               </p>
               <p className="text-sm text-muted mt-0.5">
@@ -7536,12 +8468,12 @@ function BattleScreen({
         )}
         {hud.tip && !(hud.winAvailable && !winPopupDismissed) && (
           <div className="pointer-events-none absolute inset-x-2 bottom-2">
-            <p className="bg-surface/90 border border-border rounded-md px-2 py-1 text-xs text-muted text-center">{hud.tip}</p>
+            <p className="ember-plate px-2 py-1 text-xs text-muted text-center">{hud.tip}</p>
           </div>
         )}
         {hud.winAvailable && !hud.result && !winPopupDismissed && (
           <div className="pointer-events-none absolute inset-x-2 bottom-2 flex justify-center">
-            <div className="pointer-events-auto bg-surface/95 border border-accent rounded-md px-3 py-2 flex items-center gap-3 flex-wrap justify-center">
+            <div className="pointer-events-auto ember-plate is-accent px-3 py-2 flex items-center gap-3 flex-wrap justify-center">
               <p className="text-sm">
                 {hud.activeExit?.id === "escape-exit"
                   ? "Encontraram uma rota de fuga. Desejam tentar escapar? (60% de chance)"
@@ -7549,16 +8481,16 @@ function BattleScreen({
                     ? "Encontraram a saída da masmorra. Desejam sair?"
                     : hud.activeExit?.id === "floor-connector"
                       ? hud.activeExit.returnConnector
-                        ? "Encontraram a passagem de volta. Desejam voltar?"
-                        : "Encontraram uma passagem para o próximo andar. Desejam avançar?"
+                        ? "Encontraram a passagem de volta. Deseja voltar?"
+                        : "Encontraram uma passagem para o próximo andar. Deseja avançar?"
                       : "Todos os inimigos caíram. Encerrar a missão?"}
               </p>
               <div className="flex items-center gap-2">
-                <Button size="sm" disabled={!engine.canConfirmFinish()} onClick={() => engine.confirmFinish()}>
-                  {hud.activeExit?.id === "escape-exit" ? "Tentar escapar" : hud.activeExit ? "Sair" : "Encerrar missão"}
+                <Button size="sm" className="ember-btn ember-btn-sm ember-btn-primary" disabled={!engine.canConfirmFinish()} onClick={() => engine.confirmFinish()}>
+                  {hud.activeExit?.id === "escape-exit" ? "Tentar escapar" : hud.activeExit?.id === "floor-connector" ? "Sim" : hud.activeExit ? "Sair" : "Encerrar missão"}
                 </Button>
-                <Button size="sm" variant="quiet" onClick={() => setWinPopupDismissed(true)}>
-                  {hud.activeExit ? "Ficar" : "Continuar explorando"}
+                <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm ember-btn-ghost" onClick={() => setWinPopupDismissed(true)}>
+                  {hud.activeExit?.id === "floor-connector" ? "Não" : hud.activeExit ? "Ficar" : "Continuar explorando"}
                 </Button>
               </div>
             </div>
@@ -7566,9 +8498,9 @@ function BattleScreen({
         )}
         {hud.chestLoot && (
           <div className="absolute inset-0 z-50 ember-veil flex items-center justify-center p-4">
-            <div className="w-full max-w-sm bg-surface border border-accent rounded-xl p-5">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted">Baú aberto</p>
-              <h2 className="font-display text-2xl leading-none mt-1 mb-3">{hud.chestLoot.unitName} encontrou</h2>
+            <div className="relative w-full max-w-sm ember-panel p-5">
+              <p className="text-xs ember-kicker">Baú aberto</p>
+              <h2 className="font-display text-2xl leading-none mt-1 mb-3 ember-title">{hud.chestLoot.unitName} encontrou</h2>
               <ul className="flex flex-col gap-1.5 mb-4">
                 <li className="text-sm flex items-center gap-1.5">
                   <GoldAmount amount={hud.chestLoot.ember} prefix className="text-accent font-bold" />
@@ -7577,23 +8509,23 @@ function BattleScreen({
                   <li key={i}>
                     <ItemTip text={item.tip ?? item.name} className="text-sm flex items-center gap-2">
                       <img src={item.icon} alt="" className="size-8 rounded-sm object-cover bg-bg shrink-0" />
-                      <span>{item.name}</span>
+                      <span>{uiText(item.name)}</span>
                     </ItemTip>
                   </li>
                 ))}
                 {hud.chestLoot.items.length === 0 && <li className="text-sm text-muted">Nada além do Gold.</li>}
               </ul>
-              <Button className="w-full" onClick={() => engine.acknowledgeChestLoot()}>
+              <Button className="w-full ember-btn ember-btn-primary" onClick={() => engine.acknowledgeChestLoot()}>
                 Ok
               </Button>
             </div>
           </div>
         )}
         {introDialogOpen && engine.mission.introDialog && (
-          <DialogOverlay tree={engine.mission.introDialog} onClose={() => setIntroDialogOpen(false)} />
+          <DialogOverlay onReply={reply => { engine.applyDialogAffinity(reply); onAffinityChange?.(); }} tree={engine.mission.introDialog} onClose={() => setIntroDialogOpen(false)} />
         )}
-        {hud.pendingDialog && <DialogOverlay tree={hud.pendingDialog} onClose={() => engine.acknowledgeDialog()} onAction={onDialogAction} />}
-        {outroDialogOpen && engine.mission.outroDialog && <DialogOverlay tree={engine.mission.outroDialog} onClose={onCloseOutroDialog} />}
+        {hud.pendingDialog && <DialogOverlay onReply={reply => { engine.applyDialogAffinity(reply); onAffinityChange?.(); }} tree={hud.pendingDialog} onClose={() => engine.acknowledgeDialog()} onAction={onDialogAction} />}
+        {outroDialogOpen && engine.mission.outroDialog && <DialogOverlay onReply={reply => { engine.applyDialogAffinity(reply); onAffinityChange?.(); }} tree={engine.mission.outroDialog} onClose={onCloseOutroDialog} />}
       </div>
 
       {engine.mission.id === "vau" && !playtest && !firstBattleHintDismissed && (
@@ -7601,7 +8533,7 @@ function BattleScreen({
           <button
             type="button"
             onClick={() => setFirstBattleHintDismissed(true)}
-            className="max-w-md rounded-lg border border-accent/60 bg-surface/95 px-3 py-2 text-center text-xs leading-relaxed text-fg shadow-lg"
+            className="max-w-md ember-plate is-accent px-3 py-2 text-center text-xs leading-relaxed"
           >
             <span className="font-medium text-accent">Primeira batalha:</span> clique no retrato para abrir status e equipamento. Clique na barra de HP para abrir o log de combate.
             <span className="block mt-1 text-[10px] uppercase tracking-wide text-muted">Toque para fechar</span>
@@ -7609,7 +8541,7 @@ function BattleScreen({
         </aside>
       )}
 
-      <footer className="shrink-0 border-t border-border bg-surface px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <footer className="relative shrink-0 ember-hud-bar px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <div className="min-h-16 sm:min-h-[4.5rem] flex items-center gap-2">
           {unit ? (
             <>
@@ -7652,7 +8584,7 @@ function BattleScreen({
                         {unit.name} · Nv {unit.level}
                         {unit.side === "player" && (
                           <span className="text-xs text-muted font-normal ml-1 align-middle tabular-nums">
-                            {unit.level >= MAX_LEVEL ? "· NÍVEL MÁX." : `· ${unit.xp}/${EXP_TO_LEVEL} XP`}
+                            {unit.level >= MAX_LEVEL ? "· NÍVEL MÁX." : `· ${unit.xp}/${expToLevel(unit.level)} XP`}
                           </span>
                         )}
                       </p>
@@ -7683,13 +8615,13 @@ function BattleScreen({
               </button>
             </>
           ) : (
-            <p className="text-xs text-muted">{hud.phase === "enemy" ? "O inimigo age…" : "Toque numa aliada ou num inimigo."}</p>
+            <p className="text-xs text-muted">{hud.phase === "enemy" ? "O inimigo age…" : "Toque num aliado ou num inimigo com o botão direito para ver o status."}</p>
           )}
         </div>
         {engine.mission.explore ? (
           <div className="flex gap-1 min-h-10 items-center mt-1">
             <p className="text-xs text-muted">Clique no chão para andar · clique em alguém para conversar.</p>
-            <Button size="sm" className="ml-auto" onClick={onQuit}>
+            <Button size="sm" className="ml-auto ember-btn ember-btn-sm ember-btn-primary" onClick={onQuit}>
               Sair
             </Button>
           </div>
@@ -7699,6 +8631,7 @@ function BattleScreen({
             <Button
               size="sm"
               variant="quiet"
+              className="ember-btn ember-btn-sm ember-btn-ghost"
               disabled={!showAct || hud.busy || hud.mode === "awaitSpell"}
               onClick={() => engine.startOffHand()}
               title={
@@ -7710,11 +8643,11 @@ function BattleScreen({
               {hud.offHandKind === "shield" ? "Investida de Escudo" : "Mão Secundária"}
             </Button>
           )}
-          <Button size="sm" disabled={!showAct || !hud.canAttack || hud.busy || hud.mode === "awaitSpell"} onClick={() => engine.startAttack()}>
+          <Button size="sm" className="ember-btn ember-btn-sm ember-btn-primary" disabled={!showAct || !hud.canAttack || hud.busy || hud.mode === "awaitSpell"} onClick={() => engine.startAttack()}>
             Atacar
           </Button>
           {hud.mode === "awaitSpell" && (
-            <Button size="sm" disabled={!hud.spellReady || hud.busy} onClick={() => engine.confirmSpell()}>
+            <Button size="sm" className="ember-btn ember-btn-sm ember-btn-primary" disabled={!hud.spellReady || hud.busy} onClick={() => engine.confirmSpell()}>
               Lançar
             </Button>
           )}
@@ -7724,7 +8657,7 @@ function BattleScreen({
                 type="button"
                 disabled={!showAct || hud.busy}
                 onClick={() => engine.useLockpick()}
-                className="relative h-9 px-2 rounded-md border border-border bg-bg flex items-center gap-1 disabled:opacity-40"
+                className="relative h-9 px-2 ember-socket flex items-center gap-1 disabled:opacity-40"
               >
                 <img src="/game/icons/lockpick.png" alt="" className="size-5 rounded-sm object-contain" />
                 <span className="text-sm tabular-nums">×{actor?.bag.lockpick ?? 0}</span>
@@ -7735,6 +8668,7 @@ function BattleScreen({
             <Button
               size="sm"
               variant="ghost"
+              className="ember-btn ember-btn-sm ember-btn-ghost"
               disabled={hud.busy}
               title="Apenas na borda do mapa. 60% de chance; se falhar, o turno acaba e os inimigos continuam atacando."
               onClick={() => {
@@ -7745,13 +8679,14 @@ function BattleScreen({
               Fugir combate · 60%
             </Button>
           )}
-          <Button size="sm" variant="quiet" disabled={!showAct || hud.busy} onClick={() => engine.wait()}>
+          <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm ember-btn-ghost" disabled={!showAct || hud.busy} onClick={() => engine.wait()}>
             Esperar
           </Button>
           <Button
             size="sm"
             variant="ghost"
-            disabled={(!showAct && hud.mode !== "awaitPotion") || hud.busy}
+            className="ember-btn ember-btn-sm ember-btn-ghost"
+            disabled={((!showAct && hud.mode !== "awaitPotion" && hud.mode !== "awaitOffHand") || hud.busy) && !hud.canCancelMovement}
             onClick={() => engine.cancel()}
           >
             Cancelar
@@ -7761,16 +8696,15 @@ function BattleScreen({
               {slots.map((action, i) => {
                 const empty = !action;
                 const disabled = action ? slotDisabled(action) : !editingSlots;
+                const blockedWhy = action && !editingSlots && disabled ? slotDisabledReason(action) : null;
                 const fullFrameIcon = action?.kind === "spell" && action.spell === "summonFamiliar3";
                 return (
-                  <ItemTip key={i} text={`F${i + 1} · ${action ? slotTooltip(action) : "Slot vazio"}`} className="relative">
+                  <ItemTip key={i} text={`F${i + 1} · ${action ? slotTooltip(action) : "Slot vazio"}${blockedWhy ? ` — indisponível: ${blockedWhy}` : ""}`} className="relative">
                     <button
                       type="button"
                       disabled={!editingSlots && disabled}
                       onClick={() => activateSlot(i)}
-                      className={`relative size-9 grid place-items-center overflow-visible rounded-md border ${
-                        action && slotActive(action) ? "border-accent bg-accent/20" : "border-border bg-bg"
-                      } ${editingSlots ? "outline outline-1 outline-dashed outline-muted" : ""} disabled:opacity-40`}
+                      className={`relative size-9 grid place-items-center overflow-visible ember-socket ${action && slotActive(action) ? "is-active" : ""} ${editingSlots ? "outline outline-1 outline-dashed outline-muted" : ""} disabled:opacity-40`}
                     >
                       <span className="absolute z-10 -top-1 -left-1 bg-surface border border-border rounded px-0.5 text-[8px] tabular-nums leading-tight text-muted">
                         F{i + 1}
@@ -7793,23 +8727,18 @@ function BattleScreen({
                 type="button"
                 onClick={() => setEditingSlots((v) => !v)}
                 title="Configurar slots"
-                className={`size-9 grid place-items-center rounded-md border ${editingSlots ? "border-accent bg-accent/20" : "border-border bg-bg"}`}
+                className={`size-9 grid place-items-center ember-socket${editingSlots ? " is-active" : ""}`}
               >
                 <Pencil className="size-4" />
               </button>
             </div>
           )}
           {hud.winAvailable && !hud.result && (
-            <Button size="sm" className="ml-auto" onClick={() => hud.activeExit ? setWinPopupDismissed(false) : engine.confirmFinish()}>
+            <Button size="sm" className="ml-auto ember-btn ember-btn-sm ember-btn-primary" onClick={() => hud.activeExit ? setWinPopupDismissed(false) : engine.confirmFinish()}>
               {hud.activeExit ? "Usar waypoint" : "Encerrar missão"}
             </Button>
           )}
-          {hud.canUndoMove && !hud.result && (
-            <Button size="sm" variant="ghost" title="Volta ao ponto onde o turno começou e devolve todo o movimento gasto. Some assim que você age." onClick={() => engine.undoMove()}>
-              Desfazer movimento
-            </Button>
-          )}
-          <Button size="sm" variant="ghost" className={hud.winAvailable && !hud.result ? "" : "ml-auto"} disabled={hud.phase !== "player" || !!hud.result} onClick={() => engine.endTurn()}>
+          <Button size="sm" variant="ghost" className={`ember-btn ember-btn-sm ember-btn-ghost${hud.winAvailable && !hud.result ? "" : " ml-auto"}`} disabled={hud.phase !== "player" || !!hud.result} onClick={() => engine.endTurn()}>
             Fim do turno
           </Button>
         </div>
@@ -7825,12 +8754,12 @@ function BattleScreen({
         >
           <div className="status-panel w-full max-w-sm max-h-[85dvh] overflow-y-auto ember-window rounded-xl p-6">
             <div className="flex items-start justify-between gap-3 mb-4">
-              <h2 className="font-display text-2xl">Opções</h2>
+              <h2 className="font-display text-2xl ember-title">Opções</h2>
               <button
                 type="button"
                 onClick={onResume}
                 aria-label="Fechar opções"
-                className="size-8 shrink-0 grid place-items-center rounded-md border border-border bg-bg/70"
+                className="size-8 shrink-0 grid place-items-center ember-icon-btn"
               >
                 <X className="size-4" />
               </button>
@@ -7842,31 +8771,32 @@ function BattleScreen({
                 barra de ações.
               </p>
             )}
-            <p className="text-xs uppercase tracking-[0.18em] text-muted mb-2">Zoom</p>
+            <p className="text-xs ember-kicker mb-2">Zoom</p>
             <div className="grid grid-cols-4 gap-1 mb-4">
               {(["Distante", "Longe", "Médio", "Perto"] as const).map((label, i) => (
-                <Button key={label} size="sm" variant={hud.zoom === i ? undefined : "quiet"} onClick={() => engine.setZoom(i)}>
+                <Button key={label} size="sm" variant={hud.zoom === i ? undefined : "quiet"} className={`ember-btn ember-btn-sm ${hud.zoom === i ? "ember-btn-primary" : "ember-btn-ghost"}`} onClick={() => engine.setZoom(i)}>
                   {label}
                 </Button>
               ))}
             </div>
-            <p className="text-xs uppercase tracking-[0.18em] text-muted mb-2">Velocidade</p>
+            <p className="text-xs ember-kicker mb-2">Velocidade</p>
             <div className="grid grid-cols-3 gap-1 mb-4">
               {(["slow", "normal", "fast"] as const).map((mode) => (
                 <Button
                   key={mode}
                   size="sm"
                   variant={hud.speedMode === mode ? undefined : "quiet"}
+                  className={`ember-btn ember-btn-sm ${hud.speedMode === mode ? "ember-btn-primary" : "ember-btn-ghost"}`}
                   onClick={() => engine.setSpeed(mode)}
                 >
                   {mode === "slow" ? "Lenta" : mode === "normal" ? "Normal" : "Rápida"}
                 </Button>
               ))}
             </div>
-            <div className="mb-4 border-t border-border pt-3">
+            <div className="mb-4 ember-rule pt-3">
               <button
                 type="button"
-                className="w-full flex items-center justify-between rounded-md border border-border bg-bg/50 px-3 py-2 text-left"
+                className="w-full flex items-center justify-between ember-slot px-3 py-2 text-left"
                 onClick={() => setAudioSettingsOpen((open) => !open)}
                 aria-expanded={audioSettingsOpen}
               >
@@ -7931,7 +8861,7 @@ function BattleScreen({
                   </label>
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-xs text-muted">Deixe Música em 0% para ouvir somente os efeitos.</p>
-                    <Button size="sm" variant="quiet" onClick={() => { unlockAudio(); sfxPlay.magicAttack(); }}>
+                    <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm ember-btn-ghost" onClick={() => { unlockAudio(); sfxPlay.magicAttack(); }}>
                       Testar
                     </Button>
                   </div>
@@ -7939,18 +8869,22 @@ function BattleScreen({
               )}
             </div>
             <div className="flex flex-col gap-2">
-              <Button onClick={onResume}>Continuar</Button>
-              <Button variant="quiet" onClick={onSave}>
+              <OptionsButton muted={muted} onMute={onMute} />
+              <Button className="ember-btn ember-btn-primary" onClick={onResume}>Continuar</Button>
+              <Button variant="quiet" className="ember-btn ember-btn-ghost" onClick={onSave}>
                 Save
               </Button>
-              <Button variant="quiet" onClick={onLoad}>
+              <Button variant="quiet" className="ember-btn ember-btn-ghost" onClick={onLoad}>
                 Load
               </Button>
               {!fleeable && (
-                <Button variant="ghost" onClick={onQuit}>
+                <Button variant="ghost" className="ember-btn ember-btn-ghost" onClick={onQuit}>
                   {playtest ? "Encerrar teste" : "Desistir"}
                 </Button>
               )}
+              <Button variant="ghost" className="ember-btn ember-btn-ghost" onClick={onTitle}>
+                Tela inicial
+              </Button>
             </div>
           </div>
         </div>
@@ -8102,10 +9036,10 @@ function SlotPicker({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-sm ember-window rounded-xl p-4">
+      <div className="relative w-full max-w-sm ember-panel p-4">
         <div className="flex items-center justify-between mb-3">
-          <p className="font-display text-lg">Escolher pra esse slot</p>
-          <button type="button" onClick={onClose} className="size-8 grid place-items-center rounded-md border border-border" aria-label="Fechar">
+          <p className="font-display text-lg ember-title">Escolher pra esse slot</p>
+          <button type="button" onClick={onClose} className="size-8 grid place-items-center ember-icon-btn" aria-label="Fechar">
             <X className="size-4" />
           </button>
         </div>
@@ -8119,7 +9053,7 @@ function SlotPicker({
               <button
                 type="button"
                 onClick={() => onPick(action)}
-                className="w-full flex items-center gap-2 bg-bg border border-border rounded-md px-2 py-2 text-left"
+                className="w-full flex items-center gap-2 ember-slot px-2 py-2 text-left"
               >
                 <img src={slotIcon(action)} alt="" className="size-6 rounded-sm object-cover shrink-0" />
                 <span className="text-sm">{slotLabel(action)}</span>
@@ -8129,7 +9063,7 @@ function SlotPicker({
           <button
             type="button"
             onClick={() => onPick(null)}
-            className="flex items-center gap-2 bg-bg border border-border rounded-md px-2 py-2 text-left text-muted"
+            className="flex items-center gap-2 ember-slot px-2 py-2 text-left text-muted"
           >
             <span className="size-6 grid place-items-center shrink-0">—</span>
             <span className="text-sm">Deixar vazio</span>
@@ -8278,6 +9212,16 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
   const familiar2 = unit.classId === "familiar2";
   const familiar3 = unit.classId === "familiar3";
   const familiar4 = unit.classId === "familiar4";
+  const paladin = unit.classId === "paladin";
+  const heavyKnight = unit.classId === "heavyKnight";
+  const spellStatusRow = (spell: SpellKind, label: string) => (
+    <div key={spell} className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
+      <img src={slotIcon({ kind: "spell", spell })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+      <p className="text-xs truncate">
+        {uiText(label)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier(spell)!)] ?? 0}</span>
+      </p>
+    </div>
+  );
   const condition = characterCondition(unit);
 
   return (
@@ -8312,9 +9256,9 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
               {unit.side === "player" && <HungerBar name={unit.name} value={unit.fullness} />}
             </div>
             <div className="min-w-0">
-              <p className="font-display text-xl leading-tight truncate">{unit.name}</p>
+              <p className="font-display text-xl leading-tight truncate ember-title">{uiText(unit.name)}</p>
               <p className={`text-xs ${unit.side === "enemy" ? "text-danger" : "text-muted"}`}>
-                {unit.className} · Nv {unit.level}
+                <span className="text-[13px]">{unit.className}</span> · Nv {unit.level}
               </p>
               {unit.side === "player" && (
                 <div className="mt-1.5 max-w-[9rem]">
@@ -8323,10 +9267,10 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                   ) : (
                     <>
                       <div className="h-1.5 rounded-full bg-border overflow-hidden">
-                        <div className="h-full bg-accent" style={{ width: `${(unit.xp / EXP_TO_LEVEL) * 100}%` }} />
+                        <div className="h-full bg-accent" style={{ width: `${(unit.xp / expToLevel(unit.level)) * 100}%` }} />
                       </div>
                       <p className="text-[11px] text-muted tabular-nums mt-0.5">
-                        {unit.xp}/{EXP_TO_LEVEL} XP
+                        {unit.xp}/{expToLevel(unit.level)} XP
                       </p>
                     </>
                   )}
@@ -8338,15 +9282,15 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
             <div className="flex items-center gap-1.5">
               {onCycle && (
                 <>
-                  <button type="button" onClick={() => onCycle(-1)} className="size-7 grid place-items-center rounded-md border border-border" aria-label="Personagem anterior">
+                  <button type="button" onClick={() => onCycle(-1)} className="size-7 grid place-items-center ember-icon-btn" aria-label="Personagem anterior">
                     <ChevronUp className="size-3.5" />
                   </button>
-                  <button type="button" onClick={() => onCycle(1)} className="size-7 grid place-items-center rounded-md border border-border" aria-label="Próximo personagem">
+                  <button type="button" onClick={() => onCycle(1)} className="size-7 grid place-items-center ember-icon-btn" aria-label="Próximo personagem">
                     <ChevronDown className="size-3.5" />
                   </button>
                 </>
               )}
-              <button type="button" onClick={onClose} className="size-7 grid place-items-center rounded-md border border-border" aria-label="Fechar">
+              <button type="button" onClick={onClose} className="size-7 grid place-items-center ember-icon-btn" aria-label="Fechar">
                 <X className="size-3.5" />
               </button>
             </div>
@@ -8399,14 +9343,14 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
           <div className="mb-4 flex items-center gap-3 rounded-lg border border-accent/40 bg-bg px-3 py-2.5">
             <img src="/game/icons/stat-points-001.png" alt="" className="size-10 shrink-0 object-contain" />
             <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.16em] text-muted">Pontos de atributo</p>
+              <p className="text-xs ember-kicker">Pontos de atributo</p>
               <p className="font-display text-lg leading-tight tabular-nums">{unspentStatPoints} disponível{unspentStatPoints === 1 ? "" : "is"}</p>
               <p className="text-[11px] text-muted">Ganhe {STAT_POINTS_PER_LEVEL} por nível e distribua como quiser.</p>
             </div>
           </div>
         )}
 
-        <p className="text-xs uppercase tracking-[0.18em] text-muted mb-2">Atributos</p>
+        <p className="text-xs ember-kicker mb-2">Atributos</p>
         <div className="grid grid-cols-4 gap-1.5 mb-4">
           {stats.map(({ label, value, stat, gear, penalized }) => (
             <div key={label} className="bg-bg border border-border rounded-md px-1 py-1 text-center">
@@ -8429,7 +9373,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                     aria-label={`Remover um ponto de ${label}`}
                     disabled={(statPointAllocation[stat] ?? 0) <= 0}
                     onClick={() => onAdjustStatPoint(stat, -1)}
-                    className="size-5 rounded border border-border bg-surface text-xs leading-none disabled:opacity-35"
+                    className="size-5 grid place-items-center ember-icon-btn text-xs leading-none disabled:opacity-35"
                   >
                     −
                   </button>
@@ -8439,7 +9383,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                     aria-label={`Adicionar um ponto em ${label}`}
                     disabled={unspentStatPoints <= 0}
                     onClick={() => onAdjustStatPoint(stat, 1)}
-                    className="size-5 rounded border border-accent/60 bg-surface text-xs leading-none text-accent disabled:opacity-35"
+                    className="size-5 grid place-items-center ember-icon-btn text-xs leading-none disabled:opacity-35"
                   >
                     +
                   </button>
@@ -8449,34 +9393,37 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
           ))}
         </div>
 
-        {unit.side === "player" && (swordsman || mage || conjurer || archer || healer || lancer || familiar1 || familiar2 || familiar3 || familiar4) && (
+        {unit.side === "player" && (swordsman || mage || conjurer || archer || healer || lancer || familiar1 || familiar2 || familiar3 || familiar4 || paladin || heavyKnight) && (
           <>
-            <p className="text-xs uppercase tracking-[0.18em] text-muted mb-2">Magias e habilidades</p>
+            <p className="text-xs ember-kicker mb-2">Magias e habilidades</p>
             <div className="grid grid-cols-1 gap-1.5">
                   {swordsman && (
                     <>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
-                        <img src={spellIcon("cleave")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                        <img src={slotIcon({ kind: "spell", spell: "doubleStrike" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
-                          {DOUBLE_STRIKE.name} {doubleStrikeFormula(unit.level)}{" "}
+                          {uiText(DOUBLE_STRIKE.name)} {doubleStrikeFormula(unit.level)}{" "}
                           <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("doubleStrike")!)]}</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
-                        <img src={spellIcon("cleave-crossed-blades")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                        <img src={slotIcon({ kind: "spell", spell: "cleave" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
-                          {CLEAVE.name} {CLEAVE.hexes} hex, {cleaveFormula(unit.level)} · x{CLEAVE.largeMul} vs 3+ hex{" "}
+                          {uiText(CLEAVE.name)} {CLEAVE.hexes} hex, {cleaveFormula(unit.level)} · x{CLEAVE.largeMul} vs 3+ hex{" "}
                           <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("cleave")!)]}</span>
                         </p>
                       </div>
+                      {spellStatusRow("bullRush", BULL_RUSH.name)}
+                      {spellStatusRow("shieldBash", SHIELD_BASH.name)}
+                      {spellStatusRow("executionerStrike", EXECUTIONER_STRIKE.name)}
                     </>
                   )}
                   {mage && (
                     <>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
-                        <img src={spellIcon("phantasmal-force")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                        <img src={slotIcon({ kind: "spell", spell: "magicMissile" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
-                          {MAGIC_MISSILE.name} {damageFormula(unit.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)}{" "}
+                          {uiText(MAGIC_MISSILE.name)} {damageFormula(unit.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)}{" "}
                           <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("magicMissile")!)]}</span>
                         </p>
                       </div>
@@ -8500,7 +9447,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("caustic-venom")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                           <p className="text-xs leading-snug">
-                            {CAUSTIC_VENOM.name} {damageFormula(unit.mag, CAUSTIC_VENOM.centerMul, CAUSTIC_VENOM.centerDice, CAUSTIC_VENOM.centerFaces, CAUSTIC_VENOM.centerBonus)}{" "}
+                            {uiText(unit.classId === "undeadOx" || unit.classId === "plagueBearingCattle" ? MINOR_VENOM.name : CAUSTIC_VENOM.name)} {damageFormula(unit.mag, CAUSTIC_VENOM.centerMul, CAUSTIC_VENOM.centerDice, CAUSTIC_VENOM.centerFaces, CAUSTIC_VENOM.centerBonus)}{" "}
                             <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("causticVenom")!)]}</span>
                           </p>
                         </div>
@@ -8519,15 +9466,15 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                   {conjurer && (
                     <>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
-                        <img src={spellIcon("summon-familiar2")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                        <img src={slotIcon({ kind: "spell", spell: "summonFamiliar" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
-                          {SUMMON_FAMILIAR.name} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("summonFamiliar")!)]}</span>
+                          {uiText(SUMMON_FAMILIAR.name)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("summonFamiliar")!)]}</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
-                        <img src={spellIcon("magic-missile")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                        <img src={slotIcon({ kind: "spell", spell: "phantasmalForce" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
-                          {PHANTASMAL_FORCE.name} {phantasmalForceFormula(unit.level, unit.mag)}{" "}
+                          {uiText(PHANTASMAL_FORCE.name)} {phantasmalForceFormula(unit.level, unit.mag)}{" "}
                           <span className="tabular-nums text-muted">×{unit.level >= PHANTASMAL_FORCE_UNLOCK_LEVEL ? unit.spells[tierKey(spellTier("phantasmalForce")!)] : 0}</span>
                           {unit.level < PHANTASMAL_FORCE_UNLOCK_LEVEL && <span className="text-muted"> · nível {PHANTASMAL_FORCE_UNLOCK_LEVEL}+</span>}
                         </p>
@@ -8535,11 +9482,11 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("web-of-dreams")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
-                          {WEB_OF_DREAMS.name} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("webOfDreams")!)]}</span>
+                          {uiText(WEB_OF_DREAMS.name)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("webOfDreams")!)]}</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
-                        <img src={spellIcon("summon-familiar2")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                        <img src={slotIcon({ kind: "spell", spell: "summonFamiliar2" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
                           {SUMMON_FAMILIAR2.name} <span className="tabular-nums text-muted">×{unit.level >= SUMMON_FAMILIAR2_UNLOCK_LEVEL ? unit.spells[tierKey(spellTier("summonFamiliar2")!)] : 0}</span>
                           {unit.level < SUMMON_FAMILIAR2_UNLOCK_LEVEL && <span className="text-muted"> · nível {SUMMON_FAMILIAR2_UNLOCK_LEVEL}+</span>}
@@ -8557,22 +9504,32 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                           {SUMMON_FAMILIAR3.name} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("summonFamiliar3")!)]}</span>
                         </p>
                       </div>
+                      {spellStatusRow("summonZombieDog", SUMMON_ZOMBIE_DOG.name)}
                     </>
                   )}
-                  {(familiar1 || familiar2 || familiar4) && (
+                  {(familiar1 || familiar2) && (
                     <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                       <img src={spellIcon("magic-missile")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                       <p className="text-xs leading-snug">
-                        {MAGIC_MISSILE.name} {damageFormula(unit.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)}{" "}
+                        {uiText(MAGIC_MISSILE.name)} {damageFormula(unit.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)}{" "}
+                        <span className="tabular-nums text-muted">×{unit.spellCharges ?? 0}</span>
+                      </p>
+                    </div>
+                  )}
+                  {familiar4 && (
+                    <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
+                      <img src={slotIcon({ kind: "spell", spell: "shock" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                      <p className="text-xs leading-snug">
+                        {uiText(SHOCK.name)} {damageFormula(unit.mag, SHOCK.mul, SHOCK.dice, SHOCK.faces, SHOCK.bonus)}{" "}
                         <span className="tabular-nums text-muted">×{unit.spellCharges ?? 0}</span>
                       </p>
                     </div>
                   )}
                   {(familiar2 || familiar4) && (
                     <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
-                      <img src={spellIcon("cure-wounds")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                      <img src={slotIcon({ kind: "spell", spell: "lifeDrain" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                       <p className="text-xs leading-snug">
-                        {LIFE_DRAIN.name} {lifeDrainFormula(unit.level, unit.mag)} · cura {Math.round(lifeDrainHealMul(unit.level) * 100)}% do dano{" "}
+                        {uiText(LIFE_DRAIN.name)} {lifeDrainFormula(unit.level, unit.mag)} · cura {Math.round(lifeDrainHealMul(unit.level) * 100)}% do dano{" "}
                         <span className="tabular-nums text-muted">×{unit.lifeDrainCharges ?? 0}</span>
                       </p>
                     </div>
@@ -8591,36 +9548,39 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("long-shot")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
-                          Longo {longShotFormula(unit.level)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("longShot")!)]}</span>
+                          {uiText(LONG_SHOT.name)} {longShotFormula(unit.level)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("longShot")!)]}</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("piercing")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
-                          Perfura {piercingMul(unit.level)}× dano de arma <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("piercing")!)]}</span>
+                          {uiText(PIERCING.name)} {piercingMul(unit.level)}× dano de arma <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("piercing")!)]}</span>
                         </p>
                       </div>
                     </>
                   )}
                   {healer && (
                     <>
+                      {spellStatusRow("bless", BLESS.name)}
+                      {spellStatusRow("burningHands", BURNING_HANDS.name)}
+                      {spellStatusRow("createFoodAndWater", CREATE_FOOD_AND_WATER.name)}
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("cure-minor")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
-                          {CURES.cureMinor.name} {damageFormula(unit.mag, CURES.cureMinor.mul, CURES.cureMinor.dice, CURES.cureMinor.faces, CURES.cureMinor.bonus)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("cureMinor")!)]}</span>
+                          {uiText(CURES.cureMinor.name)} {damageFormula(unit.mag, CURES.cureMinor.mul, CURES.cureMinor.dice, CURES.cureMinor.faces, CURES.cureMinor.bonus)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("cureMinor")!)]}</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("cure-wounds")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
-                          {CURES.cureWounds.name} {damageFormula(unit.mag, CURES.cureWounds.mul, CURES.cureWounds.dice, CURES.cureWounds.faces, CURES.cureWounds.bonus)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("cureWounds")!)]}</span>
+                          {uiText(CURES.cureWounds.name)} {damageFormula(unit.mag, CURES.cureWounds.mul, CURES.cureWounds.dice, CURES.cureWounds.faces, CURES.cureWounds.bonus)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("cureWounds")!)]}</span>
                         </p>
                       </div>
                       {unit.spells[tierKey(spellTier("cureDisease")!)] > 0 && (
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("cure-disease")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                           <p className="text-xs leading-snug">
-                            {CURE_DISEASE.name} · remove doença e veneno <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("cureDisease")!)]}</span>
+                            {uiText(CURE_DISEASE.name)} · remove doença e veneno <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("cureDisease")!)]}</span>
                           </p>
                         </div>
                       )}
@@ -8631,7 +9591,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("piercing-thrust")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
-                          {PIERCING_THRUST.name} dano de arma, −{Math.round(PIERCING_THRUST.armorIgnore * 100)}% armadura{" "}
+                          {uiText(PIERCING_THRUST.name)} dano de arma, −{Math.round(PIERCING_THRUST.armorIgnore * 100)}% armadura{" "}
                           <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("piercingThrust")!)]}</span>
                         </p>
                       </div>
@@ -8639,7 +9599,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("sweep")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                           <p className="text-xs leading-snug">
-                            {SWEEP.name} dano de arma <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("sweep")!)]}</span>
+                            {uiText(SWEEP.name)} dano de arma <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("sweep")!)]}</span>
                           </p>
                         </div>
                       )}
@@ -8647,11 +9607,25 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("trip")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                           <p className="text-xs leading-snug">
-                            {TRIP.name} arma +{diceFormula(1, TRIP.bonusFaces, TRIP.bonusBonus)}{" "}
+                            {uiText(TRIP.name)} arma +{diceFormula(1, TRIP.bonusFaces, TRIP.bonusBonus)}{" "}
                             <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("trip")!)]}</span>
                           </p>
                         </div>
                       )}
+                    </>
+                  )}
+                  {paladin && (
+                    <>
+                      {spellStatusRow("cureLight", CURES.cureLight.name)}
+                      {spellStatusRow("auraOfProtection", AURA_OF_PROTECTION.name)}
+                      {spellStatusRow("divineWrath", DIVINE_WRATH.name)}
+                    </>
+                  )}
+                  {heavyKnight && (
+                    <>
+                      {spellStatusRow("shoulderSmash", SHOULDER_SMASH.name)}
+                      {spellStatusRow("intimidatingPresence", INTIMIDATING_PRESENCE.name)}
+                      {spellStatusRow("stampede", STAMPEDE.name)}
                     </>
                   )}
                 </div>
@@ -8660,7 +9634,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
 
         {unit.side === "player" && (
           <>
-            <p className="text-xs uppercase tracking-[0.18em] text-muted mb-2 mt-5">Poções</p>
+            <p className="text-xs ember-kicker mb-2 mt-5">Poções</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
               {ALL_POTIONS.filter((kind) => (unit.bag[kind] ?? 0) > 0).map((kind) => (
                 <ItemTip key={kind} text={potionTooltip(kind)} className="block">
@@ -8700,7 +9674,7 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
         >
           <div className="w-full max-w-xs ember-window rounded-xl p-5 text-center">
             <div className="flex items-start justify-end">
-              <button type="button" onClick={() => setShowConditionDetail(false)} className="size-8 grid place-items-center rounded-md border border-border" aria-label="Fechar">
+              <button type="button" onClick={() => setShowConditionDetail(false)} className="size-8 grid place-items-center ember-icon-btn" aria-label="Fechar">
                 <X className="size-4" />
               </button>
             </div>
@@ -8718,18 +9692,83 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
   );
 }
 
-/** XP bar on the post-mission screen: mounts at the hero's pre-battle progress, then eases
- * up to the post-battle value on the next paint, so the gain reads as a fill instead of
- * snapping straight to the end state. */
-function GrowthXpBar({ from, to }: { from: number; to: number }) {
-  const [pct, setPct] = useState(from);
+/** XP bar on the post-mission screen: starts at the hero's pre-battle progress and plays the
+ * real gain — fill to full, flash, refill from empty for each level gained, then ease to the
+ * post-battle value. Driven by the Web Animations API, one segment at a time, so it never
+ * animates backwards or skips the fill. */
+function GrowthXpBar({ fromLevel, toLevel, fromXp, toXp }: { fromLevel: number; toLevel: number; fromXp: number; toXp: number }) {
+  const fill = useRef<HTMLSpanElement>(null);
+  const flash = useRef<HTMLSpanElement>(null);
+  // The real path: the old XP fills to full, every level gained refills from empty, and the
+  // last segment ends at the new XP. Each refill restarts at 0 instantly — never slides back.
+  const segments = useMemo(() => {
+    const share = (xp: number, level: number) => Math.max(0, Math.min(1, xp / expToLevel(level)));
+    if (toLevel <= fromLevel) return [{ start: share(fromXp, fromLevel), end: share(toXp, toLevel) }];
+    return [
+      { start: share(fromXp, fromLevel), end: 1 },
+      ...Array.from({ length: toLevel - fromLevel - 1 }, () => ({ start: 0, end: 1 })),
+      { start: 0, end: share(toXp, toLevel) },
+    ];
+  }, [fromLevel, toLevel, fromXp, toXp]);
+  const pct = (share: number) => `${share * 100}%`;
   useEffect(() => {
-    const id = requestAnimationFrame(() => setPct(to));
-    return () => cancelAnimationFrame(id);
-  }, [to]);
+    const el = fill.current;
+    if (!el) return;
+    const last = segments[segments.length - 1]!;
+    if (typeof el.animate !== "function" || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      el.style.width = pct(last.end);
+      return;
+    }
+    let cancelled = false;
+    let running: Animation | null = null;
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    void (async () => {
+      el.style.width = pct(segments[0]!.start);
+      await wait(350);
+      for (let i = 0; i < segments.length && !cancelled; i++) {
+        const { start, end } = segments[i]!;
+        el.style.width = pct(start);
+        running = el.animate([{ width: pct(start) }, { width: pct(end) }], {
+          duration: Math.max(380, 1200 * (end - start)),
+          easing: i === segments.length - 1 ? "cubic-bezier(0.2, 0.7, 0.2, 1)" : "cubic-bezier(0.45, 0, 0.55, 1)",
+          fill: "forwards",
+        });
+        await running.finished.catch(() => undefined);
+        if (cancelled) return;
+        el.style.width = pct(end);
+        running.cancel();
+        if (i < segments.length - 1) {
+          flash.current?.animate([{ opacity: 0 }, { opacity: 1, offset: 0.25 }, { opacity: 0 }], { duration: 520, easing: "ease-out" });
+          await wait(300);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      running?.cancel();
+    };
+  }, [segments]);
   return (
-    <span className="h-1.5 w-24 rounded-full bg-border overflow-hidden shrink-0">
-      <span className="block h-full bg-accent transition-[width] duration-[1400ms] ease-out" style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
+    <span className="relative h-2.5 w-32 shrink-0 overflow-hidden ember-socket" style={{ borderRadius: 9999 }}>
+      <span
+        ref={fill}
+        className="absolute inset-y-0 left-0 overflow-hidden"
+        style={{
+          width: pct(segments[0]!.start),
+          borderRadius: 9999,
+          background: "linear-gradient(90deg, #713718 0%, #c8641e 55%, #e1a541 85%, #fff0a2 100%)",
+          boxShadow: "0 0 6px rgba(255, 140, 50, 0.55)",
+        }}
+      >
+        <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1/2 bg-white/15" />
+        <span aria-hidden="true" className="absolute inset-y-0 right-0 w-1.5 bg-[#fff0a2] blur-[2px]" />
+      </span>
+      <span
+        ref={flash}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 opacity-0"
+        style={{ borderRadius: 9999, background: "rgba(255, 220, 150, 0.45)", boxShadow: "inset 0 0 8px #fff0a2, 0 0 10px #ffb347" }}
+      />
     </span>
   );
 }
@@ -8741,7 +9780,6 @@ function ResultScreen({
   turn,
   growth,
   art,
-  onTitle,
   onNext,
   onInn,
   onMap,
@@ -8752,6 +9790,7 @@ function ResultScreen({
   loot,
   advanceLabel,
   onAdvance,
+  resting = true,
 }: {
   win: boolean;
   title: string;
@@ -8759,7 +9798,6 @@ function ResultScreen({
   turn: number;
   growth: GrowthLine[] | null;
   art: string | null;
-  onTitle: () => void;
   onNext: () => void;
   onInn?: () => void;
   onMap?: () => void;
@@ -8774,6 +9812,8 @@ function ResultScreen({
    * destination, not the "next mission by index" hasNext was turned off for). */
   advanceLabel?: string;
   onAdvance?: () => void;
+  /** Floor connectors continue the same expedition and do not grant camp recovery. */
+  resting?: boolean;
 }) {
   return (
     <section className="relative h-dvh min-h-0 flex flex-col overflow-hidden bg-bg">
@@ -8783,17 +9823,18 @@ function ResultScreen({
           <div className="absolute inset-0 bg-gradient-to-t from-bg/90 via-bg/40 to-bg/20" />
         </>
       )}
-      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto px-5 pt-[max(2rem,env(safe-area-inset-top))] pb-4">
-        <p className="text-sm uppercase tracking-[0.2em] text-muted">
-          {win ? "Vitória" : "Derrota"} · T{turn}
+      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-4">
+        <div style={{ zoom: 0.75 }}>
+        <p className={`text-sm ember-kicker${win ? "" : " is-defeat"}`}>
+          <span style={{ zoom: 4 / 3 }}>{win ? "Vitória" : "Derrota"} · T{turn}</span>
         </p>
-        <h1 className="font-display text-4xl sm:text-5xl mt-2 mb-2">{title}</h1>
+        <h1 className="font-display text-4xl sm:text-5xl mt-2 mb-2 ember-title"><span style={{ zoom: 4 / 3 }}>{title}</span></h1>
         <p className="text-lg text-muted mb-6">{body}</p>
         {loot && loot.length > 0 && <p className="text-sm text-accent mb-4">Achado no campo: {loot.join(", ")}</p>}
         {growth && growth.length > 0 && (
-          <ul className="mb-6 space-y-2 max-w-lg">
+          <ul className="mb-6 space-y-2 max-w-[34rem] w-full">
             {growth.map((g) => (
-              <li key={g.name} className="rounded-md border border-border bg-bg/55 px-3 py-2.5">
+              <li key={g.name} className="ember-slot px-3 py-2.5">
                 <p className="font-medium text-lg">
                   {g.name}
                   {g.to !== g.from ? ` · Nv ${g.from} → ${g.to}` : ` · Nv ${g.from}`}
@@ -8801,16 +9842,18 @@ function ResultScreen({
                 </p>
                 {g.to < MAX_LEVEL ? (
                   <p className="flex items-center gap-2 mt-1 text-sm">
-                    <GrowthXpBar from={(g.xpFrom / EXP_TO_LEVEL) * 100} to={(g.xp / EXP_TO_LEVEL) * 100} />
+                    <GrowthXpBar fromLevel={g.from} toLevel={g.to} fromXp={g.xpFrom} toXp={g.xp} />
                     <span className="text-muted tabular-nums">
-                      {g.xp}/{EXP_TO_LEVEL} XP{g.to !== g.from ? " · subiu" : ""}
+                      {g.xp}/{expToLevel(g.to)} XP{g.to !== g.from ? " · subiu" : ""}
                     </span>
                   </p>
                 ) : (
                   g.to !== g.from && <p className="mt-1 text-sm text-accent">Nível máximo · subiu</p>
                 )}
                 <p className="text-sm text-muted tabular-nums mt-1">Combate: {g.hpBattle}/{g.maxFrom}</p>
-                {g.fallen ? (
+                {!resting ? (
+                  <p className="text-sm text-muted tabular-nums">{g.fallen ? "Fora do próximo andar" : `Próximo andar: ${g.hpCamp} HP · sem descanso`}</p>
+                ) : g.fallen ? (
                   <p className="text-sm text-muted tabular-nums">Descanso: revive com {g.hpCamp} HP (metade de {g.maxTo})</p>
                 ) : (
                   <p className="text-sm tabular-nums text-fg/90">
@@ -8832,20 +9875,21 @@ function ResultScreen({
                 ) : g.to !== g.from ? (
                   <p className="text-sm text-muted">Magias: este nível não adicionou usos — cargas gastas não voltam</p>
                 ) : null}
-                <p className="text-base tabular-nums mt-1">Acampamento: {g.hpCamp}/{g.maxTo}</p>
+                {resting && <p className="text-base tabular-nums mt-1">Acampamento: {g.hpCamp}/{g.maxTo}</p>}
               </li>
             ))}
           </ul>
         )}
+        </div>
       </div>
-      <div className="relative z-10 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col gap-2">
+      <div className="relative z-10 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] flex flex-col gap-2 max-w-xl w-full" style={{ zoom: 0.75 }}>
         {onAdvance && (
-          <Button size="xl" className="w-full" onClick={onAdvance}>
+          <Button size="xl" className="w-full ember-btn ember-btn-primary" onClick={onAdvance}>
             {advanceLabel ?? "Avançar"}
           </Button>
         )}
         {hasNext && (
-          <Button size="xl" className="w-full" onClick={onNext}>
+          <Button size="xl" className="w-full ember-btn ember-btn-primary" onClick={onNext}>
             {retry ? (
               <>
                 <RotateCcw className="size-5" /> Tentar de novo
@@ -8856,18 +9900,16 @@ function ResultScreen({
           </Button>
         )}
         {win && innOpen && onInn && (
-          <Button variant="quiet" className="w-full inn-open" onClick={onInn}>
+          <Button variant="quiet" className="w-full ember-btn ember-btn-ghost inn-open" onClick={onInn}>
             Estalagem do Osso Seco
           </Button>
         )}
         {(win || mapLabel) && onMap && (
-          <Button variant="ghost" className="w-full" onClick={onMap}>
+          <Button variant="ghost" className="w-full ember-btn ember-btn-ghost" onClick={onMap}>
             {mapLabel ?? "Cenários"}
           </Button>
         )}
-        <Button variant="ghost" className="w-full" onClick={onTitle}>
-          Tela inicial
-        </Button>
+
       </div>
     </section>
   );
@@ -8886,7 +9928,7 @@ function PromotionScreen({
     <div className="absolute inset-0 z-50 bg-bg/90 flex items-end sm:items-center justify-center p-4">
       <div className="w-full max-w-md ember-window rounded-xl p-5 max-h-[90dvh] overflow-y-auto">
         <p className="text-xs uppercase tracking-[0.18em] text-muted">Nível {PROMOTE_LEVEL}</p>
-        <h2 className="font-display text-2xl leading-none mt-1 mb-2">{current.name} pode se promover</h2>
+        <h2 className="font-display text-2xl leading-none mt-1 mb-2">{uiText(current.name)} pode se promover</h2>
         <p className="text-sm text-muted mb-4">
           Escolha um caminho. {current.name} não perde as magias que já tem — as novas se somam a partir de agora.
         </p>
@@ -8900,7 +9942,7 @@ function PromotionScreen({
                 onClick={() => onPick(current.name, classId)}
                 className="w-full text-left rounded-xl border border-border bg-bg/40 px-4 py-3 hover:border-accent"
               >
-                <p className="font-display text-xl leading-tight">{cls.name}</p>
+                <p className="font-display text-xl leading-tight">{uiText(cls.name)}</p>
                 <p className="text-sm text-muted">{sheetLine(statsFor(classId, PROMOTE_LEVEL))}</p>
               </button>
             );
@@ -8957,28 +9999,30 @@ function SlotScreen({
   onClose: () => void;
   onPick: (index: number) => void;
 }) {
-  const title = mode === "new" ? "Nova campanha" : mode === "continue" ? "Continuar" : mode === "load" ? "Load" : "Save";
+  const title = mode === "new" ? "Nova campanha" : mode === "save" ? "Salvar jogo" : "Carregar jogo";
   const hint =
     mode === "new"
       ? "Escolha o slot. Um slot ocupado será substituído."
       : mode === "continue" || mode === "load"
-        ? "O último usado vem marcado. Toque para carregar."
-        : "Grava o começo deste combate. O slot anterior permanece se você escolher outro.";
+        ? "O último usado vem marcado. Escolha um jogo para continuar."
+        : "Escolha onde gravar este combate. Um slot ocupado será substituído.";
 
   return (
-    <div className="absolute inset-0 z-40 ember-veil flex items-end sm:items-center justify-center p-4">
-      <div className="w-full max-w-md ember-window rounded-xl p-5 max-h-[90dvh] overflow-y-auto">
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-muted">Arquivos</p>
-            <h2 className="font-display text-2xl leading-none mt-1">{title}</h2>
-          </div>
-          <button type="button" onClick={onClose} className="size-11 grid place-items-center" aria-label="Fechar">
-            <X className="size-5" />
-          </button>
+    <section className="absolute inset-0 z-40 flex min-h-0 flex-col overflow-hidden bg-[#080a0d] text-fg">
+      <img src="/game/ui/travel-board.png" alt="" className="absolute inset-0 size-full object-cover object-center" />
+      <div className="absolute inset-0 bg-black/20" aria-hidden="true" />
+      <header className="relative z-10 flex shrink-0 items-center gap-3 border-b border-white/10 bg-black/20 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-7">
+        <button type="button" onClick={onClose} className="h-9 px-3 shrink-0 flex items-center gap-1.5 ember-plate text-xs" aria-label="Voltar">
+          <ChevronLeft className="size-4" /> Voltar
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs ember-kicker">Arquivos</p>
+          <h1 className="mt-1 font-display text-2xl leading-none ember-title sm:text-3xl">{title}</h1>
+          <p className="mt-1 text-xs text-slate-300 sm:text-sm">{hint}</p>
         </div>
-        <p className="text-sm text-muted mb-4">{hint}</p>
-        <ol className="flex flex-col gap-2">
+      </header>
+      <main className="relative z-10 grid flex-1 min-h-0 place-items-center px-3 py-3 sm:px-6 sm:py-5">
+        <ol className="grid w-full max-w-5xl grid-cols-2 gap-2 md:grid-cols-3 sm:gap-3">
           {Array.from({ length: SLOT_COUNT }, (_, i) => {
             const slot = bank.slots[i] ?? null;
             const empty = isSlotEmpty(slot);
@@ -8987,9 +10031,10 @@ function SlotScreen({
             const disabled = (mode === "continue" || mode === "load") && empty;
             const confirm = overwrite === i;
             return (
-              <li key={i}>
+              <li key={i} className="min-h-0">
                 <button
                   type="button"
+                  aria-label={`${empty ? "Slot vazio" : info.title}, slot ${i + 1}${last ? ", último usado" : ""}`}
                   disabled={disabled}
                   onClick={() => {
                     if ((mode === "new" || mode === "save") && !empty && !confirm) {
@@ -8998,26 +10043,24 @@ function SlotScreen({
                     }
                     onPick(i);
                   }}
-                  className={`w-full text-left rounded-xl border px-4 py-3 disabled:opacity-40 ${
-                    last ? "border-accent bg-bg/70" : "border-border bg-bg/40"
-                  }`}
+                  className={`flex min-h-[116px] w-full flex-col justify-center overflow-hidden ember-slot px-3 py-2 text-left disabled:opacity-40 sm:min-h-[128px] sm:px-4 sm:py-3 ${last ? "is-last" : ""}`}
                 >
                   <div className="flex items-baseline justify-between gap-2">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted">Slot {i + 1}</p>
-                    {last && <p className="text-[10px] uppercase tracking-[0.14em] text-accent">Último usado</p>}
+                    <p className="text-[10px] ember-kicker sm:text-xs">Slot {i + 1}</p>
+                    {last && <p className="truncate text-[9px] uppercase tracking-[0.1em] text-accent sm:text-[10px] sm:tracking-[0.14em]">Último usado</p>}
                   </div>
-                  <p className="font-display text-xl leading-tight">{info.title}</p>
-                  <p className="text-sm text-muted">{info.detail}</p>
+                  <p className="mt-1 truncate font-display text-lg leading-tight ember-title sm:text-xl">{info.title}</p>
+                  <p className="line-clamp-2 text-xs leading-snug text-slate-300 sm:text-sm">{info.detail}</p>
                   {slot && !empty && (
-                    <p className="text-xs tabular-nums text-muted mt-1">{formatStamp(slot.updatedAt)}</p>
+                    <p className="mt-1 text-[10px] tabular-nums text-slate-400 sm:text-xs">{formatStamp(slot.updatedAt)}</p>
                   )}
-                  {confirm && <p className="text-xs text-accent mt-2">Toque de novo para substituir este slot.</p>}
+                  {confirm && <p className="mt-1 text-[10px] text-accent sm:text-xs">Toque de novo para substituir.</p>}
                 </button>
               </li>
             );
           })}
         </ol>
-      </div>
-    </div>
+      </main>
+    </section>
   );
 }

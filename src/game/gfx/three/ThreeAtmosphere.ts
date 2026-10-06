@@ -3,31 +3,16 @@
  * gfx/AtmosphereRenderer.ts's own comment and THREEJS_MILESTONE2_HANDOFF.md's "Old atmosphere
  * system" section).
  *
- * WHY NOT scene.fog / THREE.Fog / THREE.FogExp2: both compute density purely from distance to
- * camera. This scene's camera is a fixed-Z (100) orthographic camera aimed straight down -Z
- * forever (see ThreeBattleRenderer.ts's module comment) — no perspective, no rotation. That makes
- * "distance to camera" a pure function of a fragment's world Z, nothing else. Every VISIBLE mesh
- * in the confirmed, shipped Milestone 1/2 scene (tiles z=0, overlay z=0.5, decor z=1, units
- * z=2..3) sits inside a 3-unit-tall band out of that 100-unit camera distance — built-in fog at
- * any density that visibly did anything to that band would be indistinguishable from a single
- * flat tint applied to literally everything at once, i.e. the exact "flat overlay" failure mode
- * the user rejected, just relocated from a canvas filter to a camera-distance formula. So real
- * height-based depth has to be AUTHORED directly into new geometry that spans real Z — the same
- * tens-of-world-px vocabulary Milestone 2 already proved out for its invisible shadow casters
- * (UNIT_SHADOW_HEIGHT_SCALE/DECOR_SHADOW_HEIGHT_SCALE in ThreeBattleRenderer.ts) — not leaned on
- * scene.fog. `scene.fog` is deliberately never set anywhere in this renderer.
+ * WHY NOT scene.fog / THREE.Fog / THREE.FogExp2: this orthographic camera now has a shallow
+ * orbit angle, so built-in fog would grade pixels by camera depth. That still gives no authored
+ * control over where the mist sits or how it layers around the board's specific props. The
+ * atmosphere stays as explicit world-space sheets and particles, with their own color, height,
+ * motion and render order. `scene.fog` is deliberately never set anywhere in this renderer.
  *
- * A consequence of the above worth stating plainly: on this camera, elevation buys no
- * foreshortening/occlusion cue the way it would on a tilted camera — a quad at Z=40 is
- * pixel-identical in size/position to one at Z=4, just composited later (closer to the camera).
- * So both systems below are placed at Z > 3, strictly above every existing visible mesh
- * (confirmed-working Milestone 1/2 tile/decor/unit sprites are NEVER touched by this file) — mist
- * and particles always draw in front of the board, never interleaved with individual units/decor,
- * which is an honest, stable trade-off (a single mist plane can't sort "behind this unit, in
- * front of that one" against many individual sprites without flicker) rather than an attempt at
- * true per-pixel height occlusion this camera can't give anyway. `renderOrder` backs this up
- * explicitly (10-12 mist layers, 13 dust, 14 embers, vs. every existing mesh's default 0) so the
- * stacking is deterministic even where Z-distance alone would be ambiguous.
+ * A consequence worth stating plainly: the orbit gives raised geometry real depth, but these
+ * atmosphere sheets intentionally remain above the ordinary board layers. Their render order
+ * (10-12 mist layers, 13 dust, 14 embers) keeps them deterministic instead of trying to interleave
+ * one broad mist volume behind some transparent sprites and in front of others.
  *
  * Neither system casts or receives shadows (both default false, left untouched) — a
  * PCF-filtered shadow lookup against a huge, additively-blended, constantly-drifting transparent
@@ -226,7 +211,8 @@ class GroundMist {
         },
       });
       const mesh = new THREE.Mesh(this.geo, material);
-      mesh.renderOrder = 10 + i;
+      // Below the character billboards (order 2) so ground mist never paints over a unit.
+      mesh.renderOrder = 1.5 + i * 0.1;
       this.materials.push(material);
       this.meshes.push(mesh);
       this.group.add(mesh);
@@ -264,10 +250,10 @@ class GroundMist {
   /** Mist 2 is a viewport-filling weather layer. Keeping it camera-locked after its normal
    * board setup lets the same drifting field cover the painted mission backdrop as well as the
    * hexes, with a small overscan so no edge appears while panning. */
-  coverViewport(cssW: number, cssH: number, camX: number, camY: number): void {
+  coverViewport(cssW: number, cssH: number, camX: number, camY: number, coverW = cssW, coverH = cssH): void {
     if (!this.group.visible) return;
     for (const mesh of this.meshes) {
-      mesh.scale.set(cssW * 1.16, cssH * 1.16, 1);
+      mesh.scale.set(coverW * 1.16, coverH * 1.16, 1);
       mesh.position.x = camX + cssW / 2;
       mesh.position.y = -camY - cssH / 2;
     }
@@ -372,7 +358,8 @@ class GroundMist3 {
         },
       });
       const mesh = new THREE.Mesh(this.geo, material);
-      mesh.renderOrder = 10 + i;
+      // Below the character billboards (order 2) so ground mist never paints over a unit.
+      mesh.renderOrder = 1.5 + i * 0.1;
       this.materials.push(material);
       this.meshes.push(mesh);
       this.group.add(mesh);
@@ -402,10 +389,10 @@ class GroundMist3 {
 
   /** Keep Mist 3's original noise treatment, but let its weather field extend over the
    * complete visible scene rather than stopping at the board edge. */
-  coverViewport(cssW: number, cssH: number, camX: number, camY: number): void {
+  coverViewport(cssW: number, cssH: number, camX: number, camY: number, coverW = cssW, coverH = cssH): void {
     if (!this.group.visible) return;
     for (const mesh of this.meshes) {
-      mesh.scale.set(cssW * 1.16, cssH * 1.16, 1);
+      mesh.scale.set(coverW * 1.16, coverH * 1.16, 1);
       mesh.position.x = camX + cssW / 2;
       mesh.position.y = -camY - cssH / 2;
     }
@@ -523,7 +510,8 @@ class GroundMist4 {
       },
     });
     this.mesh = new THREE.Mesh(this.geo, this.material);
-    this.mesh.renderOrder = 10;
+    // Below the character billboards (order 2) so ground mist never paints over a unit.
+    this.mesh.renderOrder = 1.5;
     this.group.add(this.mesh);
   }
 
@@ -563,9 +551,9 @@ class GroundMist4 {
 
   /** The border mask remains anchored to the real hex-board edges, while its fog plane covers
    * the entire camera view. This also fogs the painted backdrop outside the playable map. */
-  coverViewport(cssW: number, cssH: number, camX: number, camY: number): void {
+  coverViewport(cssW: number, cssH: number, camX: number, camY: number, coverW = cssW, coverH = cssH): void {
     if (!this.group.visible) return;
-    this.mesh.scale.set(cssW * 1.16, cssH * 1.16, 1);
+    this.mesh.scale.set(coverW * 1.16, coverH * 1.16, 1);
     this.mesh.position.x = camX + cssW / 2;
     this.mesh.position.y = -camY - cssH / 2;
   }
@@ -921,11 +909,11 @@ class VolumetricFog5 {
     }
   }
 
-  coverViewport(cssW: number, cssH: number, camX: number, camY: number): void {
+  coverViewport(cssW: number, cssH: number, camX: number, camY: number, coverW = cssW, coverH = cssH): void {
     if (!this.group.visible) return;
     for (let i = 0; i < this.meshes.length; i++) {
       const mesh = this.meshes[i]!;
-      mesh.scale.set(cssW * 1.16, cssH * 1.16, 1);
+      mesh.scale.set(coverW * 1.16, coverH * 1.16, 1);
       mesh.position.x = camX + cssW / 2;
       mesh.position.y = -camY - cssH / 2;
       (this.materials[i]!.uniforms.uCam!.value as THREE.Vector2).set(camX, -camY);
@@ -1026,9 +1014,9 @@ class BoardFogArtwork {
     this.group.visible = intensity > 0;
   }
 
-  coverViewport(cssW: number, cssH: number, camX: number, camY: number): void {
+  coverViewport(cssW: number, cssH: number, camX: number, camY: number, coverW = cssW, coverH = cssH): void {
     if (!this.group.visible) return;
-    this.mesh.scale.set(cssW * 1.16, cssH * 1.16, 1);
+    this.mesh.scale.set(coverW * 1.16, coverH * 1.16, 1);
     this.mesh.position.set(camX + cssW / 2, -camY - cssH / 2, 8);
   }
 
@@ -1217,7 +1205,12 @@ class RevealFog {
       },
     });
     this.mesh = new THREE.Mesh(this.geometry, this.material);
-    this.mesh.renderOrder = 11;
+    // This layer is the atmosphere that softens the game's completely opaque unseen fill.
+    // ThreeFogMask draws at order 100; placing Fog 01 behind it made the shader technically
+    // correct but entirely invisible over every unrevealed hex. Draw above that mask so the
+    // fog reads over undiscovered terrain/background, while the reveal texture still keeps
+    // every explored or visible hex completely clear.
+    this.mesh.renderOrder = 101;
     this.group.add(this.mesh);
   }
 
@@ -1256,9 +1249,9 @@ class RevealFog {
     this.material.uniforms.uHasReveal!.value = 1;
   }
 
-  coverViewport(cssW: number, cssH: number, camX: number, camY: number): void {
+  coverViewport(cssW: number, cssH: number, camX: number, camY: number, coverW = cssW, coverH = cssH): void {
     if (!this.group.visible) return;
-    this.mesh.scale.set(cssW * 1.16, cssH * 1.16, 1);
+    this.mesh.scale.set(coverW * 1.16, coverH * 1.16, 1);
     this.mesh.position.set(camX + cssW / 2, -camY - cssH / 2, 8);
   }
 
@@ -1539,7 +1532,10 @@ export class ThreeAtmosphere {
     viewport?: { cssW: number; cssH: number; camX: number; camY: number },
     cellAt?: (x: number, y: number) => number,
     unitFeet?: { x: number; y: number; halfW: number; band: number }[],
+    enabled = true,
   ): void {
+    this.group.visible = enabled;
+    if (!enabled) return;
     // Mission-authored, not a hardcoded per-id table (see Mission.mistIntensity/wispIntensity/
     // wispSpeed in types.ts) — the Map Editor's "Névoa"/"Wisps"/"Velocidade" sliders are the one
     // real source of this. Full range, deliberately: sliders go from "off" to genuinely extreme
@@ -1555,7 +1551,7 @@ export class ThreeAtmosphere {
     // that look comes entirely from BattleCanvas.tsx's screen-space CSS vignette instead.
     // "none" is an explicit author override: no mist, world-space or screen-space, whatever
     // mistIntensity is set to.
-    const mistType = engine.mission.mistType ?? "mist2";
+    const mistType = engine.mission.mistType ?? "none";
     // "none" ("Sem névoa") is a full atmosphere kill-switch, not just the mist layer — per
     // direct correction, it means everything off: mist, vignette, AND wisps/embers, whatever
     // their own sliders are set to.
@@ -1582,26 +1578,38 @@ export class ThreeAtmosphere {
     // Only the selected implementation gets a nonzero tier — the other's own rebuild() sees
     // mistIntensity <= 0 via a zeroed-out copy and tears itself down/stays hidden, the same as
     // if the author had just set the slider to 0 on that one.
+    // The tactics camera turns and tilts the board, so a ground sheet sized to the screen no
+    // longer fills it (hard diagonal edges). Size it to the screen's footprint on the ground,
+    // using the same pitch clamp as ThreeBattleRenderer.updateCamera.
+    let coverW = viewport?.cssW ?? 0, coverH = viewport?.cssH ?? 0;
+    if (viewport && engine.tacticsCamera) {
+      const pitch = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(engine.cameraTilt, 0, 55));
+      const azimuth = THREE.MathUtils.degToRad(engine.cameraTiltSide);
+      const groundH = viewport.cssH / Math.cos(pitch);
+      const cosA = Math.abs(Math.cos(azimuth)), sinA = Math.abs(Math.sin(azimuth));
+      coverW = viewport.cssW * cosA + groundH * sinA;
+      coverH = viewport.cssW * sinA + groundH * cosA;
+    }
     const mist2Tier: AtmosphereTier = { ...tier, mistIntensity: mistType === "mist2" ? worldMistIntensity : 0 };
     const mist3Tier: AtmosphereTier = { ...tier, mistIntensity: mistType === "mist3" ? worldMistIntensity : 0 };
     const mist4Tier: AtmosphereTier = { ...tier, mistIntensity: mistType === "mist4" ? worldMistIntensity : 0 };
     const fog1Tier: AtmosphereTier = { ...tier, mistIntensity: mistType === "fog1" ? worldMistIntensity : 0 };
     this.mist2.rebuild(engine.cols, engine.rows, tile, engine.mission.id, mist2Tier);
-    if (mistType === "mist2" && viewport) this.mist2.coverViewport(viewport.cssW, viewport.cssH, viewport.camX, viewport.camY);
+    if (mistType === "mist2" && viewport) this.mist2.coverViewport(viewport.cssW, viewport.cssH, viewport.camX, viewport.camY, coverW, coverH);
     this.mist2.sync(dt, sunLight, mistSpeed);
     this.mist3.rebuild(engine.cols, engine.rows, tile, engine.mission.id, mist3Tier);
-    if (mistType === "mist3" && viewport) this.mist3.coverViewport(viewport.cssW, viewport.cssH, viewport.camX, viewport.camY);
+    if (mistType === "mist3" && viewport) this.mist3.coverViewport(viewport.cssW, viewport.cssH, viewport.camX, viewport.camY, coverW, coverH);
     this.mist3.sync(dt, sunLight, mistSpeed);
     this.mist4.rebuild(engine.cols, engine.rows, tile, engine.mission.id, mist4Tier);
-    if (mistType === "mist4" && viewport) this.mist4.coverViewport(viewport.cssW, viewport.cssH, viewport.camX, viewport.camY);
+    if (mistType === "mist4" && viewport) this.mist4.coverViewport(viewport.cssW, viewport.cssH, viewport.camX, viewport.camY, coverW, coverH);
     this.mist4.sync(dt, sunLight, mistSpeed);
     this.fog5.rebuild(engine.cols, engine.rows, tile, engine.mission.id, { ...tier, mistIntensity: mistType === "fog5" ? worldMistIntensity : 0 });
-    if (mistType === "fog5" && viewport) this.fog5.coverViewport(viewport.cssW, viewport.cssH, viewport.camX, viewport.camY);
+    if (mistType === "fog5" && viewport) this.fog5.coverViewport(viewport.cssW, viewport.cssH, viewport.camX, viewport.camY, coverW, coverH);
     if (mistType === "fog5" && cellAt) this.fog5.syncDensity(engine, tile, cellAt);
     if (mistType === "fog5") this.fog5.setUnits(unitFeet ?? []);
     this.fog5.sync(dt, sunLight, mistSpeed);
     this.revealFog.rebuild(engine.cols, engine.rows, tile, engine.mission.id, fog1Tier);
-    if (mistType === "fog1" && viewport) this.revealFog.coverViewport(viewport.cssW, viewport.cssH, viewport.camX, viewport.camY);
+    if (mistType === "fog1" && viewport) this.revealFog.coverViewport(viewport.cssW, viewport.cssH, viewport.camX, viewport.camY, coverW, coverH);
     if (mistType === "fog1" && cellAt) this.revealFog.syncReveal(engine, tile, cellAt);
     this.revealFog.sync(dt, sunLight, mistSpeed);
     this.fogArtwork.rebuild(engine.cols, engine.rows, tile, engine.mission.id, 0);

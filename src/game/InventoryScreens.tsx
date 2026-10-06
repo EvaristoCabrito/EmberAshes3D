@@ -24,6 +24,7 @@ function ItemActionSheet({
   icon,
   tip,
   onEquip,
+  equipChoices,
   onUse,
   onDiscard,
   onClose,
@@ -32,11 +33,13 @@ function ItemActionSheet({
   icon: string;
   tip: string;
   onEquip?: () => void;
+  equipChoices?: { name: string; equip: () => void }[];
   onUse?: () => void;
   onDiscard?: () => void;
   onClose: () => void;
 }) {
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [choosingHero, setChoosingHero] = useState(false);
   return (
     <div
       className="absolute inset-0 z-50 ember-veil flex items-center justify-center p-4"
@@ -44,22 +47,36 @@ function ItemActionSheet({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-xs ember-window rounded-xl p-4">
+      <div className="relative w-full max-w-xs ember-panel p-4">
         <div className="mb-3 flex items-center gap-2.5">
           <img src={icon} alt="" className="size-11 shrink-0 object-contain" />
           <div className="min-w-0">
             <p className="text-sm font-medium truncate">{name}</p>
             <p className="text-[11px] text-muted line-clamp-2">{tip}</p>
           </div>
-          <button type="button" onClick={onClose} className="ml-auto size-7 shrink-0 grid place-items-center rounded-md border border-border" aria-label="Fechar">
+          <button type="button" onClick={onClose} className="ml-auto size-7 shrink-0 grid place-items-center ember-icon-btn" aria-label="Fechar">
             <X className="size-3.5" />
           </button>
         </div>
-        {confirmDiscard ? (
+        {choosingHero ? (
+          <div role="dialog" aria-label="Escolher personagem para equipar" className="relative mx-auto h-64 w-full">
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
+              <img src={icon} alt="" className="mx-auto size-12 object-contain" />
+              <p className="mt-1 text-xs text-muted">Equipar em</p>
+              <button type="button" onClick={() => setChoosingHero(false)} className="mt-2 ember-btn ember-btn-sm ember-btn-ghost text-xs">Voltar</button>
+            </div>
+            {equipChoices?.map((choice, index) => {
+              const angle = -Math.PI / 2 + index * Math.PI * 2 / equipChoices.length;
+              return <button key={choice.name} type="button" onClick={() => { choice.equip(); onClose(); }}
+                className="absolute min-h-11 min-w-20 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent bg-bg px-3 py-2 text-sm hover:bg-accent/20 focus-visible:outline-2 focus-visible:outline-accent"
+                style={{ left: `calc(50% + ${Math.cos(angle) * 94}px)`, top: `calc(50% + ${Math.sin(angle) * 94}px)` }}>{choice.name}</button>;
+            })}
+          </div>
+        ) : confirmDiscard ? (
           <div className="flex flex-col gap-2">
             <p className="text-xs text-danger">Jogar fora {name}? Não pode ser desfeito.</p>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setConfirmDiscard(false)} className="h-10 flex-1 rounded-md border border-border bg-bg text-sm">
+              <button type="button" onClick={() => setConfirmDiscard(false)} className="h-10 flex-1 ember-btn ember-btn-sm ember-btn-ghost text-sm">
                 Cancelar
               </button>
               <button
@@ -78,12 +95,13 @@ function ItemActionSheet({
           <div className="flex flex-col gap-1.5">
             <button
               type="button"
-              disabled={!onEquip}
+              disabled={!onEquip && !equipChoices?.length}
               onClick={() => {
+                if (equipChoices?.length) { setChoosingHero(true); return; }
                 onEquip?.();
                 onClose();
               }}
-              className="h-10 rounded-md border border-border bg-bg text-sm disabled:opacity-40"
+              className="h-10 ember-btn ember-btn-sm ember-btn-ghost text-sm disabled:opacity-40"
             >
               Equipar
             </button>
@@ -94,7 +112,7 @@ function ItemActionSheet({
                 onUse?.();
                 onClose();
               }}
-              className="h-10 rounded-md border border-border bg-bg text-sm disabled:opacity-40"
+              className="h-10 ember-btn ember-btn-sm ember-btn-ghost text-sm disabled:opacity-40"
             >
               Usar
             </button>
@@ -102,7 +120,7 @@ function ItemActionSheet({
               type="button"
               disabled={!onDiscard}
               onClick={() => setConfirmDiscard(true)}
-              className="h-10 rounded-md border border-border bg-bg text-sm text-danger disabled:text-fg disabled:opacity-40"
+              className="h-10 ember-slot text-sm text-danger disabled:text-fg disabled:opacity-40"
             >
               Jogar Fora
             </button>
@@ -293,17 +311,17 @@ export function PaperDollScreen({
         <div className="mb-2 flex shrink-0 items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
             {/* Back always sits at the far left, across every screen, so it never gets lost. */}
-            <button type="button" onClick={onClose} className="h-9 px-3 flex items-center gap-1.5 rounded-md border border-border bg-bg/80 text-xs" aria-label="Voltar">
+            <button type="button" onClick={onClose} className="h-9 px-3 flex items-center gap-1.5 ember-plate text-xs" aria-label="Voltar">
               <ChevronLeft className="size-4" /> Voltar
             </button>
             <div>
-              <p className="font-display text-xl leading-tight">{heroName}</p>
+              <p className="font-display text-xl leading-tight ember-title">{heroName}</p>
               <p className="text-xs text-muted">{CLASSES[classId].name}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {onOpenStatus && (
-              <button type="button" onClick={() => onOpenStatus(heroName)} className="h-9 px-3 rounded-md border border-border bg-bg text-xs">
+              <button type="button" onClick={() => onOpenStatus(heroName)} className="h-9 px-3 ember-plate text-xs">
                 Status
               </button>
             )}
@@ -312,7 +330,7 @@ export function PaperDollScreen({
                 <button
                   type="button"
                   onClick={() => onHeroChange(availableHeroes[(availableHeroes.indexOf(heroName) - 1 + availableHeroes.length) % availableHeroes.length]!)}
-                  className="size-9 grid place-items-center rounded-md border border-border bg-bg"
+                  className="size-9 grid place-items-center ember-icon-btn"
                   aria-label="Personagem anterior"
                 >
                   <ChevronLeft className="size-4" />
@@ -320,7 +338,7 @@ export function PaperDollScreen({
                 <button
                   type="button"
                   onClick={() => onHeroChange(availableHeroes[(availableHeroes.indexOf(heroName) + 1) % availableHeroes.length]!)}
-                  className="size-9 grid place-items-center rounded-md border border-border bg-bg"
+                  className="size-9 grid place-items-center ember-icon-btn"
                   aria-label="Próximo personagem"
                 >
                   <ChevronRight className="size-4" />
@@ -328,7 +346,7 @@ export function PaperDollScreen({
               </div>
             )}
             {onSwitchToBackpack && (
-              <button type="button" onClick={onSwitchToBackpack} className="h-12 px-3 rounded-md border border-border text-xs flex items-center gap-2">
+              <button type="button" onClick={onSwitchToBackpack} className="h-12 px-3 ember-plate text-xs flex items-center gap-2">
                 <img src={BAG_ICON} alt="" className="size-8 shrink-0 rounded-sm object-contain" />
                 Mochila
               </button>
@@ -343,7 +361,7 @@ export function PaperDollScreen({
                 key={name}
                 type="button"
                 onClick={() => onHeroChange?.(name)}
-                className={`rounded-md border px-3 py-1.5 text-xs ${name === heroName ? "border-accent bg-accent/15 text-fg" : "border-border bg-bg/75 text-muted"}`}
+                className={`ember-plate px-3 py-1.5 text-xs ${name === heroName ? "is-accent" : "text-muted"}`}
               >
                 {name}
               </button>
@@ -392,10 +410,10 @@ export function PaperDollScreen({
             if (e.target === e.currentTarget) setPicker(null);
           }}
         >
-          <div className="w-full max-w-sm max-h-[80dvh] overflow-y-auto ember-window rounded-xl p-4">
+          <div className="relative w-full max-w-sm max-h-[80dvh] overflow-y-auto ember-panel p-4">
             <div className="flex items-center justify-between gap-3 mb-3">
-              <p className="font-display text-lg leading-tight">{picker === "mainHand" ? "Mão Principal" : EQUIPMENT_SLOTS.find((s) => s.id === picker)?.label}</p>
-              <button type="button" onClick={() => setPicker(null)} className="size-8 grid place-items-center rounded-md border border-border" aria-label="Fechar">
+              <p className="font-display text-lg leading-tight ember-title">{picker === "mainHand" ? "Mão Principal" : EQUIPMENT_SLOTS.find((s) => s.id === picker)?.label}</p>
+              <button type="button" onClick={() => setPicker(null)} className="size-8 grid place-items-center ember-icon-btn" aria-label="Fechar">
                 <X className="size-4" />
               </button>
             </div>
@@ -591,11 +609,11 @@ export function BackpackScreen({
     const timer = window.setTimeout(() => setRationNote(null), 2200);
     return () => window.clearTimeout(timer);
   }, [rationNote]);
-  const [sheetEntry, setSheetEntry] = useState<{ name: string; icon: string; tip: string; equip?: () => void; use?: () => void; discard?: () => void } | null>(null);
+  const [sheetEntry, setSheetEntry] = useState<{ name: string; icon: string; tip: string; equip?: () => void; equipChoices?: { name: string; equip: () => void }[]; use?: () => void; discard?: () => void } | null>(null);
   const bag = save.bags[heroName] ?? EMPTY_BAG;
   const weaponEntries = Object.entries(save.weapons).filter(([id]) => {
     const wielder = Object.entries(save.equipped).find(([, v]) => v === id)?.[0];
-    return !wielder || heroRecruited(wielder, save.completed);
+    return !wielder || heroRecruited(wielder, save.completed, save.flags);
   });
   const wearerOf = (id: string) =>
     Object.entries(save.equipment).find(([, slots]) => Object.values(slots).includes(id))?.[0];
@@ -610,20 +628,22 @@ export function BackpackScreen({
     ] as const)
     .filter(([id]) => {
       const wearer = wearerOf(id);
-      return !wearer || heroRecruited(wearer, save.completed);
+      return !wearer || heroRecruited(wearer, save.completed, save.flags);
     });
   // Shared stash: unequipped weapons + loose gear. Potions/gazuas stay per-hero and
   // never count. Each physical piece takes one cell — copies do not stack.
   const bagCount = partyBagUsed(save);
   const bagCapacity = partyBagCapacity(save, test);
-  const heroEquip = save.equipment[heroName] ?? {};
+  const equipHeroes = availableHeroes ?? ALL_HERO_NAMES.filter(name => test || heroRecruited(name, save.completed, save.flags));
+  const equipClass = (name: string) => save.promotions[name] ?? HERO_BASE_CLASS[name] ?? (name === heroName ? classId : undefined);
   /** Which slot a click-to-equip should fill: rings pick whichever finger is free (ring1
    * first), everything else has exactly one slot — except offHand, which has none at all
    * while the main hand holds a two-handed weapon. Returns null when there's nowhere for
    * it to go automatically (the picker on the doll itself still handles that case). */
-  const targetSlotFor = (item: (typeof EQUIPMENT)[string]): EquipSlot | null => {
+  const targetSlotFor = (item: (typeof EQUIPMENT)[string], name: string): EquipSlot | null => {
+    const heroEquip = save.equipment[name] ?? {};
     if (item.slot === "ring1" || item.slot === "ring2") return heroEquip.ring1 ? "ring2" : "ring1";
-    if (item.slot === "offHand" && offHandBlocked(save.equipped[heroName] ?? null)) return null;
+    if (item.slot === "offHand" && offHandBlocked(save.equipped[name] ?? null)) return null;
     return item.slot;
   };
   const backpackEntries: {
@@ -634,6 +654,7 @@ export function BackpackScreen({
     count?: number;
     isWeapon?: boolean;
     equip?: () => void;
+    equipChoices?: { name: string; equip: () => void }[];
     use?: () => void;
     discard?: () => void;
   }[] = [];
@@ -656,14 +677,17 @@ export function BackpackScreen({
   for (const [id, enh] of weaponEntries) {
     const w = WEAPONS[id];
     if (!w || Object.values(save.equipped).includes(id)) continue;
-    const fitsClass = !!classId && weaponsForClass(classId).some((candidate) => candidate.id === id);
+    const equipChoices = onEquipWeapon ? equipHeroes.filter(name => {
+      const cls = equipClass(name);
+      return !!cls && w.usableBy.includes(cls);
+    }).map(name => ({ name, equip: () => onEquipWeapon(name, id) })) : [];
     backpackEntries.push({
       key: `weapon:${id}`,
       name: `${w.name}${enh > 0 ? ` +${enh}` : ""}`,
       icon: weaponIcon(id),
       tip: weaponTooltip(w, enh),
       isWeapon: true,
-      equip: onEquipWeapon && fitsClass ? () => onEquipWeapon(heroName, id) : undefined,
+      equipChoices,
       discard: onDiscardWeapon ? () => onDiscardWeapon(id) : undefined,
     });
   }
@@ -671,15 +695,19 @@ export function BackpackScreen({
     const item = EQUIPMENT[id];
     const count = save.looseEquipment[id] ?? 0;
     if (!item || count <= 0) continue;
-    const fitsClass = !!classId && (!item.usableBy || item.usableBy.includes(classId));
-    const targetSlot = targetSlotFor(item);
+    const equipChoices = onEquipItem ? equipHeroes.flatMap(name => {
+      const cls = equipClass(name);
+      const slot = targetSlotFor(item, name);
+      return cls && slot && equipmentFitsSlot(item, slot) && (!item.usableBy || item.usableBy.includes(cls))
+        ? [{ name, equip: () => onEquipItem(name, slot, id) }] : [];
+    }) : [];
     for (let copy = 0; copy < count; copy++) {
       backpackEntries.push({
         key: `equipment:${id}:${copy}`,
         name: item.name,
         icon: equipmentIcon(id),
         tip: equipmentTooltip(item),
-        equip: onEquipItem && fitsClass && targetSlot ? () => onEquipItem(heroName, targetSlot, id) : undefined,
+        equipChoices,
         discard: onDiscardEquipment ? () => onDiscardEquipment(id) : undefined,
       });
     }
@@ -696,13 +724,13 @@ export function BackpackScreen({
         <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             {/* Back always sits at the far left, across every screen, so it never gets lost. */}
-            <button type="button" onClick={onClose} className="h-9 px-3 flex items-center gap-1.5 rounded-md border border-border bg-bg text-xs" aria-label="Voltar">
+            <button type="button" onClick={onClose} className="h-9 px-3 flex items-center gap-1.5 ember-plate text-xs" aria-label="Voltar">
               <ChevronLeft className="size-4" /> Voltar
             </button>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <img src={BAG_ICON} alt="" className="size-9 shrink-0 object-contain" />
-                <h2 className="font-display text-2xl leading-none">Mochila</h2>
+                <h2 className="font-display text-2xl leading-none ember-title">Mochila</h2>
               </div>
               <p className="mt-1 text-xs text-muted">{heroName} · clique num item para usar, equipar ou jogar fora</p>
               <HungerBar name={heroName} value={save.heroHunger[heroName]} />
@@ -723,13 +751,13 @@ export function BackpackScreen({
                         : `${fed} comeram — rações não deram pros demais.`,
                   );
                 }}
-                className="h-9 px-3 rounded-md border border-border bg-bg text-xs"
+                className="h-9 px-3 ember-plate text-xs"
               >
                 Alimentar todos
               </button>
             )}
             {onOpenStatus && (
-              <button type="button" onClick={() => onOpenStatus(heroName)} className="h-9 px-3 rounded-md border border-border bg-bg text-xs">
+              <button type="button" onClick={() => onOpenStatus(heroName)} className="h-9 px-3 ember-plate text-xs">
                 Status
               </button>
             )}
@@ -738,7 +766,7 @@ export function BackpackScreen({
                 <button
                   type="button"
                   onClick={() => onHeroChange(availableHeroes[(availableHeroes.indexOf(heroName) - 1 + availableHeroes.length) % availableHeroes.length]!)}
-                  className="size-9 grid place-items-center rounded-md border border-border bg-bg"
+                  className="size-9 grid place-items-center ember-icon-btn"
                   aria-label="Personagem anterior"
                 >
                   <ChevronLeft className="size-4" />
@@ -746,18 +774,18 @@ export function BackpackScreen({
                 <button
                   type="button"
                   onClick={() => onHeroChange(availableHeroes[(availableHeroes.indexOf(heroName) + 1) % availableHeroes.length]!)}
-                  className="size-9 grid place-items-center rounded-md border border-border bg-bg"
+                  className="size-9 grid place-items-center ember-icon-btn"
                   aria-label="Próximo personagem"
                 >
                   <ChevronRight className="size-4" />
                 </button>
               </div>
             )}
-            <p className={`rounded-md border border-border bg-bg px-2.5 py-1.5 text-sm tabular-nums ${bagCount >= bagCapacity ? "text-danger" : "text-fg"}`}>
+            <p className={`ember-plate px-2.5 py-1.5 text-sm tabular-nums ${bagCount >= bagCapacity ? "text-danger" : "text-fg"}`}>
               {bagCount} / {bagCapacity}
             </p>
             {onSwitchToDoll && (
-              <button type="button" onClick={onSwitchToDoll} className="h-9 px-3 rounded-md border border-border bg-bg text-xs">
+              <button type="button" onClick={onSwitchToDoll} className="h-9 px-3 ember-plate text-xs">
                 Equipar
               </button>
             )}
@@ -771,7 +799,7 @@ export function BackpackScreen({
                 key={name}
                 type="button"
                 onClick={() => onHeroChange(name)}
-                className={`rounded-md border px-3 py-1.5 text-xs ${name === heroName ? "border-accent bg-accent/15 text-fg" : "border-border bg-bg/75 text-muted"}`}
+                className={`ember-plate px-3 py-1.5 text-xs ${name === heroName ? "is-accent" : "text-muted"}`}
               >
                 {name}
               </button>
@@ -781,7 +809,7 @@ export function BackpackScreen({
 
         <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-border shadow-inner">
           <div className="relative h-full overflow-y-auto p-4">
-            <p className="mb-2 text-xs uppercase tracking-[0.18em] text-muted">Itens da party</p>
+            <p className="mb-2 text-xs ember-kicker">Itens da party</p>
             <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8">
               {Array.from({ length: bagCapacity }, (_, index) => {
                 const entry = backpackEntries[index];
@@ -796,13 +824,13 @@ export function BackpackScreen({
                   </>
                 ) : null;
                 const slotClass = `relative flex aspect-square w-full items-center justify-center rounded-md border border-border/80 shadow-inner backdrop-blur-[2px] ${entry?.isWeapon ? "bg-black" : "bg-bg/70"}`;
-                if (entry && (entry.equip || entry.use || entry.discard)) {
+                if (entry && (entry.equip || entry.equipChoices?.length || entry.use || entry.discard)) {
                   const opened = entry;
                   return (
                     <ItemTip key={entry.key} text={entry.tip} className="block">
                       <button
                         type="button"
-                        onClick={() => setSheetEntry({ name: opened.name, icon: opened.icon, tip: opened.tip, equip: opened.equip, use: opened.use, discard: opened.discard })}
+                        onClick={() => setSheetEntry({ name: opened.name, icon: opened.icon, tip: opened.tip, equip: opened.equip, equipChoices: opened.equipChoices, use: opened.use, discard: opened.discard })}
                         className={`${slotClass} hover:border-accent`}
                         aria-label={opened.name}
                       >
@@ -822,7 +850,7 @@ export function BackpackScreen({
               })}
             </div>
 
-            <p className="mt-5 mb-2 text-xs uppercase tracking-[0.18em] text-muted">Poções e gazua de {heroName}</p>
+            <p className="mt-5 mb-2 text-xs ember-kicker">Poções e gazua de {heroName}</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {POTIONS.map((kind) => {
                 const count = bag[kind] ?? 0;
@@ -909,6 +937,7 @@ export function BackpackScreen({
           icon={sheetEntry.icon}
           tip={sheetEntry.tip}
           onEquip={sheetEntry.equip}
+          equipChoices={sheetEntry.equipChoices}
           onUse={sheetEntry.use}
           onDiscard={sheetEntry.discard}
           onClose={() => setSheetEntry(null)}
@@ -969,7 +998,7 @@ export function PartyInventoryOverlay({
   const [glowSlot, setGlowSlot] = useState<"mainHand" | EquipSlot | null>(null);
   const [view, setView] = useState<"equipment" | "backpack">(initialView);
   const [selectedHero, setSelectedHero] = useState(heroName);
-  const availableHeroes = ALL_HERO_NAMES.filter((name) => test || heroRecruited(name, save.completed));
+  const availableHeroes = ALL_HERO_NAMES.filter((name) => test || heroRecruited(name, save.completed, save.flags));
   const selectedClass = save.promotions[selectedHero] ?? HERO_BASE_CLASS[selectedHero] ?? classId;
   const glowTimer = useRef<number | null>(null);
   const flashGlow = (slot: "mainHand" | EquipSlot) => {

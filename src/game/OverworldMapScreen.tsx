@@ -1,45 +1,73 @@
+import { FORMATION_SLOTS, cleanPartyFormation, partyLeaderOf } from "./partyFormation";
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { BookOpen, Check, ChevronLeft, Lock, MapPin, SlidersHorizontal, Volume2, VolumeX, X, ZoomIn, ZoomOut } from "lucide-react";
+import { BookOpen, Check, ChevronLeft, Clock, Lock, MapPin, Save, SlidersHorizontal, Volume2, VolumeX, X, ZoomIn, ZoomOut } from "lucide-react";
 import { isCrossingDungeon, missionsForLocation } from "./mapstore";
 import type { EquipSlot, Mission, PotionId, SaveData, WorldLocation } from "./types";
 import { PartyInventoryOverlay } from "./InventoryScreens";
 import { CREATE_FOOD_AND_WATER, POTIONS, createFoodAndWaterFormula, createFoodAndWaterPower, heroRecruited, rulesClass, tierUses } from "./data";
-import { fullness } from "./hunger";
+import { fullness, travelHungerCost } from "./hunger";
 import { GoldAmount } from "./GoldAmount";
 import { getAudioVolumes, setCutsceneVolume, setMusicVolume, setSfxVolume, sfxPlay, unlockAudio } from "./audio";
-import { canStepOverworld, hexToWorld, isOverworldCell, locationExpired, neighborsOf, OVERWORLD_START_HEX, type OverworldEvent, worldToHex } from "./overworld";
+import { canStepOverworld, wispForestHex, wispForestUncleared, hexToWorld, isOverworldCell, locationExpired, neighborsOf, OVERWORLD_START_HEX, travelHoursForHex, travelTimeLabel, type OverworldEvent, worldToHex } from "./overworld";
 import { HungerBar } from "./HungerBar";
 import { portraitFor } from "./assets";
 import { key } from "./pathfinding";
 import { QUESTS, questProgress, questStatus } from "./quests";
 import { MapLoadingOverlay, useMapLoading } from "./MapLoadingOverlay";
+import { campaignHour, campaignTimeOfDay, usesTravelClock } from "./campaignTime";
+import { AFFINITY_HEROES, affinityBonus, affinityGrade, affinityScore, canUseAffinityDuo, canUseAffinityUltimate, type AffinityHero } from "./affinity";
 
 export type LocationStatus = "locked" | "available" | "done";
 
 const ZOOM_STOPS = [70, 90, 110, 130];
 
-/** Idle-breathing frames of the MC's own sprite (public/game/sprites/Kael_Final/kael-final-002),
- * the same art the battle engine plays as Kael — see assets.ts's "kaelFinal" entry. Only every
- * third of the 36 captured frames is used: plenty smooth at the size this renders (a small
- * JRPG-style overworld token), for a third of the image requests. */
-const KAEL_MARKER_FRAMES = Array.from({ length: 12 }, (_, i) => 1 + i * 3);
+/** Idle-breathing frames of the party leader's own battle sprite (Party menu; Kael by default:
+ * public/game/sprites/Kael_Final/kael-final-002, see assets.ts's "kaelFinal" entry). Only every
+ * third frame of a 36-frame idle is used: plenty smooth at the size this renders (a small
+ * JRPG-style overworld token), for a third of the image requests. Playback follows the
+ * battle idle's forward/backward clock before sampling those frames. Each sheet pads its figure
+ * differently, so height/drop (px) are measured per sheet to give every leader Kael's exact
+ * on-screen height (48px sheet, figure 98.3% of it) and the same feet line. */
+const LEADER_MARKER: Record<AffinityHero, { dir: string; idle: number; bust: string; height: number; drop: number }> = {
+  Kael: { dir: "Kael_Final/kael-final-002", idle: 36, bust: "?v=kael-final-002", height: 48, drop: 0 },
+  Neera: { dir: "neera", idle: 36, bust: "", height: 47.95, drop: 0.07 },
+  Voss: { dir: "voss", idle: 12, bust: "", height: 47.95, drop: 0.39 },
+  Salazar: { dir: "salazar", idle: 12, bust: "", height: 51.18, drop: 0.44 },
+  Aldric: { dir: "aldric", idle: 36, bust: "?v=aldric-final-001", height: 54.42, drop: 3.21 },
+  Malrec: { dir: "malrec", idle: 36, bust: "", height: 51.01, drop: 1.55 },
+};
 
-function KaelMarker({ facingLeft }: { facingLeft: boolean }) {
+function LeaderMarker({ hero, facingLeft }: { hero: AffinityHero; facingLeft: boolean }) {
+  const sheet = LEADER_MARKER[hero];
+  const frames = sheet.idle === 36 ? Array.from({ length: 12 }, (_, i) => 1 + i * 3) : Array.from({ length: sheet.idle }, (_, i) => 1 + i);
   const [frame, setFrame] = useState(0);
   useEffect(() => {
-    const id = window.setInterval(() => setFrame((f) => (f + 1) % KAEL_MARKER_FRAMES.length), 110);
+    // Match BattleEngine.idleFrame: long sheets run at n / 3 frames per second;
+    // short sheets complete a ping-pong cycle in 2.6 seconds. Malrec is 10% slower.
+    const cycle = sheet.idle * 2 - 2;
+    const pace = (sheet.idle >= 24 ? sheet.idle / 3 : cycle / 2.6) * (hero === "Malrec" ? 0.9 : 1);
+    const startedAt = performance.now();
+    setFrame(0);
+    const id = window.setInterval(() => {
+      const step = Math.floor((performance.now() - startedAt) / 1000 * pace) % cycle;
+      const sourceFrame = step < sheet.idle ? step : cycle - step;
+      setFrame(sheet.idle === 36 ? Math.floor(sourceFrame / 3) : sourceFrame);
+    }, 1000 / pace);
     return () => window.clearInterval(id);
-  }, []);
+  }, [hero, sheet.idle]);
   return (
     <img
-      src={`/game/sprites/Kael_Final/kael-final-002/${KAEL_MARKER_FRAMES[frame]}.png?v=kael-final-002`}
+      src={`/game/sprites/${sheet.dir}/${frames[frame % frames.length]}.png${sheet.bust}`}
       alt=""
       draggable={false}
-      className="h-12 w-auto object-contain select-none drop-shadow-[0_2px_3px_rgba(0,0,0,0.6)]"
-      style={{ transform: facingLeft ? "scaleX(-1)" : undefined }}
+      className="w-auto object-contain select-none drop-shadow-[0_2px_3px_rgba(0,0,0,0.6)]"
+      style={{ height: sheet.height, transform: `translateY(${sheet.drop}px)${facingLeft ? " scaleX(-1)" : ""}` }}
     />
   );
 }
+
+/** Portrait sprite per hero, same pairs as the party panel's own list. */
+const HERO_PORTRAIT_SPRITE = { Kael: "kaelFinal", Neera: "neera", Voss: "voss", Salazar: "salazar", Aldric: "aldric", Malrec: "conjurer" } as const;
 
 /** The RPG map: same background art and pan/zoom viewport as the classic map, but travel is
  * hex-by-hex instead of jumping straight to any unlocked location. The hex grid itself
@@ -81,6 +109,9 @@ export function OverworldMapScreen({
   onStep,
   onTeleport,
   onBack,
+  onSave,
+  onSaveFormation,
+  onSaveLeader,
   onPick,
 }: {
   locations: WorldLocation[];
@@ -128,12 +159,38 @@ export function OverworldMapScreen({
    * clock and rations stay visible and testable even in test mode. */
   onTeleport?: (col: number, row: number) => void;
   onBack: () => void;
+  onSave?: () => void;
+  /** Saves the formation board and reports whether it really landed (read back from the save). */
+  onSaveFormation?: (order: string[]) => { ok: boolean; test: boolean };
+  /** Party menu: saves the hero who walks the world map and free-roam maps. */
+  onSaveLeader?: (hero: string) => void;
   onPick: (missionId: string) => void;
 }) {
   const [open, setOpen] = useState<WorldLocation | null>(null);
+  const travelCost = (col: number, row: number) => travelTimeLabel(travelHoursForHex(col, row, locations));
+  const timeOfDay = usesTravelClock(save) ? campaignTimeOfDay(campaignHour(save)) : "day";
+  const skyTint = timeOfDay === "darkNight" ? "rgba(8,15,45,0.55)" : timeOfDay === "brightNight" ? "rgba(20,35,75,0.35)" : timeOfDay === "dawn" || timeOfDay === "dusk" ? "rgba(190,90,40,0.18)" : "rgba(0,0,0,0)";
   const [questLogOpen, setQuestLogOpen] = useState(false);
+  const [affinityOpen, setAffinityOpen] = useState(false);
+  const partyHeroes = AFFINITY_HEROES.filter(hero => test || heroRecruited(hero, save.completed, save.flags));
+  const leader = partyLeaderOf(save.partyLeader, (hero) => test || heroRecruited(hero, save.completed, save.flags));
+  const [formationOrder, setFormationOrder] = useState<string[]>([]);
+  // Formation map: the slot picked first, waiting for a second click to swap with.
+  const [formationPick, setFormationPick] = useState<number | null>(null);
+  // Result of the last "Salvar formação": confirmed only after the save is read back.
+  const [formationSaved, setFormationSaved] = useState<null | "saved" | "test" | "failed">(null);
+  useEffect(() => {
+    if (affinityOpen) {
+      // The Type 7 board: saved cells in place (party members only), newcomers into the first free cell.
+      const saved = cleanPartyFormation(save.partyFormation);
+      const cells = Array.from({ length: FORMATION_SLOTS }, (_, i) => (saved[i] && partyHeroes.includes(saved[i] as typeof partyHeroes[number]) ? saved[i]! : ""));
+      for (const hero of partyHeroes) if (!cells.includes(hero)) { const free = cells.indexOf(""); if (free >= 0) cells[free] = hero; }
+      setFormationOrder(cells);
+      setFormationPick(null);
+    }
+  }, [affinityOpen, save.partyFormation]);
   const [movementOpen, setMovementOpen] = useState(false);
-  const [confirmVau, setConfirmVau] = useState(false);
+
   const [inventoryHero, setInventoryHero] = useState<string | null>(null);
   const stepLock = useRef(false);
   useEffect(() => {
@@ -150,7 +207,10 @@ export function OverworldMapScreen({
     return () => window.removeEventListener("keydown", cancel);
   }, []);
   const [artOk, setArtOk] = useState(true);
-  const mapLoading = useMapLoading();
+  const mapLoading = useMapLoading("/game/assets/world-map.jpg");
+  useEffect(() => {
+    if (mapLoading.failed) setArtOk(false);
+  }, [mapLoading.failed]);
   const [flashId, setFlashId] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [zoomIdx, setZoomIdx] = useState(ZOOM_STOPS.length - 1);
@@ -255,16 +315,18 @@ export function OverworldMapScreen({
   const reachable = useMemo(() => {
     const set = new Set<string>();
     set.add(key(overworldPos.col, overworldPos.row));
-    for (const n of neighborsOf(overworldPos.col, overworldPos.row)) set.add(key(n.x, n.y));
+    for (const n of neighborsOf(overworldPos.col, overworldPos.row)) {
+      if (canStepOverworld(save, { x: overworldPos.col, y: overworldPos.row }, n, test)) set.add(key(n.x, n.y));
+    }
     return set;
-  }, [overworldPos.col, overworldPos.row]);
+  }, [overworldPos.col, overworldPos.row, save, test]);
 
   const wildDots = useMemo(
     () =>
       neighborsOf(overworldPos.col, overworldPos.row)
         .filter((n) => isOverworldCell(n.x, n.y) && canStepOverworld(save, { x: overworldPos.col, y: overworldPos.row }, n, test))
         .map((n) => ({ ...n, world: hexToWorld(n.x, n.y) })),
-    [overworldPos.col, overworldPos.row, test],
+    [overworldPos.col, overworldPos.row, save, test],
   );
 
   // Standing exactly on a location's hex snaps the marker to that location's own authored
@@ -282,6 +344,7 @@ export function OverworldMapScreen({
   // other travel restriction on this map.
   const exploredSet = useMemo(() => new Set(save.exploredHexes ?? []), [save.exploredHexes]);
   const isExplored = (loc: WorldLocation) => {
+    if (!save.completed.includes("vau") && loc.id === "stonebridge") return true;
     if (test || loc.id === "estalagem" || loc.id === standingOn?.id) return true;
     const h = worldToHex(loc.x, loc.y);
     return exploredSet.has(key(h.x, h.y));
@@ -291,14 +354,9 @@ export function OverworldMapScreen({
    * single dot the party stood on. */
   const FOG_REVEAL_RADIUS = 9;
 
-  // Standing at the western edge with O Vau still unfought — clicking Kael here has nothing
-  // to walk to (canStepOverworld keeps that edge closed until Vau is won) and nowhere to open
-  // a chapter list either, so it asks outright instead of just toggling an empty move prompt.
-  const atStartPreVau =
-    !test && !save.completed.includes("vau") && overworldPos.col === OVERWORLD_START_HEX.x && overworldPos.row === OVERWORLD_START_HEX.y;
-
   const walkTo = (col: number, row: number) => {
     if (!movementOpen || stepLock.current || !isOverworldCell(col, row)) return;
+    if (!canStepOverworld(save, { x: overworldPos.col, y: overworldPos.row }, { x: col, y: row }, test)) return;
     stepLock.current = true;
     setMovementOpen(false);
     onStep(col, row);
@@ -306,15 +364,6 @@ export function OverworldMapScreen({
     // list open on its own. The pin now reads as "standing here" (see standingOn) and
     // waits for its own click, same as any other pin, so arriving never yanks a panel
     // over the map before the player has looked around.
-    //
-    // One scripted exception: Bosque Morto is an ambush, not a chapter the player opts into
-    // from a list — it finds the party the moment they set out from the ford, so their very
-    // first step after O Vau (and before Bosque is played) launches it directly, no click
-    // needed. Never in test mode: testing needs to walk and map every hex freely, not get
-    // funneled into a forced battle.
-    if (!test && save.completed.includes("vau") && !save.completed.includes("bosque")) {
-      onPick("bosque");
-    }
   };
 
   const enterLocation = (loc: WorldLocation, st: LocationStatus) => {
@@ -345,36 +394,52 @@ export function OverworldMapScreen({
       <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 30% 20%, #241f19 0%, #0c0b0a 70%)" }} />
 
       <header className="relative z-20 flex items-center gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-4 flex-wrap">
-        <button type="button" onClick={onBack} className="size-10 grid place-items-center rounded-md border border-border bg-bg/70" aria-label="Voltar">
+        <button type="button" onClick={onBack} className="size-10 grid place-items-center ember-icon-btn" aria-label="Voltar">
           <ChevronLeft className="size-5" />
         </button>
         <div className="flex-1 min-w-0">
-          <p className="text-sm uppercase tracking-[0.18em] text-muted">{test ? "Modo teste" : "Campanha"} · RPG</p>
-          <h1 className="font-display text-3xl leading-none">Mapa</h1>
+          <p className="text-sm ember-kicker">{test ? "Modo teste" : "Campanha"} · RPG</p>
+          <h1 className="font-display text-3xl leading-none ember-title">Mapa</h1>
         </div>
+        <button type="button" onClick={() => { setFormationSaved(null); setAffinityOpen(true); }} aria-haspopup="dialog" aria-expanded={affinityOpen} className="h-9 ember-plate px-2.5 text-xs sm:text-sm">Party</button>
         <button
           type="button"
           onClick={() => setQuestLogOpen(true)}
           aria-label="Registro de missões"
-          className="h-10 inline-flex items-center gap-2 rounded-md border border-border bg-bg/70 px-3 text-sm"
+          className="h-10 inline-flex items-center gap-2 ember-plate px-3 text-sm"
         >
           <BookOpen className="size-4" />
           <span>Missões</span>
         </button>
-        <p className="text-sm text-muted border border-border rounded-md px-2 py-1 bg-bg/70">Dia <span className="text-fg tabular-nums">{gameClock}</span></p>
-        <p className="text-sm text-muted border border-border rounded-md px-2 py-1 bg-bg/70">Rações <span className="text-fg tabular-nums">{rations}</span></p>
+        {!test && onSave && (
+          <button
+            type="button"
+            onClick={onSave}
+            aria-label="Salvar jogo em outro slot"
+            title="Salvar jogo"
+            className="h-9 inline-flex items-center gap-1.5 ember-plate px-2.5 text-xs sm:text-sm"
+          >
+            <Save className="size-3.5" />
+            <span>Salvar</span>
+          </button>
+        )}
+        <p aria-label="Relógio do jogo" aria-live="polite" className="inline-flex items-center gap-2 text-sm text-muted ember-plate px-2 py-1">
+          <Clock aria-hidden className="size-4" />
+          <span>Dia <span className="text-fg tabular-nums">{gameClock} · {String(campaignHour(save)).padStart(2, "0")}:00</span></span>
+        </p>
+        <p className="text-sm text-muted ember-plate px-2 py-1">Rações <span className="text-fg tabular-nums">{rations}</span></p>
         {hungerStreak > 0 && (
-          <p className="text-sm border rounded-md px-2 py-1 bg-bg/70 border-danger/60 text-danger">
+          <p className="text-sm ember-plate px-2 py-1 text-danger">
             Fome <span className="tabular-nums">{hungerStreak}d</span>
           </p>
         )}
         {onUseRationAll && (
           <button
             type="button"
-            className="h-9 px-3 rounded-md border border-border bg-bg/70 text-sm"
+            className="h-9 px-3 ember-plate text-sm"
             onClick={() => {
               const heroes = (["Kael", "Neera", "Voss", "Salazar", "Aldric", "Malrec"] as const).filter(
-                (name) => test || heroRecruited(name, save.completed),
+                (name) => test || heroRecruited(name, save.completed, save.flags),
               );
               const fed = onUseRationAll(heroes);
               showHint(
@@ -401,11 +466,11 @@ export function OverworldMapScreen({
               <img src="/game/icons/field-spells.png" alt="" draggable={false} className="block h-full w-full object-cover" />
             </button>
             {fieldSpellsOpen && (
-              <div className="absolute right-0 top-full mt-2 w-72 rounded-md border border-border bg-bg/95 p-3 flex flex-col gap-2 shadow-lg shadow-bg/40 z-20">
-                <p className="text-xs uppercase tracking-[0.14em] text-muted">Feitiços de campo</p>
+              <div className="absolute right-0 top-full mt-2 w-72 ember-plate p-3 flex flex-col gap-2 z-20">
+                <p className="text-xs ember-kicker">Feitiços de campo</p>
                 {(() => {
                   const healers = (["Kael", "Neera", "Voss", "Salazar", "Aldric", "Malrec"] as const).filter((name) => {
-                    if (!(test || heroRecruited(name, save.completed))) return false;
+                    if (!(test || heroRecruited(name, save.completed, save.flags))) return false;
                     if ((save.unitHp[name] ?? 1) <= 0) return false;
                     const classId = save.promotions[name] ?? { Kael: "swordsman", Neera: "archer", Voss: "mage", Salazar: "healer", Aldric: "aldric", Malrec: "conjurer" }[name];
                     return rulesClass(classId) === "healer";
@@ -428,7 +493,7 @@ export function OverworldMapScreen({
                         <button
                           type="button"
                           disabled={disabled}
-                          className="h-8 px-2 rounded-md border border-border bg-bg/70 text-xs disabled:opacity-40"
+                          className="h-8 px-2 ember-plate text-xs disabled:opacity-40"
                           onClick={() => {
                             const ok = onCastCreateFoodAndWater(name);
                             showHint(ok ? `${name} restaurou a fome.` : "Não foi possível lançar.");
@@ -444,21 +509,21 @@ export function OverworldMapScreen({
             )}
           </div>
         )}
-        <button type="button" onClick={onMute} className="size-9 grid place-items-center rounded-md border border-border bg-bg/70" aria-label="Som">
+        <button type="button" onClick={onMute} className="size-9 grid place-items-center ember-icon-btn" aria-label="Som">
           {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
         </button>
         <div className="relative">
           <button
             type="button"
             onClick={() => setAudioSettingsOpen((o) => !o)}
-            className="size-9 grid place-items-center rounded-md border border-border bg-bg/70"
+            className="size-9 grid place-items-center ember-icon-btn"
             aria-label="Volumes"
             aria-expanded={audioSettingsOpen}
           >
             <SlidersHorizontal className="size-4" />
           </button>
           {audioSettingsOpen && (
-            <div className="absolute right-0 top-full mt-2 w-64 rounded-md border border-border bg-bg/95 p-3 flex flex-col gap-3 shadow-lg shadow-bg/40 z-20">
+            <div className="absolute right-0 top-full mt-2 w-64 ember-plate p-3 flex flex-col gap-3 z-20">
               <label className="flex flex-col gap-1.5">
                 <span className="flex items-center justify-between text-xs uppercase tracking-[0.14em] text-muted">
                   Música <span className="tabular-nums text-fg">{Math.round(audioLevels.music * 100)}%</span>
@@ -521,7 +586,7 @@ export function OverworldMapScreen({
                     unlockAudio();
                     sfxPlay.magicAttack();
                   }}
-                  className="h-8 px-3 rounded-md border border-border bg-bg/70 text-xs uppercase tracking-[0.1em]"
+                  className="h-8 px-3 ember-plate text-xs uppercase tracking-[0.1em]"
                 >
                   Testar
                 </button>
@@ -529,12 +594,12 @@ export function OverworldMapScreen({
             </div>
           )}
         </div>
-        <p className="text-sm text-muted border border-border rounded-md px-2 py-1 bg-bg/70"><GoldAmount amount={ember} /></p>
+        <p className="text-sm text-muted ember-plate px-2 py-1"><GoldAmount amount={ember} /></p>
       </header>
 
       <div
         ref={viewportRef}
-        className={`relative z-10 flex-1 min-h-0 overflow-auto overscroll-contain touch-pan-x touch-pan-y select-none ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
+        className="relative z-10 flex-1 min-h-0 overflow-auto overscroll-contain touch-pan-x touch-pan-y select-none cursor-default"
         style={{ WebkitOverflowScrolling: "touch" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -544,13 +609,13 @@ export function OverworldMapScreen({
         onClickCapture={onClickCapture}
       >
         <div className="relative inline-block m-2" style={{ width: artOk ? `${ZOOM_STOPS[zoomIdx]}%` : undefined }}>
-          {artOk ? (
+          {artOk && mapLoading.imageSrc ? (
             <img
-              src="/game/assets/world-map.jpg"
+              src={mapLoading.imageSrc}
               alt=""
               className="block w-full h-auto rounded-lg select-none"
               draggable={false}
-              onError={() => { setArtOk(false); mapLoading.finish(); }}
+              onError={() => { setArtOk(false); mapLoading.fail(); }}
               onLoad={() => {
                 recenterOn(centerFracRef.current.x, centerFracRef.current.y);
                 window.requestAnimationFrame(() => window.requestAnimationFrame(mapLoading.finish));
@@ -559,6 +624,7 @@ export function OverworldMapScreen({
           ) : (
             <div className="w-[70dvw] h-[70dvh] max-w-md" />
           )}
+          {artOk && usesTravelClock(save) && <div aria-hidden className="pointer-events-none absolute inset-0 transition-colors duration-[1500ms]" style={{ backgroundColor: skyTint }} />}
           {artOk && !test && (
             // Fog of war: dark everywhere except a soft radius around every hex the party
             // has ever stood on (see exploredSet above). Test mode skips this like it skips
@@ -599,13 +665,15 @@ export function OverworldMapScreen({
               // gives it. A walkable (adjacent) pin still walks normally even in test mode,
               // so the day-clock/rations math stays visible and testable there too; only a
               // distant pin gets the free teleport.
-              const isReachable = test || walkable;
+              const openingVau = !test && !save.completed.includes("vau") && loc.id === "stonebridge";
+              const isReachable = test || walkable || openingVau;
               const expired = locationExpired(loc, gameClock);
               return (
                 <button
                   key={loc.id}
                   type="button"
                   onClick={() => {
+                    if (openingVau) { onPick("vau"); return; }
                     if (loc.id === standingOn?.id) { enterLocation(loc, st); return; }
                     if (walkable) { walkTo(hex.x, hex.y); return; }
                     if (!isReachable) {
@@ -657,52 +725,173 @@ export function OverworldMapScreen({
                 onClick={() => walkTo(dot.x, dot.y)}
                 className="overworld-step absolute -translate-x-1/2 -translate-y-1/2"
                 style={{ left: `${dot.world.x}%`, top: `${dot.world.y}%`, width: `${Math.sqrt(3) * 5}%`, height: "10%" }}
-                aria-label={`Andar para ${dot.x}, ${dot.y} · 1 dia`}
+                title={`Saciedade: −${travelHungerCost(travelHoursForHex(dot.x, dot.y, locations))}`}
+                aria-label={`Andar para ${dot.x}, ${dot.y} · ${travelCost(dot.x, dot.y)} · saciedade −${travelHungerCost(travelHoursForHex(dot.x, dot.y, locations))}`}
               >
-                <span>1 dia</span>
+                <span>{travelCost(dot.x, dot.y)}</span>
               </button>
             ))}
 
-            {/* The party's own marker — a tiny idle Kael, sliding hex to hex as the party
-                steps (the transition is what reads as "movement": there's no walk-cycle art
-                for this sprite, just the idle loop, so distance covered does the talking). */}
+            {/* The party's own marker — the leader's tiny idle sprite, sliding hex to hex as
+                the party steps (the transition is what reads as "movement": there's no
+                walk-cycle art in use here, just the idle loop, so distance covered does the talking). */}
             <button
               type="button"
-              aria-label={atStartPreVau ? "Entrar na missão" : "Mover Kael"}
+              aria-label={`Mover ${leader}`}
               aria-expanded={movementOpen}
               onClick={() => {
-                if (atStartPreVau) {
-                  setConfirmVau(true);
-                  return;
-                }
                 setMovementOpen((value) => !value);
               }}
               className="absolute z-20 -translate-x-1/2 -translate-y-full min-w-11 min-h-11 transition-all duration-500 ease-in-out focus-visible:outline-2 focus-visible:outline-accent"
               style={{ left: `${partyWorld.x}%`, top: `${partyWorld.y}%` }}
             >
-              <KaelMarker facingLeft={facingLeft} />
+              <LeaderMarker hero={leader} facingLeft={facingLeft} />
             </button>
           </div>
         </div>
       </div>
 
+      {affinityOpen && (
+        <div className="absolute inset-0 z-40 ember-veil flex items-center justify-center p-4" onClick={(event) => { if (event.target === event.currentTarget) setAffinityOpen(false); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="party-title" className="relative flex max-h-[82dvh] w-full max-w-3xl flex-col overflow-hidden ember-panel">
+            <header className="flex items-start justify-between gap-3 border-b border-[#6b5238]/60 p-4">
+              <div>
+                <p className="text-xs ember-kicker">Grupo · {partyHeroes.length} {partyHeroes.length === 1 ? "membro" : "membros"} · Líder: {leader}</p>
+                <h2 id="party-title" className="mt-1 font-display text-2xl ember-title">Party</h2>
+              </div>
+              <button type="button" onClick={() => setAffinityOpen(false)} aria-label="Fechar Party" className="grid size-9 place-items-center ember-icon-btn">
+                <X className="size-4" />
+              </button>
+            </header>
+            <div className="overflow-y-auto p-4">
+              <div className="flex flex-col gap-4">
+                <section aria-label="Líder do grupo">
+                  <h3 className="mb-2 text-sm ember-kicker">Líder do grupo</h3>
+                  <div className="ember-slot p-3">
+                    <p className="mb-3 text-sm text-muted">O líder anda pelo mapa e pelas áreas livres. Em conversas e outras situações, a afinidade do líder com o grupo cresce mais rápido quanto mais baixa ela estiver.</p>
+                    <div className="flex flex-wrap gap-2">
+                      {partyHeroes.map(hero => (
+                        <button key={hero} type="button" disabled={test} aria-pressed={leader === hero} onClick={() => onSaveLeader?.(hero)}
+                          className={`ember-slot flex w-16 flex-col items-center gap-1 p-1.5 text-xs disabled:opacity-60 ${leader === hero ? "is-last text-accent" : ""}`}>
+                          <img src={portraitFor(HERO_PORTRAIT_SPRITE[hero]).src} alt="" style={{ objectPosition: portraitFor(HERO_PORTRAIT_SPRITE[hero]).position }} className="h-12 w-10 rounded object-cover" />
+                          {hero}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+                <section aria-label="Formação inicial">
+                  <h3 className="mb-2 text-sm ember-kicker">Formação inicial</h3>
+                  <div className="ember-slot p-3">
+                    <p className="mb-3 text-sm text-muted">A linha de frente começa nas posições mais próximas do inimigo; a retaguarda, nas mais distantes. Clique em duas casas para trocá-las de lugar (vale a casa vazia). Mapas com aberturas perigosas ou posições especiais preservam sua formação própria.</p>
+                    <div className="mb-3 flex flex-wrap items-center gap-3">
+                      <button type="button" className="h-11 px-5 ember-btn ember-btn-primary text-sm" onClick={() => { const result = onSaveFormation?.(formationOrder); setFormationSaved(!result ? "failed" : !result.ok ? "failed" : result.test ? "test" : "saved"); }}>Salvar formação</button>
+                      {formationSaved === "saved" && <span role="status" className="text-sm text-accent">✓ Formação salva — conferida no arquivo do save.</span>}
+                      {formationSaved === "test" && <span role="status" className="text-sm text-accent">✓ Formação salva nesta sessão de teste (o modo teste nunca grava no save real).</span>}
+                      {formationSaved === "failed" && <span role="alert" className="text-sm text-danger">Não foi possível salvar a formação. Tente de novo.</span>}
+                    </div>
+                    {(() => {
+                      // Radius-2 board (rows 3-4-5-4-3, center cell 10) — cells numbered front to back.
+                      const cells = Array.from({ length: FORMATION_SLOTS }, (_, i) => formationOrder[i] ?? "");
+                      const rows = [
+                        { label: "Frente", slots: [0, 1, 2] },
+                        { label: "", slots: [3, 4, 5, 6] },
+                        { label: "Meio", slots: [7, 8, 9, 10, 11] },
+                        { label: "", slots: [12, 13, 14, 15] },
+                        { label: "Retaguarda", slots: [16, 17, 18] },
+                      ].map(row => ({ label: row.label, slots: row.slots.map(slot => ({ hero: cells[slot]!, slot })) }));
+                      const hex = "polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%)";
+                      const pick = (slot: number) => {
+                        if (formationPick === null) return setFormationPick(slot);
+                        const from = formationPick;
+                        setFormationPick(null);
+                        if (from === slot || (!cells[from] && !cells[slot])) return;
+                        setFormationOrder(cells.map((hero, i) => (i === from ? cells[slot]! : i === slot ? cells[from]! : hero)));
+                        setFormationSaved(null);
+                      };
+                      return (
+                        <div role="group" aria-label="Mapa da formação" className="mb-3 flex flex-col items-center">
+                          <p className="mb-1 text-xs ember-kicker">Inimigo ▲</p>
+                          <div className="flex flex-col">
+                            {rows.map((row, r) => (
+                              <div key={r} className={`flex items-center gap-1 ${r ? "-mt-5" : ""}`}>
+                                <span className="w-20 shrink-0 pr-2 text-right text-xs ember-kicker">{row.label}</span>
+                                {row.slots.length < 5 && <span aria-hidden="true" className="shrink-0" style={{ width: (5 - row.slots.length) * 44 }} />}
+                                {row.slots.map(({ hero, slot }) => !hero ? (
+                                  <button key={slot} type="button" aria-pressed={formationPick === slot} aria-label={`${row.label}, posição ${slot + 1}: vazia`} onClick={() => pick(slot)}
+                                    className="grid h-[96px] w-[84px] place-items-center"
+                                    style={{ clipPath: hex, background: formationPick === slot ? "#d9621c" : "rgba(190, 150, 95, 0.25)" }}>
+                                    <span className="flex h-[92px] w-[80px] flex-col items-center justify-center gap-0.5 text-[11px] leading-none text-muted" style={{ clipPath: hex, background: "linear-gradient(180deg, #0e0b09, #060504)" }}>
+                                      <span>vazia</span>
+                                      <span className="tabular-nums">{slot + 1}</span>
+                                    </span>
+                                  </button>
+                                ) : (
+                                  <button key={slot} type="button" aria-pressed={formationPick === slot} aria-label={`${row.label}, posição ${slot + 1}: ${hero}`} onClick={() => pick(slot)}
+                                    className="grid h-[96px] w-[84px] place-items-center"
+                                    style={{ clipPath: hex, background: formationPick === slot ? "#d9621c" : "rgba(190, 150, 95, 0.45)" }}>
+                                    <span className="flex h-[92px] w-[80px] flex-col items-center justify-center gap-0.5 text-[11px] leading-none" style={{ clipPath: hex, background: "linear-gradient(180deg, #0e0b09, #060504)", color: formationPick === slot ? "#ffe0b4" : "#e2c294" }}>
+                                      <img src={portraitFor(HERO_PORTRAIT_SPRITE[hero as AffinityHero]).src} alt="" style={{ objectPosition: portraitFor(HERO_PORTRAIT_SPRITE[hero as AffinityHero]).position }} className="h-10 w-9 rounded object-cover" />
+                                      <span>{hero}</span>
+                                      <span className="text-muted tabular-nums">{slot + 1}</span>
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </section>
+                <section aria-label="Afinidades">
+                  <h3 className="mb-2 text-sm ember-kicker">Afinidades</h3>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {partyHeroes.map(a => (
+                      <article key={a} aria-label={`Afinidades de ${a}`} className="ember-slot p-3">
+                        <h4 className="mb-2 font-display text-lg leading-tight ember-title">{a}</h4>
+                        {partyHeroes.filter(b => b !== a).map(b => {
+                          const points = affinityScore(save.affinityScores, a, b);
+                          return <div key={`${a}-${b}`} className="mb-3 last:mb-0">
+                            <div className="flex justify-between gap-2 text-sm"><span>{b}</span><span className="text-muted tabular-nums">{affinityGrade(points)} · {points.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}/100</span></div>
+                            <div role="progressbar" aria-label={`Afinidade de ${a} com ${b}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={points} className="my-1 h-1.5 overflow-hidden rounded-full bg-border">
+                              <div className="h-full bg-accent" style={{ width: `${Math.max(0, Math.min(100, points))}%` }} />
+                            </div>
+                            <AffinityBonusHelp points={points} duo={canUseAffinityDuo(save.affinityScores, a, b)} />
+                          </div>;
+                        })}
+                        {partyHeroes.length < 2 && <p className="text-sm text-muted">As afinidades aparecerão quando outro personagem entrar no grupo.</p>}
+                      </article>
+                    ))}
+                  </div>
+                  {partyHeroes.flatMap((a, i, heroes) => heroes.slice(i + 1).flatMap((b, j) => heroes.slice(i + j + 2).filter(c => canUseAffinityUltimate(save.affinityScores, [a, b, c])).map(c => <p key={`${a}-${b}-${c}`} className="mt-2 text-sm text-accent">Ultimate disponível: {a} + {b} + {c}</p>)))}
+                  <p className="mt-2 text-xs text-muted">25: +2% · 50: +5% · 80: skill de dupla · 90: +8% · 100 nas três relações: Ultimate de trio</p>
+                </section>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
       {hint && (
-        <div className="absolute z-30 top-24 left-1/2 -translate-x-1/2 bg-bg/90 border border-border rounded-md px-3 py-1.5 text-xs text-fg">
+        <div className="absolute z-30 top-24 left-1/2 -translate-x-1/2 ember-plate px-3 py-1.5 text-xs">
           {hint}
         </div>
       )}
 
       <div className="map-party-panel absolute z-20 bottom-4 left-4 rounded-lg border border-border p-3 max-w-[calc(100%-6rem)]">
         <p className="text-xs text-muted mb-2" aria-live="polite">
-          {atStartPreVau ? "Clique em Kael para entrar na missão" : movementOpen ? "Escolha um hexágono · 1 dia" : "Clique em Kael para mover"}
+          {!test && wispForestUncleared(save) && overworldPos.col === wispForestHex()?.x && overworldPos.row === wispForestHex()?.y
+            ? "Limpe a Wisp Forest para poder seguir viagem para o leste."
+            : movementOpen ? "Escolha um hexágono · o tempo depende do terreno" : `Clique em ${leader} para mover`}
         </p>
         <div className="flex gap-3">
-          {([['Kael', 'kaelFinal'], ['Neera', 'neera'], ['Voss', 'voss'], ['Salazar', 'salazar'], ['Aldric', 'aldric'], ['Malrec', 'conjurer']] as const).filter(([name]) => test || heroRecruited(name, save.completed)).map(([name, sprite]) => (
+          {([['Kael', 'kaelFinal'], ['Neera', 'neera'], ['Voss', 'voss'], ['Salazar', 'salazar'], ['Aldric', 'aldric'], ['Malrec', 'conjurer']] as const).filter(([name]) => test || heroRecruited(name, save.completed, save.flags)).map(([name, sprite]) => (
             <div key={name} className="w-10" title={name}>
               <button type="button" aria-label={`Inventário de ${name}`} onClick={() => setInventoryHero(name)} className="min-h-11">
                 <img src={portraitFor(sprite).src} alt={name} style={{ objectPosition: portraitFor(sprite).position }} className="w-10 h-12 object-cover rounded" />
               </button>
-              <HungerBar name={name} value={heroHunger[name]} />
+              <HungerBar name={name} value={heroHunger[name]} travel />
             </div>
           ))}
         </div>
@@ -711,44 +900,18 @@ export function OverworldMapScreen({
 
       {event && (
         <div className="absolute inset-0 z-40 ember-veil flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Evento da viagem">
-          <div className="w-full max-w-sm bg-surface border border-border rounded-lg px-5 py-4 text-sm text-fg shadow-lg shadow-bg/40">
+          <div className="relative w-full max-w-sm ember-panel px-5 py-4 text-sm">
             <p>{event.text}</p>
-            <button type="button" onClick={onDismissEvent} className="mt-4 h-11 w-full rounded-md border border-border bg-bg text-sm font-medium">
+            <button type="button" onClick={onDismissEvent} className="mt-4 h-11 w-full ember-btn ember-btn-primary text-sm">
               OK
             </button>
           </div>
         </div>
       )}
 
-      {confirmVau && (
-        <div className="absolute inset-0 z-40 ember-veil flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Entrar na missão">
-          <div className="w-full max-w-sm bg-surface border border-border rounded-lg px-5 py-4 text-sm text-fg shadow-lg shadow-bg/40">
-            <p className="font-display text-xl text-center mb-4">Entrar na missão?</p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setConfirmVau(false)}
-                className="h-11 flex-1 rounded-md border border-border bg-bg text-sm font-medium"
-              >
-                Não
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setConfirmVau(false);
-                  onPick("vau");
-                }}
-                className="h-11 flex-1 rounded-md border border-accent bg-accent/20 text-sm font-medium"
-              >
-                Sim
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {artOk && (
-        <div className="absolute z-20 bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 flex flex-col gap-1 bg-bg/85 border border-border rounded-lg p-1">
+        <div className="absolute z-20 bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 flex flex-col gap-1 ember-plate p-1">
           <button
             type="button"
             onClick={() => {
@@ -845,13 +1008,13 @@ function QuestLogPanel({ save, onClose }: { save: SaveData; onClose: () => void 
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <section role="dialog" aria-modal="true" aria-labelledby="quest-log-title" className="flex max-h-[82dvh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
-        <header className="flex items-start justify-between gap-3 border-b border-border p-4">
+      <section role="dialog" aria-modal="true" aria-labelledby="quest-log-title" className="relative flex max-h-[82dvh] w-full max-w-2xl flex-col overflow-hidden ember-panel">
+        <header className="flex items-start justify-between gap-3 border-b border-[#6b5238]/60 p-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-muted">Estalagem · {completed.length}/{QUESTS.length} concluídas</p>
-            <h2 id="quest-log-title" className="mt-1 font-display text-2xl">Registro de missões</h2>
+            <p className="text-xs ember-kicker">Estalagem · {completed.length}/{QUESTS.length} concluídas</p>
+            <h2 id="quest-log-title" className="mt-1 font-display text-2xl ember-title">Registro de missões</h2>
           </div>
-          <button type="button" onClick={onClose} className="grid size-9 place-items-center rounded-md border border-border" aria-label="Fechar registro de missões">
+          <button type="button" onClick={onClose} className="grid size-9 place-items-center ember-icon-btn" aria-label="Fechar registro de missões">
             <X className="size-4" />
           </button>
         </header>
@@ -859,16 +1022,16 @@ function QuestLogPanel({ save, onClose }: { save: SaveData; onClose: () => void 
           <div className="flex flex-col gap-4">
             {sections.map(({ title, list, empty }) => (
               <section key={title}>
-                <h3 className="mb-2 text-sm font-semibold uppercase tracking-[0.12em] text-muted">{title} · {list.length}</h3>
+                <h3 className="mb-2 text-sm ember-kicker">{title} · {list.length}</h3>
                 <div className="flex flex-col gap-2">
-                  {list.length === 0 && <p className="rounded-lg border border-border bg-bg/60 p-3 text-sm text-muted">{empty}</p>}
+                  {list.length === 0 && <p className="ember-slot p-3 text-sm text-muted">{empty}</p>}
                   {list.map(({ quest, status }) => {
                     const { have, total } = questProgress(save, quest);
                     return (
-                      <article key={quest.id} className="rounded-lg border border-border bg-bg/60 p-3">
+                      <article key={quest.id} className="ember-slot p-3">
                         <div className="flex items-center gap-2">
                           {status === "done" ? <Check className="size-4 shrink-0 text-accent" /> : <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-accent" />}
-                          <h4 className="min-w-0 flex-1 font-display text-lg leading-tight">{quest.title}</h4>
+                          <h4 className="min-w-0 flex-1 font-display text-lg leading-tight ember-title">{quest.title}</h4>
                           <span className="shrink-0 text-xs text-muted">{status === "done" ? "Concluída" : status === "ready" ? "Entregar" : "Em andamento"}</span>
                         </div>
                         <p className="mt-1 pl-6 text-sm text-muted">
@@ -923,10 +1086,10 @@ function LocationPanel({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-md max-h-[80dvh] overflow-y-auto bg-surface/95 border border-border rounded-xl p-5">
+      <div className="relative w-full max-w-md max-h-[80dvh] overflow-y-auto ember-panel p-5">
         <div className="flex items-start justify-between gap-3 mb-4">
-          <p className="font-display text-xl leading-tight">{location.name}</p>
-          <button type="button" onClick={onClose} className="size-8 grid place-items-center rounded-md border border-border" aria-label="Fechar">
+          <p className="font-display text-xl leading-tight ember-title">{location.name}</p>
+          <button type="button" onClick={onClose} className="size-8 grid place-items-center ember-icon-btn" aria-label="Fechar">
             <X className="size-4" />
           </button>
         </div>
@@ -936,7 +1099,7 @@ function LocationPanel({
             const optionalCrossing = st === "done" && isCrossingDungeon(m);
             return (
               <li key={m.id}>
-                <div className="rounded-xl border border-border bg-surface p-3">
+                <div className="ember-slot p-3">
                   <button
                     type="button"
                     disabled={optionalCrossing}
@@ -953,22 +1116,22 @@ function LocationPanel({
                       st === "locked" ? `opacity-40 ${m.id === flashId ? "locked-flash" : ""}` : optionalCrossing ? "cursor-default" : ""
                     }`}
                   >
-                    <p className="text-sm uppercase tracking-[0.16em] text-muted flex items-center gap-1.5">
+                    <p className="text-sm ember-kicker flex items-center gap-1.5">
                       {st === "locked" && <Lock className="size-3" />}
                       {st === "done" && <Check className="size-3 text-accent" />}
                       {String(i + 1).padStart(2, "0")} · {m.place}
                       {st === "done" ? " · feito" : ""}
                     </p>
-                    <p className="font-display text-2xl">{m.title}</p>
+                    <p className="font-display text-2xl ember-title">{m.title}</p>
                     <p className="text-base text-muted">{m.objective}</p>
                     {optionalCrossing && <p className="mt-2 text-sm text-accent">Travessia concluída · escolha como seguir</p>}
                   </button>
                   {optionalCrossing && (
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button type="button" onClick={onPassThrough} className="min-h-10 rounded-lg border border-border px-3 text-sm font-medium hover:bg-surface-2">
+                      <button type="button" onClick={onPassThrough} className="min-h-10 ember-btn ember-btn-sm ember-btn-ghost px-3 text-sm">
                         Passar sem entrar
                       </button>
-                      <button type="button" onClick={() => onPick(m.id)} className="min-h-10 rounded-lg bg-accent px-3 text-sm font-semibold text-bg hover:brightness-110">
+                      <button type="button" onClick={() => onPick(m.id)} className="min-h-10 ember-btn ember-btn-sm ember-btn-primary px-3 text-sm">
                         Explorar de novo
                       </button>
                     </div>
@@ -982,4 +1145,23 @@ function LocationPanel({
       </div>
     </div>
   );
+}
+
+function AffinityBonusHelp({ points, duo }: { points: number; duo: boolean }) {
+  const [open, setOpen] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const show = () => { if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => setOpen(true), 500); };
+  const hide = () => { if (timer.current) clearTimeout(timer.current); timer.current = null; setOpen(false); };
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  return <div className="relative" onMouseEnter={show} onMouseLeave={hide}>
+    <button type="button" className="text-xs text-muted text-left" aria-label="Ajuda dos bônus de afinidade" aria-expanded={open} onFocus={show} onBlur={hide} onClick={() => { if (timer.current) clearTimeout(timer.current); setOpen(value => !value); }}>
+      Bônus por adjacência: +{Math.round(affinityBonus(points) * 100)}% ⓘ{duo ? " · Skill de dupla desbloqueada" : ""}
+    </button>
+    {open && <div role="tooltip" className="absolute top-full left-0 z-50 mt-1 w-64 max-w-[70vw] rounded-lg border border-border bg-surface p-3 shadow-xl text-xs text-fg">
+      <p className="mb-2">Quando dois aliados ficam em hexes adjacentes, a afinidade aumenta ataque, magia, defesa e resistência. Vale o maior bônus entre os aliados ao lado.</p>
+      <p>25 pontos: +2% · 50 pontos: +5% · 90 pontos: +8%.</p>
+      <p className="mt-2">80 pontos libera a skill de dupla. A Ultimate de trio exige 100 pontos entre cada um dos três pares. As habilidades serão criadas depois.</p>
+      <p className="mt-2">Ação adjacente: +0,1. Cura ou poção em um aliado: +1 adicional. Dano colateral de magia ou skill: −1. Resposta de diálogo: +3, 0 ou −3.</p>
+    </div>}
+  </div>;
 }

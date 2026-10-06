@@ -6,11 +6,19 @@
     "thebridge"
   ],
   "wisp-forest": [
-    "wisp-forest-crossing",
-    "wisp-forest-2"
+    "wisp-forest-crossing"
   ],
   "estalagem": [
     "estalagem"
+  ],
+  "ashen-forest": [
+    "ashen-forest-crossing"
+  ],
+  "cemetery": [
+    "cemiterio-esquecidos"
+  ],
+  "watchtower": [
+    "watchtower-gate-floor"
   ],
   "ruins": [
     "muralha",
@@ -23,13 +31,15 @@
     "passagem",
     "profundezas"
   ],
-  "cemetery": [
-    "cemiterio-esquecidos"
-  ],
   "misty-cave": [
     "vertente",
     "portao",
-    "misty-cave-dungeon",
     "deep-mist"
+  ],
+  "mordavian-woods": [
+    "mordavian-woods"
+  ],
+  "frozen-swamp": [
+    "frozen-swamp-crossing-1"
   ]
 }

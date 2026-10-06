@@ -1,4 +1,8 @@
-import { tacticalGridStyle, GRID_ROUTE, GRID_MOVE } from "../../tacticalGrid";
+import { ThreeTrees } from "./ThreeTrees";
+import { vauBackdropBounds } from "../../vauBackdrop";
+import { MagicMissileForeground } from "./MagicMissileForeground";
+import { BARRICADE_LIKE_DECOR } from "../../data";
+import { tacticalGridStyleQuiet as tacticalGridStyle, GRID_ROUTE, GRID_MOVE, GRID_ENEMY_TARGET, GRID_ENEMY_GLOW } from "../../tacticalGrid";
 /** MILESTONE 1 (done) — terrain, ground/behind-layer decorations, and animated unit sprites all
  * render through a real Three.js scene instead of the Canvas2D-shim WebGL renderer, as the first
  * slice of migrating the battlefield to a genuine spatial rendering environment (see the
@@ -39,18 +43,27 @@ import { tacticalGridStyle, GRID_ROUTE, GRID_MOVE } from "../../tacticalGrid";
  * only the intermediate Three.js coordinates carry the flip, nothing outside this file does. */
 
 import * as THREE from "three";
+import { isHexGroundVariant } from "../../assets";
+import { drawGroundTexture, drawHexGround, GROUND_TEXTURE_INSET, GROUND_TEXTURE_SPAN } from "../../hexGround";
+import { configureWallDepth, createWallGeometry } from "./ThreeWalls";
+import { lightTacticsMaterial, tacticsProp } from "./ThreeTacticsGeometry";
+import { buildLandscape, type LandscapeSurface } from "./ThreeLandscape";
+import { mapFloorRects } from "../../mapFloor";
+import { decorationPlacementArt } from "../../data";
+import { ThreeWater } from "./ThreeWater";
+import { ThreeElevationSteps } from "./ThreeElevationSteps";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { WEB_SHOT_TRAVEL, type BattleEngine, type BurningHandsV2VfxRequest, type CleaveVfxRequest, type MagicMissileV2VfxRequest, type VarreduraVfxRequest } from "../../engine";
-import { BIG_HOUSE_DECOR_IDS, BLESS, CHEST_DECOR_IDS, DECOR_ART_SCALE, DECORATIONS, HOUSE_ART_SCALE, HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, TERRAIN, decorationFacing, decorationImage, decorationImageRetryWebp, placedFootprint } from "../../data";
-import { footprint, footprintFrontRow, hexNeighbors, tileAt } from "../../pathfinding";
+import { WEB_SHOT_TRAVEL, ZOOM_RADII, type BattleEngine, type BurningHandsV2VfxRequest, type CleaveVfxRequest, type MagicMissileV2VfxRequest, type VarreduraVfxRequest } from "../../engine";
+import { BIG_HOUSE_DECOR_IDS, BLESS, CHEST_DECOR_IDS, DECOR_ART_SCALE, DECORATIONS, HOUSE_ART_SCALE, HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, TERRAIN, decorationFacing, decorationImage, decorationImageRetryWebp, isBossClass, placedFootprint } from "../../data";
+import { footprint, footprintFrontRow, hexNeighbors, tileAt, unitSize } from "../../pathfinding";
 import type { DecorationDef, DecorationPlacement, ElementalFxPlacement, MapTimeOfDay, TerrainId } from "../../types";
 import { GroundAO, type AoOccluder } from "./ThreeGroundAO";
 import { FOG_EXPLORED, FOG_UNSEEN, FOG_VISIBLE, FogMask } from "./ThreeFogMask";
-import { LIGHT_DECAY, LIGHT_DEFS, LIGHT_RADIUS_MUL, UNIT_LIGHT_DEFS, flickerAt, type EnvLight, type LightDef } from "../../lighting";
+import { BOUNCE_FRACTION, BOUNCE_HEIGHT, BOUNCE_RADIUS_MUL, LIGHT_DECAY, LIGHT_DEFS, LIGHT_RADIUS_MUL, MAP_LIGHT_DECAY, MAP_LIGHT_MIN_HEIGHT, UNIT_LIGHT_DEFS, flickerAt, type EnvLight, type LightDef } from "../../lighting";
 import { ThreeAtmosphere } from "./ThreeAtmosphere";
 import { decorationAnchor } from "../decorationAnchor";
 import { FireballVFX } from "./FireballVFX";
@@ -63,9 +76,10 @@ import { BurningHandsV2VFX, getActiveBurningHandsV2Settings } from "./BurningHan
 import { OldFireBall } from "./OldFireBall";
 import { getDevGfx } from "./devGfx";
 import { pixelPreset, ProceduralElementEmitter, type PixelElement } from "./ProceduralElementEmitter";
-import { CleaveSweepVFX, VarreduraVFX } from "./VarreduraVFX";
+import { CleaveSweepVFX, VarreduraVFX, type VfxLightPool } from "./VarreduraVFX";
 
 const SQRT3 = Math.sqrt(3);
+const SPELL_VFX_LAYER = MagicMissileForeground.layer;
 /** Must match BattleEngine's private boardPad() (tile * 2.4) — duplicated here rather than
  * exposed because it's one number, not worth widening engine.ts's public surface for. */
 const BOARD_PAD_MUL = 2.4;
@@ -79,11 +93,13 @@ const UNIT_SHADOW_HEIGHT_SCALE = 0.85;
 const DECOR_SHADOW_HEIGHT_SCALE = 0.9;
 
 /** renderOrder floor for a decoration drawn in front of the ground-mist atmosphere sheets
- * (GroundMist2/3 use renderOrder 10-12, GroundMist4 uses 10 flat — see ThreeAtmosphere.ts).
+ * (GroundMist2/3/4 now draw at 1.5-1.7, under the units — see ThreeAtmosphere.ts).
  * Those materials render with depthTest disabled, so they paint over anything behind them by
  * draw order alone; a prop that must read through the mist (any LIGHT_DEFS light source, or a
  * DecorationDef.aboveGroundMist prop) needs a renderOrder safely above that range instead. */
 const ABOVE_GROUND_MIST_ORDER = 15;
+// Authored scenery above fog must also follow Fog 01 (101) and Fog 5 (101+).
+const ABOVE_FOG_SCENERY_ORDER = 110;
 
 /** How far BELOW the ground plane (z=0) every standing shadow-caster's base now extends, world
  * units. The caster's base sits exactly AT z=0 — coplanar with the ground mesh it casts onto —
@@ -97,7 +113,9 @@ const ABOVE_GROUND_MIST_ORDER = 15;
  * was. Not a bias fix — this is geometry-only, per direct instruction to leave `bias`/`normalBias`
  * alone. Units and decorations get their OWN value each (not one shared constant) — sharing one
  * and bumping it for units visibly broke decorations, since they don't have the same proportions. */
-const UNIT_SHADOW_GROUND_INSET = 3;
+const UNIT_SHADOW_GROUND_INSET = 0.5;
+const SHADOW_UP_AXIS = new THREE.Vector3(0, 0, 1);
+const STANDING_SHADOW_CARD = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
 const DECOR_SHADOW_GROUND_INSET = 3;
 
 /** Direction the sun travels (not where it sits) — X/Y chosen so a shadow cast from height H
@@ -172,6 +190,11 @@ function hexWorld(col: number, row: number, tile: number): { wx: number; wy: num
   };
 }
 
+/** Architecture uses aligned columns, allowing straight rectangular rooms over the board. */
+function architectureWorld(col: number, row: number, tile: number): { wx: number; wy: number } {
+  return { wx: tile * SQRT3 * (col + 0.5), wy: tile * BOARD_PAD_MUL + tile * (1.5 * row + 1) };
+}
+
 /** Pointy-top hex fan (center + 6 rim vertices + 6 triangles), radius 0.5 so scaling by
  * tile*2 matches Canvas2D's hexPath(ctx, cx, cy, tile*1.0) exactly — same vertex angles
  * (60*i-30 degrees), Y negated to compensate for local Y=+0.5 landing at the screen TOP in
@@ -234,6 +257,8 @@ interface TileMeshEntry {
  * a mismatch here means a prop is sized differently on the two renderers, not a crash, so it
  * won't show up as a type error — check against drawDecorations if a prop looks off. */
 function decorSize(id: string, def: DecorationDef, tile: number): { w: number; h: number; dy: number } {
+  if (def.propModel && !def.propModel.startsWith("tavern-")) return decorSize(def.propModel === "grey-outcrop" ? "rocky-outcrop" : def.propModel, DECORATIONS[def.propModel === "grey-outcrop" ? "rocky-outcrop" : def.propModel]!, tile);
+  if (def.treeModel) return { w: tile * 3.2, h: tile * 4.8, dy: 0 };
   let minDx = 0;
   let maxDx = 0;
   let minDy = 0;
@@ -282,7 +307,8 @@ function decorSize(id: string, def: DecorationDef, tile: number): { w: number; h
                 ? tile * 1.65
                 : tile * (1.5 * (maxDy - minDy) + 2.3);
   const h = baseH * (def.heightScale ?? 1);
-  const dy = waypoint ? 0 : (tree ? -tile * 0.55 : wall ? -tile * 0.12 : anyHouse ? -tile * 0.28 * 3 : item ? tile * 0.08 : 0) - (h - baseH) * 0.42;
+  // Chests use the hex's ground anchor directly; a per-item nudge displaced them off-center.
+  const dy = waypoint ? 0 : (tree ? -tile * 0.55 : wall ? -tile * 0.12 : anyHouse ? -tile * 0.28 * 3 : 0) - (h - baseH) * 0.42;
   // Global art scale (see DECOR_ART_SCALE), grown from the bottom edge so the base stays put.
   const s = waypoint ? 1 : (anyHouse ? HOUSE_ART_SCALE : DECOR_ART_SCALE) * (def.artScale ?? 1);
   return { w: w * s, h: h * s, dy: dy - (h * (s - 1)) / 2 };
@@ -298,7 +324,7 @@ const SHADOW_RADIUS_SOFT = 4;
  * orthographic billboards (no depth relationship between sprite and ground to sample), so this
  * is a per-object ground decal sized from the art's own opaque base (see artBase) — transparent
  * sprite pixels never count as contact, and one object's decal can never darken another object
- * (decals sit at z=0.51, under every sprite/prop).
+ * (decals sit just above the floor; true 3D surfaces depth-occlude them).
  * W: decal width as a multiple of the measured opaque base width (a little spill past the edge).
  * H: decal height as a fraction of its width (ground seen at the board's 3/4 angle).
  * OPACITY: peak darkening at the contact point — a multiply, so 0.75 keeps 25% of the ground's
@@ -307,6 +333,8 @@ const CONTACT_SHADOW_W = 1.4;
 const CONTACT_SHADOW_H = 0.5;
 const CONTACT_SHADOW_OPACITY = 0.75;
 const CONTACT_SHADOW_MAX_W = 0.6;
+/** Ground decals sit just above the floor so any real 3D wall or prop depth-occludes them. */
+const CONTACT_SHADOW_Z = 0.15;
 /** Absolute cap on decal height, in hex radii — keeps a wide base (wall, log) from growing a
  * deep oval that reaches far in front of/behind the contact line. */
 const CONTACT_SHADOW_MAX_H = 0.5;
@@ -320,7 +348,15 @@ const CONTACT_SHADOW_FORWARD = 0.2;
  * the light count into every lit shader); unused ones sit at intensity 0. No castShadow yet —
  * shadows are a separate, later decision. */
 const POINT_LIGHT_POOL = 8;
-const HEALING_SPELL_GLOW_KINDS = new Set(["holyMinor", "holyMedium", "disease", "food"]);
+/** Bounce-fill lights (see BOUNCE_FRACTION): a fixed pool given to the map lights nearest the
+ * view, so the per-fragment light count stays bounded however many lamps a map carries. */
+const BOUNCE_LIGHT_POOL = 8;
+/** Lights shared by per-cast effects — see ThreeBattleRenderer.vfxLights. */
+const VFX_LIGHT_POOL = 4;
+/** Spare room in the fixed point-light budget (see balanceLightCount) for spell lights. */
+const LIGHT_BUDGET_HEADROOM = 6;
+const SHADOW_LIGHT_BUDGET_HEADROOM = 3;
+const HEALING_SPELL_GLOW_KINDS = new Set(["holyMinor", "healingHands", "holyMedium", "disease", "food"]);
 /** Rim-glow canvas size relative to the sprite (room for the blur to spread). */
 const GLOW_PAD = 1.7;
 /** How much brighter than its own art a sprite (character or decoration, light props included)
@@ -329,6 +365,12 @@ const GLOW_PAD = 1.7;
 const SPRITE_LIGHT_CAP = 1.35;
 /** Shared cap for every decoration material; units each carry their own (hit flash lifts it). */
 const DECOR_LIGHT_CAP = { value: SPRITE_LIGHT_CAP };
+/** Light cap for SELF_LIT_UNITS: never brighter than their own art. */
+const SELF_LIT_UNIT_CAP = 1;
+/** Light-emitting creatures, drawn under SELF_LIT_UNIT_CAP instead of the sprite cap: their own
+ * carried light (UNIT_LIGHT_DEFS) dulled/washed out their colors instead of enhancing them, and
+ * a creature that emits light shouldn't be lit by it. Rule, per request: every familiar. */
+const SELF_LIT_UNITS = new Set<string>(["familiar", "familiar2", "familiar3", "familiar4"]);
 
 /** 2.5D perspective between characters and props: whoever stands on the nearer row (lower on
  * screen) covers whoever stands further back, whatever layer either is drawn in. Each sprite
@@ -353,19 +395,51 @@ function occluderMaterial(map: THREE.Texture | null): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({ map, alphaTest: OCCLUDER_ALPHA, colorWrite: false, depthWrite: true });
 }
 
-/** Clamps a lit sprite's final color to `cap` times its own art — see SPRITE_LIGHT_CAP. */
+/** Sprites are flat cards facing the camera, so a lamp on either side lit them the same.
+ * For map point lights only, each sprite is shaded as if it were rounded side to side: its
+ * normal turns toward screen left/right across its width, by up to this much at the edges
+ * (0 = flat card), so the side facing the lamp is brighter than the side away from it. The sun,
+ * moon and sky keep the flat normal, so daytime/ambient sprite exposure is unchanged. */
+const SPRITE_NORMAL_BEND = 0.5;
+/** Three's lights_fragment_begin with only the point-light loop using the sprite's bent normal. */
+const SPRITE_LIGHTS_FRAGMENT = (() => {
+  const chunk = THREE.ShaderChunk.lights_fragment_begin;
+  const start = chunk.indexOf("#if ( NUM_POINT_LIGHTS > 0 ) && defined( RE_Direct )");
+  const end = start < 0 ? -1 : chunk.indexOf("#pragma unroll_loop_end", start);
+  const call = "RE_Direct( directLight, geometryPosition, geometryNormal,";
+  if (end < 0 || !chunk.slice(start, end).includes(call)) return chunk;
+  return chunk.slice(0, start) + chunk.slice(start, end).replace(call, "RE_Direct( directLight, geometryPosition, spriteBentNormal,") + chunk.slice(end);
+})();
+
+/** Clamps a lit sprite's final color to `cap` times its own art — see SPRITE_LIGHT_CAP — and
+ * bends its normal for point lights (see SPRITE_NORMAL_BEND). */
 function capSpriteLight(material: THREE.MeshLambertMaterial, cap: { value: number }): void {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.spriteLightCap = cap;
+    // Which side of the card this fragment is on, in world terms (a mirrored sprite has a
+    // negative x scale, so its uv.x runs right-to-left on screen).
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying float vSpriteSide;")
+      .replace("#include <uv_vertex>", "#include <uv_vertex>\nvSpriteSide = ( uv.x - 0.5 ) * ( modelMatrix[ 0 ][ 0 ] < 0.0 ? -1.0 : 1.0 );");
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform float spriteLightCap;")
+      .replace("#include <common>", "#include <common>\nuniform float spriteLightCap;\nvarying float vSpriteSide;")
+      .replace(
+        "#include <lights_fragment_begin>",
+        `vec3 spriteBentNormal = normalize( vec3( vSpriteSide * 2.0 * ${SPRITE_NORMAL_BEND.toFixed(3)}, 0.0, 1.0 ) );\n${SPRITE_LIGHTS_FRAGMENT}`,
+      )
       .replace("#include <envmap_fragment>", "outgoingLight = min(outgoingLight, sampledDiffuseColor.rgb * spriteLightCap);\n#include <envmap_fragment>");
   };
   material.customProgramCacheKey = () => "spriteLightCap";
 }
-/** How many of the pool (always the lights nearest the view) cast real cube-map shadows.
- * 0 per the user's pick: the fire's clean round light pool, without its own cube shadow. */
-const POINT_SHADOW_LIGHTS = 0;
+/** How many of the pool (always the lights nearest the view) cast real cube-map shadows: the
+ * hidden proxy volumes (PROXY_LAYER) of props and characters block the lamp's light, so a
+ * tombstone or a character throws its shadow away from the flame. Each one re-renders the
+ * proxies six times per frame, so only the nearest few; the rest stay unshadowed. */
+const POINT_SHADOW_LIGHTS = 2;
+/** Point-shadow camera near plane, in hex radii. At the old fixed 2 world px the cube shadow
+ * map drew a stray dark line straight through every shadowed light's foot (measured on a lone
+ * brazier with nothing to cast); 6–12 px (~0.2–0.35 hex) removes it. Scaled by zoom. */
+const POINT_SHADOW_NEAR = 0.2;
 /** Render layer of the hidden 3D proxy volumes (a box per prop, an upright cylinder per
  * character): the physical shapes map lights hit and are blocked by. The main camera and the
  * sun's shadow camera never see this layer — the art stays what the player sees and the sun
@@ -377,6 +451,36 @@ const PROXY_LAYER = 3;
 const GROUND_BASE_IRRADIANCE = 4.9;
 /** Fraction of an image's height, measured up from its lowest opaque row, that counts as "the
  * base touching the ground" (feet, paws, trunk, wall foot). */
+
+/** Flame halo: a soft additive glow in the air around every light prop's flame, standing in
+ * for the haze that makes a real lamp read as light spreading. Radius is this fraction of the
+ * light's reach (LightDef.radius, hex radii); HALO_STRENGTH is its peak additive opacity at
+ * night, scaled down by HALO_DAYLIGHT in daylight and HALO_TWILIGHT at dawn/dusk. */
+const HALO_RADIUS_FRACTION = 0.45;
+const HALO_STRENGTH = 0.55;
+const HALO_DAYLIGHT = 0.35;
+const HALO_TWILIGHT = 0.7;
+
+/** White radial glow, alpha (1 - r²)³: a soft core that fades to exactly zero at the rim. */
+function makeFlameHaloTexture(): THREE.CanvasTexture {
+  const size = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d")!;
+  const img = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (x + 0.5) / (size / 2) - 1;
+      const dy = (y + 0.5) / (size / 2) - 1;
+      const k = Math.max(0, 1 - (dx * dx + dy * dy));
+      const i = (y * size + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+      img.data[i + 3] = Math.round(255 * k * k * k);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return new THREE.CanvasTexture(c);
+}
 
 /** Falloff mask shared by every contact decal. Alpha only — the material (see
  * makeContactShadowMaterial) multiplies the ground by (1 - alpha), so the color channels are
@@ -405,17 +509,33 @@ function makeContactShadowTexture(): THREE.CanvasTexture {
 /** dst * (1 - srcAlpha): can only darken what is already on the ground, never lighten or tint it.
  * The previous alpha-blended dark-grey gradient measured as LIGHTENING dark grass by up to +45
  * luminance (a grey film, not a shadow) — its "dark" color landed mid-grey after output encoding. */
-function makeContactShadowMaterial(map: THREE.Texture): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({
+function makeContactShadowMaterial(map: THREE.Texture): THREE.MeshLambertMaterial {
+  const material = new THREE.MeshLambertMaterial({
     map,
     opacity: CONTACT_SHADOW_OPACITY,
     transparent: true,
+    side: THREE.DoubleSide,
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -4,
     blending: THREE.CustomBlending,
     blendEquation: THREE.AddEquation,
     blendSrc: THREE.ZeroFactor,
     blendDst: THREE.OneMinusSrcAlphaFactor,
   });
+  material.onBeforeCompile = (shader) => {
+    const mask = THREE.ShaderChunk.shadowmask_pars_fragment
+      .replace("receiveShadow ? getShadow( directionalShadowMap", "receiveShadow && dot(directionalLights[ i ].color, vec3(1.0)) > 0.001 ? getShadow( directionalShadowMap")
+      .replace("receiveShadow ? getPointShadow( pointShadowMap", "receiveShadow && dot(pointLights[ i ].color, vec3(1.0)) > 0.001 ? getPointShadow( pointShadowMap")
+      .replace("directionalLight.shadowBias,", "max(-0.00005, directionalLight.shadowBias * 0.03),");
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <shadowmap_pars_fragment>",
+      `#include <shadowmap_pars_fragment>\n${mask}`,
+    ).replace("#include <opaque_fragment>", "diffuseColor.a *= getShadowMask();\n#include <opaque_fragment>");
+  };
+  material.customProgramCacheKey = () => "contact-gap-only-v1";
+  return material;
 }
 
 /** Where an image's opaque art actually meets the ground, normalized to the image (u across,
@@ -492,6 +612,8 @@ interface DecorMeshEntry {
   proxy: THREE.Mesh | null;
   /** Environmental light this prop emits (LIGHT_DEFS), at its flame; world pixels, y-down. */
   light: { x: number; y: number; h: number; def: LightDef; seed: number } | null;
+  /** Additive glow around the flame (see HALO_STRENGTH); null for props that emit no light. */
+  halo: THREE.Mesh | null;
   /** Houses only: invisible depth-only copy of the art, drawn just before the fog-of-war sheet
    * so the fog skips the house's pixels — a house always shows at full strength. */
   fogCut: THREE.Mesh | null;
@@ -520,7 +642,7 @@ interface UnitMeshEntry {
   /** Dev Controls "contact shadows" footprint — owned per unit (its opacity tracks this unit's
    * own fade/lift); the gradient texture itself is shared (contactShadowTexture). */
   contactMesh: THREE.Mesh;
-  contactMaterial: THREE.MeshBasicMaterial;
+  contactMaterial: THREE.MeshLambertMaterial;
   /** Smoothed decal center/width in world units — the base is re-measured from each animation
    * frame, so this eases between frames instead of snapping (null until first placed). */
   contactFit: { dx: number; dy: number; w: number } | null;
@@ -536,11 +658,14 @@ interface UnitMeshEntry {
 export class ThreeBattleRenderer {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
+  private readonly spellVfxScene = new THREE.Group();
   private fireballVfx: FireballVFX | null = null;
   private causticVenomVfx: CausticVenomVFX | null = null;
   private phantasmalForceVfx: PhantasmalForceVFX | null = null;
   private blessVfx: BlessVFX | null = null;
   private magicMissileV2Vfx: MagicMissileV2VFX | null = null;
+  private magicMissileForeground: MagicMissileForeground | null = null;
+  private magicMissileForegroundCanvas: HTMLCanvasElement | null = null;
   private webOfDreamsVfx: WebOfDreamsVFX | null = null;
   private readonly burningHandsVfx: BurningHandsV2VFX[] = [];
   private readonly pixelElementEmitters: { placement: ElementalFxPlacement; emitter: ProceduralElementEmitter }[] = [];
@@ -554,6 +679,25 @@ export class ThreeBattleRenderer {
   private readonly tavernFireball = new OldFireBall(LIGHT_DECAY);
   private disposed = false;
   private camera: THREE.OrthographicCamera;
+  private cameraRight = new THREE.Vector3(1, 0, 0);
+  private cameraUp = new THREE.Vector3(0, 1, 0);
+  private cameraGroundDown = new THREE.Vector3(0, -1, 0);
+  private cameraBack = new THREE.Vector3(0, 0, 1);
+  private cameraSpriteScale = 1;
+  private unitUp = new THREE.Vector3(0, 1, 0);
+  private unitFacing = new THREE.Quaternion();
+  private shadowFootOffset = new THREE.Vector3();
+  private terrainSolid: THREE.Mesh | null = null;
+  private terrainSolidKey = "";
+  private water = new ThreeWater();
+  private waterKey = "";
+  private elevationSteps = new ThreeElevationSteps();
+  private elevationStepsKey = "";
+  private landscape: LandscapeSurface | null = null;
+  private landscapeTexture: THREE.CanvasTexture | null = null;
+  private landscapeMaterial: THREE.MeshLambertMaterial | null = null;
+  private terrainRevision = 0;
+  private cliffMaterial: THREE.MeshStandardMaterial | null = null;
   private tileGroup = new THREE.Group();
   private tileMeshes = new Map<number, TileMeshEntry>();
   // A camera-locked, cover-cropped copy of BattleEngine.renderGround's painted backdrop.
@@ -580,6 +724,26 @@ export class ThreeBattleRenderer {
   private fogMask = new FogMask();
   /** Real point lights for map light sources (see POINT_LIGHT_POOL / syncLights). */
   private pointLights: THREE.PointLight[] = [];
+  /** Wide, dim bounce fill for the nearest map lights (see BOUNCE_LIGHT_POOL / syncLights). */
+  private bounceLights: THREE.PointLight[] = [];
+  /** Lights per-cast effects (Cleave, Sweep) borrow, so the scene's light count never changes
+   * mid-battle — a change there recompiles every lit material on screen (the spell stall). */
+  private readonly vfxLightPool: THREE.PointLight[] = [];
+  private readonly vfxLights: VfxLightPool = {
+    take: (color, distance, decay) => {
+      const light = this.vfxLightPool.find((l) => l.userData.vfxFree) ?? new THREE.PointLight();
+      light.userData.vfxFree = false;
+      light.color.setHex(color);
+      light.distance = distance;
+      light.decay = decay;
+      light.intensity = 0;
+      return light;
+    },
+    give: (light) => {
+      light.intensity = 0;
+      if (this.vfxLightPool.includes(light)) light.userData.vfxFree = true;
+    },
+  };
   /** One real spell light follows the active holy-heal target; the approved holy-light art
    * remains on the units canvas unchanged. */
   private healingSpellLight = new THREE.PointLight(0xfff4d2, 0, 1, LIGHT_DECAY);
@@ -589,6 +753,11 @@ export class ThreeBattleRenderer {
   private proxyMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
   /** Every lit sprite material (decorations + unit billboards) — see syncSpriteExposure. */
   private litSpriteMats = new Set<THREE.MeshLambertMaterial>();
+  /** Unit billboards need exposure compensation for their changing camera-facing normal. */
+  private unitSpriteMats = new Set<THREE.MeshLambertMaterial>();
+  /** Local lamp light gets a much higher sprite ceiling after daylight fades, so it can light
+   * nearby scenery and units instead of brightening only the ground beneath the source. */
+  private currentSpriteLightCap = SPRITE_LIGHT_CAP;
   private hexGeo = buildHexGeometry();
   private focusBorderGeo = buildHexBorder(0.47);
   private builtCols = -1;
@@ -643,7 +812,11 @@ export class ThreeBattleRenderer {
   // (see decorShadowMaterialFor's own comment), so it can't just reuse the visible material.
   private decorShadowMatCache = new Map<string, THREE.MeshBasicMaterial>();
   private decorFogCutMatCache = new Map<string, THREE.MeshBasicMaterial>();
+  private trees = new ThreeTrees();
   private decorEntries: DecorMeshEntry[] = [];
+  private wallEntries: { mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>; shadowMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>; placement: DecorationPlacement }[] = [];
+  private wallGroup = new THREE.Group();
+  private wallTextures = new Map<string, THREE.Texture>();
   private builtDecorKey = "";
 
   // Movement/attack/spell-range highlight + the active-turn ring (see
@@ -653,11 +826,13 @@ export class ThreeBattleRenderer {
   // so this lands the highlight visually ABOVE terrain but BELOW decorations and units (z=2+)
   // for free, the same depth trick tiles/decor/units already rely on — a blocking house or a
   // unit standing on a highlighted hex always stays legible instead of the highlight's tint
-  // painting over it. Pooled rather than rebuilt (see syncOverlay): the highlighted set rarely
-  // changes frame to frame, only its glow pulse does, well below this — which skips the pulse
-  // entirely and just uses each layer's flat fill alpha (see boardOverlayLayers' own comment on
-  // why that's the part that matters, not the canvas-only shadowBlur halo).
+  // painting over it. The flat fill and its soft radial halo use separate pooled meshes in
+  // syncOverlay, with the halo just behind the cell fill.
   private overlayGroup = new THREE.Group();
+  /** Soft red glow beneath enemy target cells. */
+  private gridGlowGroup = new THREE.Group();
+  private gridGlowMeshes: THREE.Mesh[] = [];
+  private gridGlowMatCache = new Map<string, THREE.MeshBasicMaterial>();
   /** Summoning portals (BattleEngine.drawPortalFxLayer), painted each frame they're open onto
    * a portal-sized canvas (see portalFxBounds) and shown as a ground layer at z=0.55 — above the board overlay,
    * below decorations and units — so a familiar stepping out stands in front of its portal. */
@@ -679,7 +854,10 @@ export class ThreeBattleRenderer {
   // BattleEngine.renderUnitsAndOverlays' skipUnitSprites param) — only the character sprite art
   // itself moves here.
   private unitGroup = new THREE.Group();
-  /** Contact-shadow footprints (z=0.51 — above tiles/overlay, below decorations and units).
+  /** Flame halos (see HALO_STRENGTH), in the air behind the props and units around them. */
+  private flameHaloGroup = new THREE.Group();
+  private flameHaloTexture = makeFlameHaloTexture();
+  /** Contact-shadow footprints sit just above the ground; wall depth can occlude them.
    * Deliberately NOT tied to unitGroup's visibility: BattleCanvas hides the Three unit sprites
    * (units draw on the Canvas2D top layer), but these are ground marks, so they stay here. */
   private contactShadowGroup = new THREE.Group();
@@ -697,13 +875,55 @@ export class ThreeBattleRenderer {
   /** Blurred white silhouettes for the rim glow, built on first use per frame image. */
   private glowTexCache = new Map<HTMLImageElement, THREE.Texture>();
   private unitEntries = new Map<string, UnitMeshEntry>();
+  private unitDrawPositions = new Map<string, { x: number; y: number }>();
+  private architectureFxMaskKey = "";
+  private architectureFxMaskUri: string | null = null;
 
   /** The elemental-FX canvas is intentionally between the ground renderer and the visual
-   * actors/props canvas. Keep Three's copies of sprites and decorations off the ground canvas
-   * whenever that compositing path is active, otherwise an authored effect can cover them. */
+   * actors/props canvas. Toggle the two Three-owned layers independently: sprites must move
+   * above FX whenever it is active, while architectural decorations may need their scene depth. */
   setSpritesAndDecorationsVisible(unitsVisible: boolean, decorationsVisible = unitsVisible): void {
     this.unitGroup.visible = unitsVisible;
     this.decorGroup.visible = decorationsVisible;
+  }
+
+  hasArchitecture(): boolean {
+    return this.engine.decorations.some(p => !!DECORATIONS[p.id]?.model3d);
+  }
+
+  /** Water FX is a screen-space layer, so keep its broad quads off tactical buildings. */
+  waterFxTouchesArchitecture(col: number, row: number, radiusTiles = 1): boolean {
+    const source = this.engine.effectAnchor(col, row);
+    const fxRadius = source.tile * radiusTiles;
+    return this.engine.decorations.some(placement => {
+      if (!DECORATIONS[placement.id]?.model3d) return false;
+      const cells = placedFootprint(placement);
+      return cells.some(cell => {
+        const anchor = this.engine.effectAnchor(placement.x + cell.dx, placement.y + cell.dy);
+        return Math.hypot(source.worldX - anchor.worldX, source.worldY - anchor.worldY) < fxRadius + source.tile * 0.45;
+      });
+    });
+  }
+
+  /** Editor edits replace gameplay data while retaining shaders, textures and targets. */
+  setPreviewEngine(engine: BattleEngine): void {
+    const previous = this.engine;
+    const groundChanged = previous.cols !== engine.cols || previous.rows !== engine.rows ||
+      previous.tiles.some((id, i) => id !== engine.tiles[i] || previous.tileVariants[i] !== engine.tileVariants[i] || previous.tileRots[i] !== engine.tileRots[i]);
+    if (groundChanged) this.builtMissionId = "";
+    this.engine.architectureRenderedInThree = false;
+    this.engine = engine;
+    engine.architectureRenderedInThree = true;
+    this.builtDecorKey = "";
+  }
+
+  pickArchitecture(x: number, y: number, width: number, height: number): DecorationPlacement | null {
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(x / width * 2 - 1, 1 - y / height * 2), this.camera);
+    const entries = [...this.wallEntries, ...this.decorEntries.filter(e => !!DECORATIONS[e.placement.id]?.model3d)];
+    const hits = ray.intersectObjects(entries.filter(e => e.mesh.visible).map(e => e.mesh));
+    const hit = hits[0];
+    return hit ? entries.find(e => e.mesh === hit.object)?.placement ?? null : null;
   }
 
   // MILESTONE 3 — real world-space ground mist + drift particles, owned end-to-end by
@@ -733,10 +953,9 @@ export class ThreeBattleRenderer {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     this.renderer.setClearColor(0x000000, 1);
     this.renderer.shadowMap.enabled = true;
-    // PCFSoftShadowMap was removed from this Three.js version (falls back to PCFShadowMap with a
-    // console warning) — request PCFShadowMap directly instead.
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.camera = new THREE.OrthographicCamera(0, 1, 0, 1, 0.1, 2000);
+    // Medium's lighter shadows use PCF filtering; the low preset disables shadows entirely.
+    this.renderer.shadowMap.type = getDevGfx().softShadows ? THREE.PCFShadowMap : THREE.BasicShadowMap;
+    this.camera = new THREE.OrthographicCamera(0, 1, 0, 1, 0.1, 20000);
     this.camera.position.z = 100;
     // Author-controlled lighting (Mission.environment/sunIntensity/ambientIntensity, editable in
     // the Map Editor's "Iluminação" section — see GameApp.tsx) — an explicit sunIntensity/
@@ -775,12 +994,15 @@ export class ThreeBattleRenderer {
     this.scene.add(this.tileGroup);
     this.scene.add(this.webGroup);
 
+    this.scene.add(this.gridGlowGroup);
     this.scene.add(this.overlayGroup);
 
     this.scene.add(this.contactShadowGroup);
     this.scene.add(this.decorContactGroup);
     this.scene.add(this.decorGroup);
+    this.scene.add(this.wallGroup);
     this.scene.add(this.unitGroup);
+    this.scene.add(this.flameHaloGroup);
     this.scene.add(this.fogMask.mesh);
     for (const placement of engine.elementalFxPlacements) {
       if (placement.family !== "procedural_pixel" || !placement.element) continue;
@@ -791,11 +1013,11 @@ export class ThreeBattleRenderer {
     // camera is looking elsewhere; POINT_LIGHT_POOL stays the floor.
     const mapUnitLights = engine.units.reduce((count, u) => {
       if (!UNIT_LIGHT_DEFS[u.classId]) return count;
-      return count + (u.classId === "familiar3" ? footprint(u).length : 1);
+      return count + (u.classId === "familiar3" ? footprint(u).length : u.classId === "familiar4" ? 3 : 1);
     }, 0);
     // Familiar lights are created after the renderer when a Conjurer summons them. Reserve
-    // room now for all three tiers (one + one + the Titan's six footprint lights).
-    const futureFamiliarLights = engine.units.filter((u) => u.classId === "conjurer").length * 8;
+    // room now for every tier (one + one + Radiante's three + the Titan's six footprint lights).
+    const futureFamiliarLights = engine.units.filter((u) => u.classId === "conjurer").length * 11;
     const mapPixelLights = engine.elementalFxPlacements.filter((p) => p.family === "procedural_pixel" && p.parameters?.lightEnabled !== false).length;
     const mapLights = engine.decorations.filter((p) => LIGHT_DEFS[p.id]).length + mapUnitLights + futureFamiliarLights + mapPixelLights;
     const poolSize = Math.max(POINT_LIGHT_POOL, mapLights);
@@ -811,24 +1033,39 @@ export class ThreeBattleRenderer {
       this.pointLights.push(pl);
       this.scene.add(pl);
     }
+    for (let i = 0; i < BOUNCE_LIGHT_POOL; i++) {
+      const bl = new THREE.PointLight(0xffffff, 0, 1, 1);
+      this.bounceLights.push(bl);
+      this.scene.add(bl);
+    }
+    // Always in the scene, intensity 0 when idle (see vfxLights). A borrower past the pool gets a
+    // detached light: no glow for that extra target, but no recompile either.
+    for (let i = 0; i < VFX_LIGHT_POOL; i++) {
+      const light = new THREE.PointLight(0xffffff, 0, 1, 2);
+      light.userData.vfxFree = true;
+      this.vfxLightPool.push(light);
+      this.scene.add(light);
+    }
+
     this.scene.add(this.healingSpellLight);
     this.scene.add(this.atmosphere.group);
+    this.scene.add(this.spellVfxScene);
     // Construct synchronously: every live Fireball impact particle is procedural, so no image
     // request can leave the spell without its flight or explosion when cast immediately.
-    this.fireballVfx = new FireballVFX(this.scene, this.camera, this.tavernFireball);
+    this.fireballVfx = new FireballVFX(this.spellVfxScene, this.camera, this.tavernFireball);
     this.engine.fireballVfxAvailable = true;
-    this.causticVenomVfx = new CausticVenomVFX(this.scene);
+    this.causticVenomVfx = new CausticVenomVFX(this.spellVfxScene);
     this.engine.causticVenomVfxAvailable = true;
-    this.phantasmalForceVfx = new PhantasmalForceVFX(this.scene);
+    this.phantasmalForceVfx = new PhantasmalForceVFX(this.spellVfxScene);
     this.phantasmalForceVfx.setSettings(getActivePhantasmalForceSettings());
     this.engine.phantasmalForceVfxAvailable = true;
-    this.blessVfx = new BlessVFX(this.scene);
+    this.blessVfx = new BlessVFX(this.spellVfxScene);
     this.blessVfx.setSettings(getActiveBlessVfxSettings());
     this.engine.blessVfxAvailable = true;
-    this.magicMissileV2Vfx = new MagicMissileV2VFX(this.scene);
+    this.magicMissileV2Vfx = new MagicMissileV2VFX(this.spellVfxScene);
     this.magicMissileV2Vfx.setSettings(getActiveMagicMissileV2Settings());
     this.engine.magicMissileV2VfxAvailable = true;
-    this.webOfDreamsVfx = new WebOfDreamsVFX(this.scene);
+    this.webOfDreamsVfx = new WebOfDreamsVFX(this.spellVfxScene);
     this.engine.burningHandsV2VfxAvailable = true;
 
     // Only the wisp embers ever render into the bloom-only pass (everything else gets forced to
@@ -947,10 +1184,20 @@ export class ThreeBattleRenderer {
     for (const m of this.shadowCasterGroup.children) {
       if (!m.userData.baseQuat) m.userData.baseQuat = m.quaternion.clone();
       m.quaternion.copy(m.userData.baseQuat as THREE.Quaternion).premultiply(spin);
+      // Turning a silhouette towards the sun/moon must pivot about its opaque feet,
+      // not the image rectangle's center (asymmetric sprites otherwise slide sideways).
+      if (m.userData.contactLocal && m.userData.contactAnchor) {
+        const offset = this.shadowFootOffset.copy(m.userData.contactLocal as THREE.Vector3).multiply(m.scale).applyQuaternion(m.quaternion);
+        m.position.copy(m.userData.contactAnchor as THREE.Vector3).sub(offset);
+      }
     }
   }
 
+  private lastSize = "";
   setSize(cssW: number, cssH: number, dpr: number): void {
+    const sizeKey = `${cssW}:${cssH}:${dpr}`;
+    if (this.lastSize === sizeKey) return;
+    this.lastSize = sizeKey;
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(Math.max(1, cssW), Math.max(1, cssH), false);
     this.camera.left = 0;
@@ -990,6 +1237,8 @@ export class ThreeBattleRenderer {
     tex.magFilter = THREE.LinearFilter;
     tex.wrapS = THREE.ClampToEdgeWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.repeat.set(GROUND_TEXTURE_SPAN, GROUND_TEXTURE_SPAN);
+    tex.offset.set(GROUND_TEXTURE_INSET, GROUND_TEXTURE_INSET);
     const mat = new THREE.MeshLambertMaterial({ map: tex });
     this.groundAO.patch(mat);
     this.materialCache.set(key, mat);
@@ -1012,6 +1261,7 @@ export class ThreeBattleRenderer {
       return;
     for (const entry of this.tileMeshes.values()) this.tileGroup.remove(entry.mesh);
     this.tileMeshes.clear();
+    this.terrainSolidKey = "";
     this.builtCols = engine.cols;
     this.builtRows = engine.rows;
     this.builtMissionId = engine.mission.id;
@@ -1046,6 +1296,234 @@ export class ThreeBattleRenderer {
         this.tileMeshes.set(key, { mesh, id, variant, rot });
       }
     }
+  }
+
+  private tacticsTexture(path: string): THREE.Texture {
+    let texture = this.wallTextures.get(path);
+    if (!texture) {
+      texture = new THREE.TextureLoader().load(path);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      this.wallTextures.set(path, texture);
+    }
+    return texture;
+  }
+
+  private groundHeight(col: number, row: number, tile = this.builtTile): number {
+    if (!this.engine.tacticsCamera) {
+      const index = row * this.engine.cols + col;
+      const id = tileAt(this.engine.tiles, this.engine.cols, col, row);
+      const authored = this.engine.mission.terrainElevations?.[index] ?? 0;
+      const level = Math.max(authored, TERRAIN[id].height ?? 0);
+      return level * tile * 0.35;
+    }
+    const point = hexWorld(col, row, tile);
+    return this.landscape?.heightAt(point.wx, -point.wy) ?? ((this.engine.mission.terrainElevations?.[row * this.engine.cols + col] ?? TERRAIN[tileAt(this.engine.tiles, this.engine.cols, col, row)].height ?? 0) * tile * 0.65);
+  }
+
+  private syncElevationSteps(tile: number): void {
+    const engine = this.engine;
+    this.elevationSteps.group.visible = !engine.tacticsCamera;
+    if (engine.tacticsCamera) return;
+    const key = JSON.stringify([tile, engine.cols, engine.rows, engine.tiles, engine.mission.terrainElevations]);
+    if (key === this.elevationStepsKey) return;
+    this.elevationSteps.rebuild(engine.cols, engine.rows, tile, (col, row) => {
+      if (col < 0 || row < 0 || col >= engine.cols || row >= engine.rows) return 0;
+      const id = tileAt(engine.tiles, engine.cols, col, row);
+      if (id === "void") return 0;
+      const index = row * engine.cols + col;
+      return Math.max(engine.mission.terrainElevations?.[index] ?? 0, TERRAIN[id].height ?? 0);
+    }, tile * 0.35);
+    this.scene.add(this.elevationSteps.group);
+    this.elevationStepsKey = key;
+  }
+
+  private syncWater(tile: number): void {
+    const engine = this.engine;
+    this.water.setVersion(engine.mission.waterVersion ?? "v2");
+    const key = JSON.stringify([tile, engine.cols, engine.rows, engine.mission.waterLevels, engine.mission.waterPatches, engine.mission.waterFootprints, engine.tiles, this.terrainSolidKey, engine.fogged ? engine.visVersion : "clear"]);
+    if (key !== this.waterKey) {
+      this.water.rebuild(engine.cols, engine.rows, tile, engine.mission.waterLevels ?? [], (col, row) =>
+        tileAt(engine.tiles, engine.cols, col, row) !== "void" && (!engine.fogged || engine.explored(col, row) || engine.visible(col, row)),
+        (x, y) => this.landscape?.heightAt(x, y) ?? 0, engine.mission.waterFootprints, engine.mission.waterPatches);
+      this.scene.add(this.water.mesh);
+      this.waterKey = key;
+    }
+    this.water.mesh.visible = true;
+    this.water.flat.value = engine.tacticsCamera ? 0 : 1;
+    // Use battle simulation time so water pauses with the scene behind a briefing/dialog.
+    this.water.time.value = engine.time;
+  }
+
+  private syncTerrainHeight(tile: number): void {
+    const floorRects = mapFloorRects(this.engine.tiles, this.engine.cols, this.engine.rows, this.engine.decorations);
+    const cells: { x: number; y: number; height: number; col: number; row: number; entry: TileMeshEntry }[] = [];
+    for (const [key, entry] of this.tileMeshes) {
+      const col = key % this.engine.cols, row = Math.floor(key / this.engine.cols);
+      const terrainLevel = Math.max(this.engine.mission.terrainElevations?.[key] ?? 0, TERRAIN[entry.id].height ?? 0);
+      entry.mesh.position.z = this.engine.tacticsCamera ? 0 : terrainLevel * tile * 0.35;
+      entry.mesh.castShadow = false;
+      const floorRect = floorRects.get(key);
+      const trimmed = floorRect && (floorRect.minX > col * SQRT3 + 1e-6 || floorRect.maxX < (col+1)*SQRT3 - 1e-6 || floorRect.minY > row*1.5 + 1e-6 || floorRect.maxY < (row+1)*1.5 - 1e-6);
+      const mapEdge = trimmed ||
+        (col === 0 || row === 0 || col === this.engine.cols - 1 || row === this.engine.rows - 1 ||
+          [-1, 0, 1].some(dy => [-1, 0, 1].some(dx =>
+            tileAt(this.engine.tiles, this.engine.cols, col + dx, row + dy) === "void")));
+      // The continuous floor supplies the straight perimeter; a hex decal at its
+      // boundary would otherwise protrude beyond it and restore scalloped edges.
+      entry.mesh.visible = !this.engine.tacticsCamera && entry.id !== "void" && !mapEdge;
+      entry.mesh.userData.cell = { col, row };
+      if (entry.id !== "void") cells.push({ x: entry.mesh.position.x, y: entry.mesh.position.y,
+        height: (this.engine.mission.terrainElevations?.[key] ?? TERRAIN[entry.id].height ?? 0) * tile * 0.65, col, row, entry });
+    }
+    // Both cameras use the continuous ground fill around the outer hexes. In 2D it
+    // sits beneath the original tiles, preserving their authored elevation steps.
+    const stamp = `continuous-atlas-v5:${JSON.stringify([...floorRects])}:${this.engine.tacticsCamera}:${this.engine.cols}:${this.engine.rows}:${tile}:${this.engine.fogged ? this.engine.visVersion : "clear"}:` + cells.map(c =>
+      `${c.col},${c.row},${c.height},${c.entry.id},${c.entry.variant},${c.entry.rot}`).join(";");
+    if (stamp !== this.terrainSolidKey && cells.length) {
+      if (!this.cliffMaterial) {
+        this.cliffMaterial = new THREE.MeshStandardMaterial({
+          map: this.tacticsTexture("/game/textures/walls/cave-v2.png"), color: 0xb4a28b, roughness: 1,
+        });
+        lightTacticsMaterial(this.cliffMaterial);
+      }
+      const heights = new Map(cells.map(c => [c.row * this.engine.cols + c.col, c.height]));
+      // Floor cells share the walls' aligned columns on every map. Subdivide those exact
+      // rectangles so triangle-centroid clipping cannot leave diagonal edge gaps.
+      const bounds = { minX: 0,
+        minY: -tile * (BOARD_PAD_MUL + 0.25 + this.engine.rows * 1.5),
+        maxX: tile * SQRT3 * this.engine.cols, maxY: -tile * (BOARD_PAD_MUL + 0.25) };
+      const surface = buildLandscape(bounds, { x: tile * SQRT3 / 4, y: tile * 1.5 / 4 }, tile * 0.45, (x, y) => {
+        if (!this.engine.tacticsCamera) return -0.02;
+        // Interpolate nearby terrain elevations into connected slopes. The movement grid
+        // supplies placement coordinates but no longer defines the ground's polygon edges.
+        const row0 = Math.round((-y / tile - BOARD_PAD_MUL - 1) / 1.5);
+        let weighted = 0, total = 0;
+        for (let row = row0-1; row <= row0+1; row++) {
+          const col0 = Math.round(x / (tile * SQRT3) - 0.5 * (row & 1) - 0.5);
+          for (let col = col0-1; col <= col0+1; col++) {
+            const height = heights.get(row * this.engine.cols + col);
+            if (height === undefined || col < 0 || col >= this.engine.cols || row < 0 || row >= this.engine.rows) continue;
+            const center = hexWorld(col, row, tile);
+            const distance = ((x-center.wx)**2 + (y+center.wy)**2) / (tile*tile);
+            const weight = 1 / (distance + 0.04)**2;
+            weighted += height * weight; total += weight;
+          }
+        }
+        return total ? weighted / total : 0;
+      }, (x, y) => {
+        // Landscape cutouts use square map-cell bounds, not the nearest-hex classifier.
+        // The latter puts six-sided scallops back on every outer edge despite the fine mesh.
+        const cell = this.cellAtSquareWorld(x / tile, -y / tile);
+        // Void is an eraser: never fill authored empty cells with tactical ground.
+        if (cell < 0) return false;
+        if (!heights.has(cell)) return false;
+        const rect = floorRects.get(cell);
+        const fx = x / tile, fy = -y / tile - BOARD_PAD_MUL - 0.25;
+        if (!rect || fx < rect.minX || fx > rect.maxX || fy < rect.minY || fy > rect.maxY) return false;
+        if (this.engine.fogged) {
+          const col = cell % this.engine.cols, row = Math.floor(cell / this.engine.cols);
+          return this.engine.explored(col, row) || this.engine.visible(col, row);
+        }
+        return true;
+      }, !this.engine.mission.id.startsWith("watchtower-"), {
+        x: [...new Set([...floorRects.values()].flatMap(r => [r.minX * tile, r.maxX * tile]))],
+        y: [...new Set([...floorRects.values()].flatMap(r => [-tile * (r.minY + BOARD_PAD_MUL + 0.25), -tile * (r.maxY + BOARD_PAD_MUL + 0.25)]))],
+      });
+      const canvas = document.createElement("canvas");
+      const scale = Math.min(1, 4096 / Math.max(bounds.maxX-bounds.minX, bounds.maxY-bounds.minY));
+      canvas.width = Math.max(1, Math.ceil((bounds.maxX-bounds.minX)*scale));
+      canvas.height = Math.max(1, Math.ceil((bounds.maxY-bounds.minY)*scale));
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#343127";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Fill seams with the map's authored base terrain. Older maps without a baseTile
+      // use their most common terrain, including its most common texture variant.
+      const terrainCounts = new Map<TerrainId, number>();
+      for (const cell of cells) terrainCounts.set(cell.entry.id, (terrainCounts.get(cell.entry.id) ?? 0) + 1);
+      const baseTerrain = this.engine.mission.baseTile
+        ?? [...terrainCounts].sort((a, b) => b[1] - a[1])[0]?.[0];
+      const variantCounts = new Map<number, number>();
+      for (const cell of cells) if (cell.entry.id === baseTerrain)
+        variantCounts.set(cell.entry.variant, (variantCounts.get(cell.entry.variant) ?? 0) + 1);
+      const baseVariant = [...variantCounts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
+      const borderImage = baseTerrain ? this.engine.art.tiles[baseTerrain]?.[baseVariant]
+        ?? this.engine.art.tiles[baseTerrain]?.[0] : undefined;
+      if (borderImage?.naturalWidth) {
+        const repeatCanvas = document.createElement("canvas");
+        repeatCanvas.width = repeatCanvas.height = Math.max(1, Math.ceil(tile * scale * 2));
+        drawGroundTexture(repeatCanvas.getContext("2d")!, borderImage, 0, 0, repeatCanvas.width, repeatCanvas.height);
+        const pattern = ctx.createPattern(repeatCanvas, "repeat");
+        if (pattern) {
+          ctx.fillStyle = pattern;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+      }
+      for (const cell of cells) {
+        const image = this.engine.art.tiles[cell.entry.id]?.[cell.entry.variant] ?? this.engine.art.tiles[cell.entry.id]?.[0];
+        const px = (cell.x-bounds.minX)*scale, py = (bounds.maxY-cell.y)*scale, radius = tile*scale;
+        // Overlap atlas paint slightly past each hex edge. Linear filtering while the
+        // continuous terrain is viewed obliquely otherwise samples the underlay as seams.
+        const bleed = 1.5;
+        ctx.save(); ctx.translate(px, py); ctx.beginPath();
+        for (let i=0; i<6; i++) {
+          const angle = (60*i-30)*Math.PI/180;
+          const x = Math.cos(angle)*(radius+bleed), y = Math.sin(angle)*(radius+bleed);
+          if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        }
+        ctx.closePath(); ctx.clip();
+        if (image?.naturalWidth && isHexGroundVariant(cell.entry.id, cell.entry.variant)) {
+          drawHexGround(ctx, image, 0, 0, cell.x * scale, -cell.y * scale, radius);
+        } else {
+          ctx.rotate(cell.entry.rot*Math.PI/3);
+          if (image?.naturalWidth) drawGroundTexture(ctx, image,-radius-bleed,-radius-bleed,(radius+bleed)*2,(radius+bleed)*2);
+        }
+        ctx.restore();
+      }
+      this.landscapeTexture?.dispose();
+      this.landscapeTexture = new THREE.CanvasTexture(canvas);
+      this.landscapeTexture.colorSpace = THREE.SRGBColorSpace;
+      this.landscapeTexture.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+      if (!this.landscapeMaterial) {
+        this.landscapeMaterial = new THREE.MeshLambertMaterial();
+        this.groundAO.patch(this.landscapeMaterial);
+      }
+      this.landscapeMaterial.map = this.landscapeTexture;
+      this.landscapeMaterial.needsUpdate = true;
+      if (this.terrainSolid) {
+        this.terrainSolid.geometry.dispose();
+        this.terrainSolid.geometry = surface.geometry;
+        this.terrainSolid.material = [this.landscapeMaterial, this.cliffMaterial];
+      } else {
+        this.terrainSolid = new THREE.Mesh(surface.geometry, [this.landscapeMaterial, this.cliffMaterial]);
+        this.terrainSolid.castShadow = this.terrainSolid.receiveShadow = true;
+        this.tileGroup.add(this.terrainSolid);
+      }
+      this.landscape = surface;
+      this.terrainSolidKey = stamp;
+      this.terrainRevision++;
+    }
+    if (this.terrainSolid) this.terrainSolid.visible = cells.length > 0;
+  }
+
+  private drapeTerrainOverlay(mesh: THREE.Mesh, source: THREE.BufferGeometry): void {
+    if (!this.engine.tacticsCamera || !this.landscape) return;
+    const key = `${this.terrainRevision}:${mesh.position.x}:${mesh.position.y}:${mesh.scale.x}:${mesh.scale.y}`;
+    if (mesh.userData.surfaceKey !== key || mesh.userData.surfaceSource !== source) {
+      (mesh.userData.surfaceGeometry as THREE.BufferGeometry | undefined)?.dispose();
+      const geometry = source.clone();
+      const position = geometry.getAttribute("position");
+      const base = this.landscape.heightAt(mesh.position.x, mesh.position.y);
+      for (let i=0; i<position.count; i++) position.setZ(i, position.getZ(i) +
+        this.landscape.heightAt(mesh.position.x+position.getX(i)*mesh.scale.x,
+          mesh.position.y+position.getY(i)*mesh.scale.y)-base);
+      position.needsUpdate = true;
+      geometry.computeBoundingSphere();
+      mesh.userData.surfaceGeometry = geometry;
+      mesh.userData.surfaceSource = source;
+      mesh.userData.surfaceKey = key;
+    }
+    mesh.geometry = mesh.userData.surfaceGeometry;
   }
 
   /** Repositions/retextures only the tiles that actually changed since the last build (a chest
@@ -1148,28 +1626,152 @@ export class ThreeBattleRenderer {
    * move onto this renderer and a real depth order between the two exists. */
   private ensureDecorBuilt(tile: number): void {
     const engine = this.engine;
-    const key = `${engine.mission.id}:${engine.decorations.length}:${tile}`;
+    // Props can move or change visual treatment without changing the mission id/count
+    // (editor previews and hot-reloaded DecorationDefs both do this). Include placement and
+    // render-only scale/mirror settings so the mesh cache cannot keep the old-sized art.
+    const placementKey = engine.decorations.map((p) => {
+      const def = DECORATIONS[p.id];
+      const artId = decorationPlacementArt(p);
+      const image = engine.art.decorations[artId];
+      const imageReady = image?.naturalWidth ?? 0;
+      return `${p.id}:${artId}@${p.x},${p.y},${p.rot ?? 0},${p.wallOrientation ?? "auto"},${def?.heightScale ?? 1},${def?.artScale ?? 1},${def?.mirrorAlternate ? 1 : 0},${def?.wallTexture ?? ""},${imageReady}`;
+    }).join(";");
+    const key = `${engine.mission.id}:${tile}:${engine.tacticsCamera}:${this.trees.revision}:${placementKey}`;
     if (key === this.builtDecorKey) return;
+    for (const entry of this.wallEntries) {
+      this.wallGroup.remove(entry.mesh);
+      this.wallGroup.remove(entry.shadowMesh);
+      entry.mesh.geometry.dispose();
+      entry.mesh.material.dispose();
+      entry.shadowMesh.geometry.dispose();
+      entry.shadowMesh.material.dispose();
+    }
+    this.wallEntries = [];
     for (const entry of this.decorEntries) {
       this.decorGroup.remove(entry.mesh);
+      if (entry.mesh.userData.importedTree) {
+        (entry.mesh.material as THREE.Material).dispose();
+      } else if (entry.mesh.userData.tacticsModel) {
+        entry.mesh.geometry.dispose();
+        const materials = Array.isArray(entry.mesh.material) ? entry.mesh.material : [entry.mesh.material];
+        materials.forEach(material => material.dispose());
+      } else if (entry.mesh.userData.tacticsCard) (entry.mesh.material as THREE.Material).dispose();
       if (entry.shadowMesh) this.shadowCasterGroup.remove(entry.shadowMesh);
       if (entry.contactMesh) this.decorContactGroup.remove(entry.contactMesh);
       if (entry.proxy) this.shadowCasterGroup.remove(entry.proxy);
       if (entry.fogCut) this.decorGroup.remove(entry.fogCut);
+      if (entry.halo) {
+        this.flameHaloGroup.remove(entry.halo);
+        (entry.halo.material as THREE.Material).dispose();
+      }
     }
     this.decorEntries = [];
     this.builtDecorKey = key;
+    const architectureCells = new Set(engine.decorations.filter(p => DECORATIONS[p.id]?.model3d && !DECORATIONS[p.id]?.rockStyle && !DECORATIONS[p.id]?.treeModel && !DECORATIONS[p.id]?.propModel).map(p => `${p.x},${p.y}`));
 
     for (const p of engine.decorations) {
-      const def = DECORATIONS[p.id];
+      const authoredDef = DECORATIONS[p.id];
+      const def = engine.mission.id.startsWith("watchtower-") && p.id === "wall-3d-dungeon"
+        ? { ...authoredDef, wallTexture: DECORATIONS["wall-3d-crypt"].wallTexture }
+        : authoredDef;
       if (!def) continue;
+      if ((def.treeModel || def.propModel === "grey-outcrop" || def.propModel?.startsWith("tavern-")) && engine.tacticsCamera) {
+        const mesh = this.trees.create(def.treeModel ?? (def.propModel as "grey-outcrop" | "tavern-barrel" | "tavern-chair" | "tavern-candlestick" | "tavern-mug" | "tavern-table"), tile);
+        if (mesh) {
+          const { wx, wy } = hexWorld(p.x, p.y, tile);
+          mesh.position.set(wx, -wy, engine.tacticsCamera ? this.groundHeight(p.x, p.y, tile) : this.groundHeight(p.x, p.y, tile) + 1);
+          mesh.rotation.z = -(p.rot ?? 0) * Math.PI / 2;
+          mesh.layers.enable(PROXY_LAYER);
+          this.decorGroup.add(mesh);
+          this.decorEntries.push({ mesh, placement: p, shadowMesh: null, contactMesh: null,
+            proxy: null, light: null, halo: null, fogCut: null });
+        }
+        continue;
+      }
+      if (def.model3d && !def.treeModel && !def.propModel) {
+        const { wx, wy } = architectureWorld(p.x, p.y, tile);
+        // Connect every occupied neighboring architecture cell. Orientation determines
+        // the door opening axis; it must not prevent perpendicular wall corners from joining.
+        const connections = [{ x: p.x - 1, y: p.y }, { x: p.x + 1, y: p.y }, { x: p.x, y: p.y - 1 }, { x: p.x, y: p.y + 1 }].filter(n => architectureCells.has(`${n.x},${n.y}`)).map(n => {
+          const neighbor = architectureWorld(n.x, n.y, tile);
+          return { x: neighbor.wx - wx, y: wy - neighbor.wy };
+        });
+        // Convert the overhead view's full 3.5x height projection into physical height,
+        // so upright characters clear doorway lintels in tactics mode.
+        const spatialDef = engine.tacticsCamera ? { ...def, heightScale: (def.heightScale ?? 1) * 3.5 } : def;
+        const geometry = createWallGeometry(spatialDef, tile, p.rot ?? 0, connections, { x: wx, y: -wy }, !engine.tacticsCamera, engine.tacticsCamera ? 3.5 : 1);
+        let map: THREE.Texture | undefined;
+        if (def.wallTexture) {
+          map = this.wallTextures.get(def.wallTexture);
+          if (!map) {
+            map = new THREE.TextureLoader().load(def.wallTexture);
+            map.colorSpace = THREE.SRGBColorSpace;
+            map.wrapS = map.wrapT = THREE.RepeatWrapping;
+            map.magFilter = THREE.LinearFilter;
+            map.minFilter = THREE.LinearMipmapLinearFilter;
+            map.generateMipmaps = true;
+            map.anisotropy = Math.min(16, this.renderer.capabilities.getMaxAnisotropy());
+            this.wallTextures.set(def.wallTexture, map);
+          }
+        }
+        const metalDoor = def.doorStyle === "iron" || def.doorStyle === "steel";
+        const architectureColor = metalDoor ? (def.doorStyle === "iron" ? 0x555b60 : 0x9ca7b0)
+          : def.model3d === "door" ? 0x925b32 : def.model3d === "doorway" ? 0xb7a27c : 0x8b8b86;
+        const material = new THREE.MeshStandardMaterial({ map, color: map ? 0xffffff : architectureColor,
+          roughness: metalDoor ? 0.52 : 0.94, metalness: metalDoor ? 0.5 : 0, flatShading: true });
+        if (!engine.tacticsCamera) configureWallDepth(material, tile, DEPTH_Z_BASE, DEPTH_Z_PER_TILE);
+        else {
+          material.transparent = true;
+          lightTacticsMaterial(material);
+        }
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(wx, -wy, engine.tacticsCamera ? this.groundHeight(p.x, p.y, tile) : this.groundHeight(p.x, p.y, tile) + 1);
+        mesh.castShadow = false;
+        mesh.receiveShadow = true;
+        mesh.layers.enable(PROXY_LAYER);
+        this.wallGroup.add(mesh);
+        // Camera projection stretches the visible walls; lights need the upright volume.
+        const shadowGeometry = createWallGeometry(spatialDef, tile, p.rot ?? 0, connections, { x: wx, y: -wy }, false, engine.tacticsCamera ? 3.5 : 1);
+        const shadowMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+        const shadowMesh = new THREE.Mesh(shadowGeometry, shadowMaterial);
+        shadowMesh.position.set(wx, -wy, this.groundHeight(p.x, p.y, tile));
+        shadowMesh.castShadow = true;
+        shadowMesh.layers.enable(PROXY_LAYER);
+        this.wallGroup.add(shadowMesh);
+        this.wallEntries.push({ mesh, shadowMesh, placement: p });
+        continue;
+      }
       const decorLayer = def.unitLayer ?? (def.foreground ? "front" : "ground");
       // Fog 2 deliberately sits above every decoration but below units. Front props therefore
       // belong in this same Three layer too; keeping them on the top 2D unit canvas would make
       // them unavoidably render over the fog regardless of their world Z.
 
-      const facing = decorationFacing(p.id, p.rot ?? 0, (file) => this.decorImageReady(file) !== null);
-      const fileId = facing.own ? facing.file : p.id;
+      if (engine.tacticsCamera) {
+        const { w, h } = decorSize(p.id, def, tile);
+        const model = tacticsProp(def.propModel ?? p.id, w, h,
+          this.tacticsTexture("/game/textures/walls/cave-v2.png"),
+          this.tacticsTexture("/game/textures/doors/reinforced-wood-door.png"));
+        if (model) {
+          const cells = placedFootprint(p).map(f => hexWorld(p.x + f.dx, p.y + f.dy, tile));
+          model.position.set(cells.reduce((sum, c) => sum + c.wx, 0) / cells.length,
+            -cells.reduce((sum, c) => sum + c.wy, 0) / cells.length, this.groundHeight(p.x, p.y, tile));
+          model.rotation.z = -(p.rot ?? 0) * Math.PI / 3;
+          model.layers.enable(PROXY_LAYER);
+          this.decorGroup.add(model);
+          this.decorEntries.push({ mesh: model, placement: p, shadowMesh: null, contactMesh: null,
+            proxy: null, light: null, halo: null, fogCut: null });
+          continue;
+        }
+      }
+
+      const alternateMirror = !!def.mirrorAlternate && p.x >= engine.cols / 2;
+      // Posts on opposite halves of the map use baked mirrored sprites, so paired props read
+      // symmetrically across the vertical centerline. Other facings retain decorationFacing's fallback.
+      const facingRot = ((p.rot ?? 0) + (alternateMirror ? 3 : 0)) % 6;
+      const artId = decorationPlacementArt(p);
+      const facing = decorationFacing(artId, facingRot, (file) => this.decorImageReady(file) !== null);
+      const facingMirror = facing.mirror;
+      const fileId = facing.own ? facing.file : artId;
       const img = this.decorImageReady(fileId);
       if (!img) continue; // art still loading — picked up on the next ensureDecorBuilt (see decorImageReady)
 
@@ -1190,8 +1792,8 @@ export class ThreeBattleRenderer {
       const alphaBase = artBase(img);
       let offsetX = (alphaBase ? (0.5 - (alphaBase.u0 + alphaBase.u1) / 2) : 0) * w + (def.artOffsetX ?? 0) * w;
       let offsetY = alphaBase ? (1 - alphaBase.v) * h : 0;
-      if (facing.own && facing.mirror) offsetX = -offsetX;
-      else if (!facing.own && facing.step) {
+      if (facingMirror) offsetX = -offsetX;
+      else if (!facing.own && facing.step && !(engine.tacticsCamera && BARRICADE_LIKE_DECOR.has(p.id))) {
         const angle = (facing.step * Math.PI) / 3;
         [offsetX, offsetY] = [offsetX * Math.cos(angle) - offsetY * Math.sin(angle), offsetX * Math.sin(angle) + offsetY * Math.cos(angle)];
       }
@@ -1199,13 +1801,22 @@ export class ThreeBattleRenderer {
       // Hoisted above the mesh so its renderOrder can already account for it — see
       // ABOVE_GROUND_MIST_ORDER's own comment.
       const lightDef = LIGHT_DEFS[p.id];
-      const mat = this.decorMaterialFor(fileId, img);
+      const cachedMat = this.decorMaterialFor(fileId, img);
+      const mat = engine.tacticsCamera ? cachedMat.clone() : cachedMat;
       const mesh = new THREE.Mesh(this.quadGeo, mat);
+      if (engine.tacticsCamera) {
+        mesh.userData.tacticsCard = true;
+        mesh.userData.tacticsPlacementId = p.id;
+        mesh.userData.sourceMaterial = cachedMat;
+        mat.alphaTest = 0.08;
+        mat.onBeforeCompile = cachedMat.onBeforeCompile;
+        mat.customProgramCacheKey = cachedMat.customProgramCacheKey;
+      }
       // Front-layer props render after character billboards (order 2), matching the Canvas
       // renderer; their per-decoration priority resolves overlaps with other foreground props.
       // A light prop explicitly placed behind the characters (the fireplace) stays in the base
       // decoration layer like any other background prop, instead of lifting above them.
-      const mistOrder = def.aboveGroundMist || (lightDef && decorLayer !== "behind") ? ABOVE_GROUND_MIST_ORDER : 0;
+      const mistOrder = def.aboveGroundMist ? ABOVE_FOG_SCENERY_ORDER : (lightDef && decorLayer !== "behind") ? ABOVE_GROUND_MIST_ORDER : 0;
       const tacticalOverlayOrder = def.aboveTacticalOverlays ? ABOVE_GROUND_MIST_ORDER + 1 : 0;
       mesh.renderOrder = Math.max(tacticalOverlayOrder, mistOrder + (decorLayer === "front" ? 3 : 0) + (def.decorRenderOrder ?? 0) * 0.01);
       // Y negated to match the tile/camera convention (see module comment). Z is the prop's
@@ -1214,7 +1825,7 @@ export class ThreeBattleRenderer {
       const pinnedBehind = decorLayer === "behind" || !!def.exitKind;
       const depthZ = pinnedBehind ? DEPTH_Z_BEHIND : decorLayer === "front" ? DEPTH_Z_FRONT : spriteDepthZ(frontWy, tile);
       mesh.position.set(wx + offsetX, -wy - offsetY, depthZ);
-      if (!pinnedBehind && decorLayer !== "front") mesh.add(new THREE.Mesh(this.quadGeo, this.decorOccluderMaterialFor(fileId, mat)));
+      if (!engine.tacticsCamera && !pinnedBehind && decorLayer !== "front") mesh.add(new THREE.Mesh(this.quadGeo, this.decorOccluderMaterialFor(fileId, mat)));
       if (facing.step === 0) {
         mesh.scale.set(w, h, 1);
       } else if (facing.own) {
@@ -1222,13 +1833,31 @@ export class ThreeBattleRenderer {
         // decorationFacing's own comment for why (a mirrored drawing still faces outward
         // correctly; a rotated one would tilt the art instead of turning which side faces
         // the viewer).
-        mesh.scale.set(facing.mirror ? -w : w, h, 1);
+        mesh.scale.set(facingMirror ? -w : w, h, 1);
       } else {
         // No dedicated side art: fall back to spinning the bitmap (a placeholder, same as
         // Canvas2D's own fallback) — negated for the same reason tile rotation is (see
         // ensureBuilt's comment).
-        mesh.scale.set(w, h, 1);
+          mesh.scale.set(w, h, 1);
         mesh.rotation.z = (-facing.step * Math.PI) / 3;
+      }
+      if (engine.tacticsCamera) {
+        const flat = pinnedBehind || /rubble|ruins|corpse|bones|carpet|bridge|web/.test(p.id);
+        const fixed = BARRICADE_LIKE_DECOR.has(p.id);
+        if (fixed) {
+          // Barricades stand in the authored world direction instead of swivelling
+          // toward the camera independently, which breaks a continuous fence line.
+          mesh.quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -(p.rot ?? 0) * Math.PI / 3)
+            .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2));
+          mat.side = THREE.DoubleSide;
+          // The fixed panel is real world geometry: cast its own alpha silhouette
+          // so its shadow cannot drift, shorten, or rotate independently of the art.
+          mesh.castShadow = !def.noShadow;
+          mesh.layers.enable(PROXY_LAYER);
+        }
+        mesh.userData.tacticsAnchor = { x: wx, y: -groundWy, z: this.groundHeight(p.x, p.y, tile),
+          offsetX, center: (alphaBase ? alphaBase.v - 0.5 : 0.5) * h, flat, fixed };
+        mesh.renderOrder = 0;
       }
       this.decorGroup.add(mesh);
 
@@ -1247,7 +1876,7 @@ export class ThreeBattleRenderer {
       // across the board rather than grounding the prop.
       const elevation = Math.max(1, h * DECOR_SHADOW_HEIGHT_SCALE);
       let shadowMesh: THREE.Mesh | null = null;
-      if (!def.noShadow) {
+      if (!def.noShadow && !mesh.userData.tacticsAnchor?.fixed) {
         const shadowMat = this.decorShadowMaterialFor(fileId, mat);
         shadowMesh = new THREE.Mesh(this.quadGeo, shadowMat);
         shadowMesh.castShadow = true;
@@ -1257,7 +1886,7 @@ export class ThreeBattleRenderer {
           shadowMesh.scale.set(w, elevation + DECOR_SHADOW_GROUND_INSET, 1);
         } else if (facing.own) {
           shadowMesh.rotation.x = Math.PI / 2;
-          shadowMesh.scale.set(facing.mirror ? -w : w, elevation + DECOR_SHADOW_GROUND_INSET, 1);
+          shadowMesh.scale.set(facingMirror ? -w : w, elevation + DECOR_SHADOW_GROUND_INSET, 1);
         } else {
           shadowMesh.rotation.set(Math.PI / 2, 0, (-facing.step * Math.PI) / 3);
           shadowMesh.scale.set(w, elevation + DECOR_SHADOW_GROUND_INSET, 1);
@@ -1271,11 +1900,11 @@ export class ThreeBattleRenderer {
       let contactMesh: THREE.Mesh | null = null;
       const base = facing.step !== 0 && !facing.own ? null : artBase(img);
       if (base) {
-        const sign = facing.own && facing.mirror ? -1 : 1;
+        const sign = facingMirror ? -1 : 1;
         const cw = (base.u1 - base.u0) * w * CONTACT_SHADOW_W;
         contactMesh = new THREE.Mesh(this.quadGeo, this.decorContactMaterial);
         const ch = Math.min(cw * CONTACT_SHADOW_H, tile * CONTACT_SHADOW_MAX_H);
-        contactMesh.position.set(wx + offsetX + sign * ((base.u0 + base.u1) / 2 - 0.5) * w, -(wy + offsetY - h / 2 + base.v * h + ch * CONTACT_SHADOW_FORWARD), 0.51);
+        contactMesh.position.set(wx + offsetX + sign * ((base.u0 + base.u1) / 2 - 0.5) * w, -(wy + offsetY - h / 2 + base.v * h + ch * CONTACT_SHADOW_FORWARD), CONTACT_SHADOW_Z);
         contactMesh.scale.set(cw, ch, 1);
         this.decorContactGroup.add(contactMesh);
       }
@@ -1285,9 +1914,23 @@ export class ThreeBattleRenderer {
       let light: DecorMeshEntry["light"] = null;
       if (lightDef) {
         const f = artFlame(img);
-        const sign = facing.own && facing.mirror ? -1 : 1;
+        const sign = facingMirror ? -1 : 1;
         const flameY = wy + offsetY - h / 2 + f.v * h;
         light = { x: wx + offsetX + sign * (f.u - 0.5) * w, y: groundWy + offsetY, h: Math.max(0, groundWy + offsetY - flameY), def: lightDef, seed: (p.x * 7.31 + p.y * 3.17) % 6.28 };
+      }
+      let halo: THREE.Mesh | null = null;
+      if (light) {
+        // Depth-tested just below every sprite (DEPTH_Z_BEHIND), so the solid body of a character
+        // or prop in front of it hides the glow — it lights the air around them, never washes
+        // over them.
+        const haloMat = new THREE.MeshBasicMaterial({ map: this.flameHaloTexture, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
+        haloMat.color.setRGB(light.def.color[0], light.def.color[1], light.def.color[2]);
+        halo = new THREE.Mesh(this.quadGeo, haloMat);
+        const size = 2 * light.def.radius * HALO_RADIUS_FRACTION * tile;
+        halo.scale.set(size, size, 1);
+        halo.position.set(light.x, -(light.y - light.h), DEPTH_Z_BEHIND - 0.02);
+        halo.renderOrder = 3;
+        this.flameHaloGroup.add(halo);
       }
 
       // Hidden physical volume: a box standing on the prop's ground spot, as wide as its
@@ -1295,7 +1938,7 @@ export class ThreeBattleRenderer {
       // contact line. Light-source props get none — their flame sits inside their own volume.
       // A noShadow prop gets none either — this volume exists only to cast/block shadows.
       let proxy: THREE.Mesh | null = null;
-      if (!lightDef && !def.noShadow) {
+      if (!lightDef && !def.noShadow && !mesh.userData.tacticsAnchor?.fixed) {
         const pb = artBase(img);
         const sign = facing.own && facing.mirror ? -1 : 1;
         const bw = pb ? Math.max(tile * 0.3, (pb.u1 - pb.u0) * w) : w * 0.6;
@@ -1321,8 +1964,67 @@ export class ThreeBattleRenderer {
         this.decorGroup.add(fogCut);
       }
 
-      this.decorEntries.push({ mesh, placement: p, shadowMesh, contactMesh, light, proxy, fogCut });
+      this.decorEntries.push({ mesh, placement: p, shadowMesh, contactMesh, light, halo, proxy, fogCut });
     }
+  }
+
+  private unitContactMasks = new Map<HTMLImageElement, { texture: THREE.Texture; top: number; bottom: number }>();
+  private unitContactMask(img: HTMLImageElement): { texture: THREE.Texture; top: number; bottom: number } {
+    const cached = this.unitContactMasks.get(img);
+    if (cached) return cached;
+    const width = img.naturalWidth, height = img.naturalHeight;
+    const footRow = Math.ceil((artBase(img)?.v ?? 1) * height);
+    const bottom = footRow + Math.ceil(height * 0.06);
+    const top = Math.max(0, footRow - Math.ceil(height * 0.08));
+    const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = bottom - top;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(img, 0, -top);
+    const pixels = ctx.getImageData(0, 0, width, bottom - top), original = pixels.data.slice();
+    // Extend each opaque foot column to the support edge. A raised painted boot
+    // still contacts the ground; empty columns between feet remain empty.
+    for (let x = 0; x < width; x++) {
+      let supported = false;
+      for (let y = 0; y < canvas.height; y++) {
+        const i = (y * width + x) * 4;
+        supported ||= original[i + 3] > 128;
+        pixels.data[i] = pixels.data[i + 1] = pixels.data[i + 2] = 255;
+        pixels.data[i + 3] = supported ? 255 : 0;
+      }
+    }
+    ctx.putImageData(pixels, 0, 0);
+    const texture = new THREE.CanvasTexture(canvas); texture.minFilter = texture.magFilter = THREE.LinearFilter;
+    const result = { texture, top: top / height, bottom: bottom / height };
+    this.unitContactMasks.set(img, result); return result;
+  }
+
+  private unitFootShadowTextures = new Map<HTMLImageElement, THREE.Texture>();
+
+  /** Shadow-only foot support: extend opaque columns in the bottom foot band to
+   * its lowest row. The visible sprite remains untouched; gaps between legs remain clear. */
+  private unitFootShadowTexture(img: HTMLImageElement): THREE.Texture {
+    const cached = this.unitFootShadowTextures.get(img);
+    if (cached) return cached;
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+    const context = canvas.getContext("2d", { willReadFrequently: true })!;
+    context.drawImage(img, 0, 0);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    const { width, height, data } = pixels;
+    let bottom = -1;
+    for (let y = height - 1; y >= 0 && bottom < 0; y--)
+      for (let x = 0; x < width; x++) if (data[(y * width + x) * 4 + 3] > 128) { bottom = y; break; }
+    const bandTop = Math.max(0, bottom - Math.round(height * 0.12));
+    for (let x = 0; x < width; x++) {
+      let foot = -1;
+      for (let y = bottom; y >= bandTop; y--) if (data[(y * width + x) * 4 + 3] > 128) { foot = y; break; }
+      if (foot < 0) continue;
+      for (let y = foot + 1; y <= bottom; y++) data[(y * width + x) * 4 + 3] = 255;
+    }
+    context.putImageData(pixels, 0, 0);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = texture.magFilter = THREE.LinearFilter;
+    this.unitFootShadowTextures.set(img, texture);
+    return texture;
   }
 
   private unitTextureFor(img: HTMLImageElement): THREE.Texture {
@@ -1391,10 +2093,14 @@ export class ThreeBattleRenderer {
       if (!entry) {
         // Lit, like decorations — real scene lights illuminate the character (see
         // syncSpriteExposure).
-        const material = new THREE.MeshLambertMaterial({ map: this.unitTextureFor(img), transparent: true, depthWrite: false });
+        // Units mirror by applying a negative X scale (see unitVisual().scaleX). A
+        // FrontSide plane is culled after that reflection, so characters such as Kael
+        // could not turn toward targets on their left in the 3D renderer.
+        const material = new THREE.MeshLambertMaterial({ map: this.unitTextureFor(img), transparent: true, depthWrite: false, side: THREE.DoubleSide });
         const lightCap = { value: SPRITE_LIGHT_CAP };
         capSpriteLight(material, lightCap);
         this.litSpriteMats.add(material);
+        this.unitSpriteMats.add(material);
         const mesh = new THREE.Mesh(this.quadGeo, material);
         // Atmosphere's Fog 2 sheets use renderOrder 1: units must remain the final visible
         // sprite layer (2), while decorations remain the base layer (0).
@@ -1407,12 +2113,13 @@ export class ThreeBattleRenderer {
         // alongside the visible sprite, same scale as it so the cast silhouette actually matches.
         // side: DoubleSide — see decorShadowMaterialFor's identical comment: a flat plane needs
         // this to cast any shadow at all, since Three's shadow pass renders back-faces by default.
-        const shadowMaterial = new THREE.MeshBasicMaterial({ map: this.unitTextureFor(img), alphaTest: 0.5, colorWrite: false, depthWrite: false, side: THREE.DoubleSide });
+        const shadowMaterial = new THREE.MeshBasicMaterial({ map: this.unitFootShadowTexture(img), alphaTest: 0.5, colorWrite: false, depthWrite: false, side: THREE.DoubleSide });
         const shadowMesh = new THREE.Mesh(this.quadGeo, shadowMaterial);
         shadowMesh.castShadow = true;
         this.shadowCasterGroup.add(shadowMesh);
         const contactMaterial = makeContactShadowMaterial(this.contactShadowTexture);
         const contactMesh = new THREE.Mesh(this.quadGeo, contactMaterial);
+        contactMesh.receiveShadow = true;
         this.contactShadowGroup.add(contactMesh);
         const proxy = new THREE.Mesh(this.proxyCylinder, this.proxyMaterial);
         proxy.layers.set(PROXY_LAYER);
@@ -1435,7 +2142,7 @@ export class ThreeBattleRenderer {
       if (entry.img !== img) {
         entry.material.map = this.unitTextureFor(img);
         entry.material.needsUpdate = true;
-        entry.shadowMaterial.map = this.unitTextureFor(img);
+        entry.shadowMaterial.map = this.unitFootShadowTexture(img);
         entry.shadowMaterial.needsUpdate = true;
         entry.occluder.material = this.unitOccluderMaterialFor(this.unitTextureFor(img));
         entry.fogCut.material = this.unitFogCutMaterialFor(this.unitTextureFor(img));
@@ -1447,6 +2154,17 @@ export class ThreeBattleRenderer {
       entry.material.opacity = u.fade * (u.moved && u.side === "player" && engine.phase === "player" && !engine.isAnimating() ? 0.9 : 1);
 
       const anchor = engine.unitAnchor(u);
+      const previousDraw = this.unitDrawPositions.get(u.id);
+      if (previousDraw && (previousDraw.x !== u.drawX || previousDraw.y !== u.drawY)) engine.noteUnitDrawAction(u.id);
+      this.unitDrawPositions.set(u.id, { x: u.drawX, y: u.drawY });
+      // Explicit transparent sorting prevents animation/camera depth from
+      // repeatedly swapping two overlapping large creature cards.
+      const actionOrder = engine.unitActionOrder.get(u.id) ?? 0;
+      entry.mesh.renderOrder = footprint(u).length > 1 ? 2 + (actionOrder + 1) / (actionOrder + 2) * 0.001 : 2;
+      entry.glowMesh.renderOrder = entry.mesh.renderOrder;
+      const footX = anchor.worldX + this.cameraRight.x*v.sway + this.cameraGroundDown.x*v.footY;
+      const footY = -anchor.worldY + this.cameraRight.y*v.sway + this.cameraGroundDown.y*v.footY;
+      const groundLift = engine.tacticsCamera ? this.landscape?.heightAt(footX, footY) ?? 0 : v.lift;
       // Canvas2D draws the image at local Y in [-h+footOffset, footOffset] (Y-down, relative
       // to the translated anchor+sway/footY/bob/lift origin), then ctx.scale(scaleX, scaleY)
       // stretches that box AWAY FROM the origin (y=0), not around its own center — so the
@@ -1454,19 +2172,48 @@ export class ThreeBattleRenderer {
       // the same place a plain "scale the mesh in place" would miss. Horizontal is symmetric
       // (image spans -w/2..w/2) so scaleX only ever needs to flip its sign for mirroring, same
       // pattern ensureDecorBuilt already uses for a decoration's own-art facing.
-      const centerYLocal = (v.footOffset - v.h / 2) * v.scaleY;
-      const wx = anchor.worldX + v.sway;
-      const wy = anchor.worldY + v.footY + v.bob - v.lift + centerYLocal;
+      const centerYLocal = (v.footOffset - v.h / 2) * v.scaleY * this.cameraSpriteScale;
+      const base = artBase(img);
+      const transparentFootPadding = (1 - (base?.v ?? 1)) * v.h * v.scaleY * this.cameraSpriteScale;
+      const visualUpOffset = (engine.tacticsCamera ? -transparentFootPadding : v.lift) - v.bob - centerYLocal;
       // Y negated and Z derived from row — see module comment on the Y-flip and
       // ensureDecorBuilt's own comment on z ordering vs decorations (z=1) and tiles (z=0).
       // 2.5D depth from the ground line (see DEPTH_Z_BASE) — bob/lift are visual only.
-      entry.mesh.position.set(wx, -wy, spriteDepthZ(anchor.worldY + v.footY, tile) + UNIT_DEPTH_TIE);
+      let unitDepth = spriteDepthZ(anchor.worldY + v.footY, tile) + UNIT_DEPTH_TIE;
+      for (const wall of engine.tacticsCamera ? [] : this.wallEntries) {
+        if (!wall.mesh.visible || DECORATIONS[wall.placement.id]?.model3d !== "doorway") continue;
+        const vertical = ((wall.placement.rot ?? 0) & 1) !== 0;
+        const dx = anchor.worldX - wall.mesh.position.x;
+        const dy = anchor.worldY + wall.mesh.position.y;
+        const halfWidth = tile * (vertical ? 1.5 : Math.sqrt(3)) / 2;
+        // While crossing the opening, the whole sprite belongs behind the frame.
+        // Ground-row sorting alone puts its upper body over the lintel/posts midway through.
+        // Odd hex rows shift character anchors sideways relative to the aligned walls.
+        const crossingDepth = tile * (vertical ? 0.95 : 0.45);
+        if (Math.abs(vertical ? dy : dx) <= halfWidth + tile * 0.02 && Math.abs(vertical ? dx : dy) <= crossingDepth) {
+          const backGroundY = -wall.mesh.position.y - (vertical ? halfWidth : tile * 0.16);
+          unitDepth = Math.min(unitDepth, spriteDepthZ(backGroundY, tile) - UNIT_DEPTH_TIE);
+          entry.material.opacity = u.fade;
+        }
+      }
+      if (engine.tacticsCamera) unitDepth = groundLift + 0.02;
+      entry.mesh.position.set(
+        anchor.worldX + this.cameraRight.x * v.sway + this.cameraGroundDown.x * v.footY + this.unitUp.x * visualUpOffset,
+        -anchor.worldY + this.cameraRight.y * v.sway + this.cameraGroundDown.y * v.footY + this.unitUp.y * visualUpOffset,
+        unitDepth + this.unitUp.z * visualUpOffset,
+      );
+      // Keep the pixel art readable as the board turns: each character card faces the camera
+      // while its feet stay anchored to the map. At the default overhead view this is the same
+      // orientation as before; as the camera tilts, the cards no longer flatten with the tiles.
+      entry.mesh.quaternion.copy(this.unitFacing);
       // A unit fading in/out is see-through, so it must not blot out what stands behind it.
       entry.occluder.visible = u.fade >= 0.999;
-      entry.mesh.scale.set(v.scaleX * v.w, v.scaleY * v.h, 1);
+      entry.mesh.scale.set(v.scaleX * v.w * this.cameraSpriteScale, v.scaleY * v.h * this.cameraSpriteScale, 1);
       // Fixed z=60: above the fog sheet's z=50 (see FogMask), same height as a house's fogCut,
       // so the fog-of-war sheet always fails its depth test over this unit, whatever row it's on.
-      entry.fogCut.position.set(wx, -wy, 60);
+      entry.fogCut.position.copy(entry.mesh.position);
+      entry.fogCut.position.z = 60;
+      entry.fogCut.quaternion.copy(this.unitFacing);
       entry.fogCut.scale.copy(entry.mesh.scale);
       entry.fogCut.visible = u.fade >= 0.999;
 
@@ -1476,7 +2223,10 @@ export class ThreeBattleRenderer {
       // the 2.2 power.
       const flashMul = u.flash > 0 ? Math.pow(1.8 + u.flash, 2.2) : 1;
       if (u.flash > 0) entry.material.color.multiplyScalar(flashMul);
-      entry.lightCap.value = SPRITE_LIGHT_CAP * flashMul;
+      // Familiars sit right under their own light, which washed their colors out: they are kept
+      // at their own art's brightness (SELF_LIT_UNIT_CAP) while the light still reaches
+      // everything around them. The hit flash still lifts them.
+      entry.lightCap.value = (SELF_LIT_UNITS.has(u.classId) ? SELF_LIT_UNIT_CAP : this.currentSpriteLightCap) * flashMul;
       // Level-up / heal rim glow (Canvas2D: a shadowBlur pass of the sprite in the glow color).
       let glowRgb: string | null = null;
       let glowK = 0;
@@ -1500,8 +2250,10 @@ export class ThreeBattleRenderer {
         }
         entry.glowMaterial.color.setRGB(r!, g!, b!, THREE.SRGBColorSpace);
         entry.glowMaterial.opacity = Math.min(1, glowK * 1.3) * u.fade;
-        entry.glowMesh.position.set(wx, -wy, entry.mesh.position.z - 0.0005);
-        entry.glowMesh.scale.set(v.scaleX * v.w * GLOW_PAD, v.scaleY * v.h * GLOW_PAD, 1);
+        entry.glowMesh.position.copy(entry.mesh.position);
+        entry.glowMesh.position.z -= 0.0005;
+        entry.glowMesh.quaternion.copy(this.unitFacing);
+        entry.glowMesh.scale.set(v.scaleX * v.w * this.cameraSpriteScale * GLOW_PAD, v.scaleY * v.h * this.cameraSpriteScale * GLOW_PAD, 1);
         entry.glowMesh.visible = true;
       } else entry.glowMesh.visible = false;
 
@@ -1518,28 +2270,49 @@ export class ThreeBattleRenderer {
       // up/down) into world Z, so scale.y=elevation + position.z=elevation/2 puts its BASE
       // exactly at the ground (z=0) at the foot anchor and its top at `elevation`, same span the
       // old box caster used — except the caster is now the real silhouette, not a box.
-      const elevation = Math.max(1, v.h * UNIT_SHADOW_HEIGHT_SCALE + v.lift * 0.6);
-      entry.shadowMesh.rotation.x = Math.PI / 2;
-      entry.shadowMesh.scale.set(v.scaleX * v.w, elevation + UNIT_SHADOW_GROUND_INSET, 1);
-      entry.shadowMesh.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY), elevation / 2 - UNIT_SHADOW_GROUND_INSET / 2);
+      const elevation = Math.max(1, v.h * this.cameraSpriteScale * UNIT_SHADOW_HEIGHT_SCALE + v.lift * 0.6);
+      // Euler XYZ rotates the card's horizontal axis into Z when yaw is nonzero,
+      // lifting one boot (especially Aldric's off-center stance). Yaw around world Z
+      // after standing the card upright, so the entire foot row remains level.
+      entry.shadowMesh.quaternion.setFromAxisAngle(SHADOW_UP_AXIS, THREE.MathUtils.degToRad(this.engine.cameraTiltSide))
+        .multiply(STANDING_SHADOW_CARD);
+      (entry.shadowMesh.userData.baseQuat ??= new THREE.Quaternion()).copy(entry.shadowMesh.quaternion);
+      // Sprite frames contain transparent padding below their actual feet. Anchor the
+      // opaque foot row, not the bottom of the image rectangle, to the receiver.
+      const footRow = Math.max(0.1, base?.v ?? 1);
+      const casterHeight = (elevation + UNIT_SHADOW_GROUND_INSET) / footRow;
+      const casterCenter = (footRow - 0.5) * casterHeight - UNIT_SHADOW_GROUND_INSET;
+      entry.shadowMesh.scale.set(v.scaleX * v.w * this.cameraSpriteScale, casterHeight, 1);
+      const flatFootOffset = (v.footOffset - (1 - footRow) * v.h) * v.scaleY * this.cameraSpriteScale;
+      entry.shadowMesh.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY + (engine.tacticsCamera ? 0 : flatFootOffset)), casterCenter + (engine.tacticsCamera ? groundLift : 0));
+      if (engine.tacticsCamera) {
+        entry.shadowMesh.position.set(entry.mesh.position.x - this.unitUp.x * visualUpOffset,
+          entry.mesh.position.y - this.unitUp.y * visualUpOffset,
+          groundLift + casterCenter);
+      }
+      const contactLocal = (entry.shadowMesh.userData.contactLocal ??= new THREE.Vector3()) as THREE.Vector3;
+      contactLocal.set(((base?.u0 ?? 0) + (base?.u1 ?? 1)) / 2 - 0.5, 0.5 - footRow, 0);
+      (entry.shadowMesh.userData.contactAnchor ??= new THREE.Vector3()).copy(contactLocal).multiply(entry.shadowMesh.scale)
+        .applyQuaternion(entry.shadowMesh.quaternion).add(entry.shadowMesh.position);
       entry.shadowMesh.visible = true;
       // Hidden upright cylinder at the feet: the character's physical body for point lights.
       const bodyR = Math.max(tile * 0.18, Math.abs(v.scaleX) * v.w * 0.22);
       entry.proxy.scale.set(bodyR * 2, bodyR * 2, elevation);
-      entry.proxy.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY) + bodyR * 0.5, elevation / 2);
+      entry.proxy.position.set(anchor.worldX + v.sway, -(anchor.worldY + v.footY) + bodyR * 0.5, elevation / 2 + (engine.tacticsCamera ? groundLift : 0));
+      if (engine.tacticsCamera) entry.proxy.position.set(entry.shadowMesh.position.x,
+        entry.shadowMesh.position.y, groundLift + elevation / 2);
       entry.proxy.visible = true;
 
       // Contact shadow: at this frame's opaque base (feet/paws — see artBase), in the same
       // local frame the sprite is drawn in (image spans y in [-h+footOffset, footOffset] before
       // scale), but from the ground origin (ignores bob/lift so it stays on the ground), fading
       // and shrinking as the unit lifts off it.
-      const liftFade = Math.max(0, 1 - v.lift / Math.max(1, tile * 0.6));
-      const footW = Math.abs(v.scaleX) * v.w;
-      const base = artBase(img);
+      const liftFade = engine.tacticsCamera ? 1 : Math.max(0, 1 - v.lift / Math.max(1, tile * 0.6));
+      const footW = Math.abs(v.scaleX) * v.w * this.cameraSpriteScale;
       const target = base
         ? {
-            dx: ((base.u0 + base.u1) / 2 - 0.5) * v.w * v.scaleX,
-            dy: (-v.h + v.footOffset + base.v * v.h) * v.scaleY,
+            dx: ((base.u0 + base.u1) / 2 - 0.5) * v.w * v.scaleX * this.cameraSpriteScale,
+            dy: (-v.h + v.footOffset + base.v * v.h) * v.scaleY * this.cameraSpriteScale,
             w: Math.min(footW * CONTACT_SHADOW_MAX_W, (base.u1 - base.u0) * footW * CONTACT_SHADOW_W),
           }
         : { dx: 0, dy: 0, w: footW * 0.35 };
@@ -1555,12 +2328,39 @@ export class ThreeBattleRenderer {
         fit.w += (target.w - fit.w) * 0.08;
       }
       const cf = entry.contactFit!;
+      if (engine.tacticsCamera) cf.dy = 0;
       const cw = cf.w * (0.7 + 0.3 * liftFade);
       const ch = Math.min(cw * CONTACT_SHADOW_H, tile * CONTACT_SHADOW_MAX_H);
-      entry.contactMesh.position.set(anchor.worldX + v.sway + cf.dx, -(anchor.worldY + v.footY + cf.dy + ch * CONTACT_SHADOW_FORWARD), 0.51);
+      entry.contactMesh.position.set(anchor.worldX + v.sway + cf.dx, -(anchor.worldY + v.footY + cf.dy + ch * CONTACT_SHADOW_FORWARD), CONTACT_SHADOW_Z + (engine.tacticsCamera ? groundLift : 0));
+      if (engine.tacticsCamera) entry.contactMesh.position.set(
+        entry.shadowMesh.position.x + this.cameraRight.x * cf.dx + this.cameraGroundDown.x * ch * CONTACT_SHADOW_FORWARD,
+        entry.shadowMesh.position.y + this.cameraRight.y * cf.dx + this.cameraGroundDown.y * ch * CONTACT_SHADOW_FORWARD,
+        groundLift + CONTACT_SHADOW_Z);
       entry.contactMesh.scale.set(cw, ch, 1);
+      if (engine.tacticsCamera && this.landscape) entry.contactMesh.position.z =
+        this.landscape.heightAt(entry.contactMesh.position.x, entry.contactMesh.position.y) + CONTACT_SHADOW_Z;
       entry.contactMaterial.opacity = CONTACT_SHADOW_OPACITY * u.fade * liftFade;
       entry.contactMesh.visible = liftFade > 0;
+      if (engine.tacticsCamera) {
+        const contact = this.unitContactMask(img);
+        if (entry.contactMaterial.map !== contact.texture) {
+          entry.contactMaterial.map = contact.texture; entry.contactMaterial.needsUpdate = true;
+        }
+        // Project the actual visible boot band onto the receiver along the camera
+        // ray. Its screen position therefore meets the painted boots exactly.
+        const bandCenter = (0.5 - (contact.top + contact.bottom) / 2) * entry.mesh.scale.y;
+        const center = entry.contactMesh.position.copy(entry.mesh.position).addScaledVector(this.unitUp, bandCenter);
+        const floor = this.landscape?.heightAt(center.x, center.y) ?? groundLift;
+        center.addScaledVector(this.cameraBack, -(center.z - floor) / Math.max(0.1, this.cameraBack.z));
+        center.z = (this.landscape?.heightAt(center.x, center.y) ?? floor) + CONTACT_SHADOW_Z;
+        const projectedUp = this.unitUp.clone().addScaledVector(this.cameraBack, -this.unitUp.z / Math.max(0.1, this.cameraBack.z));
+        const heightScale = projectedUp.length(); projectedUp.normalize();
+        entry.contactMesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(this.cameraRight, projectedUp, SHADOW_UP_AXIS));
+        entry.contactMesh.scale.set(entry.mesh.scale.x, entry.mesh.scale.y * (contact.bottom - contact.top) * heightScale, 1);
+        entry.contactMaterial.opacity = 0.5 * u.fade;
+        entry.contactMaterial.alphaTest = 0.1;
+        entry.contactMesh.visible = getDevGfx().contactShadows && getDevGfx().realShadows;
+      }
     }
 
     for (const [id, entry] of this.unitEntries) {
@@ -1590,11 +2390,159 @@ export class ThreeBattleRenderer {
     }
   }
 
+  /** Fade only scenery between the camera and the selected sprite or cursor. */
+  private syncTacticsScenery(tile: number): void {
+    if (!this.engine.tacticsCamera) return;
+    for (const entry of this.wallEntries) {
+      const height = this.landscape?.heightAt(entry.mesh.position.x, entry.mesh.position.y) ?? 0;
+      entry.mesh.position.z = entry.shadowMesh.position.z = height;
+    }
+    for (const entry of this.decorEntries) {
+      const anchorPoint = entry.mesh.userData.tacticsAnchor;
+      const height = this.landscape?.heightAt(anchorPoint?.x ?? entry.mesh.position.x, anchorPoint?.y ?? entry.mesh.position.y) ?? 0;
+      if (entry.mesh.userData.tacticsModel || entry.mesh.userData.importedTree) entry.mesh.position.z = height;
+      const anchor = entry.mesh.userData.tacticsAnchor;
+      if (!anchor) continue;
+      anchor.z = height;
+      // Sort artwork by its ground anchor, rather than the center of a tall bitmap.
+      // This keeps a nearer post in front of trunks whose painted tops overlap it.
+      entry.mesh.renderOrder = 1 + (anchor.x * this.cameraBack.x + anchor.y * this.cameraBack.y + anchor.z * this.cameraBack.z) / (tile * 100000);
+      // Preserve authored fog layering when the camera updates the ground-anchor sort.
+      const def = DECORATIONS[entry.placement.id];
+      if (def?.aboveGroundMist) entry.mesh.renderOrder += ABOVE_FOG_SCENERY_ORDER;
+      // Fog renders at order 100. This authored foreground signpost must follow it;
+      // syncDecorVisibility still hides the entire prop until its cell is explored.
+      if (def?.aboveTacticalOverlays) entry.mesh.renderOrder = Math.max(entry.mesh.renderOrder, 101);
+      if (anchor.flat) entry.mesh.position.z = anchor.z + 0.02;
+      else if (anchor.fixed) {
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(entry.mesh.quaternion);
+        entry.mesh.position.set(anchor.x, anchor.y, anchor.z + anchor.center)
+          .addScaledVector(right, anchor.offsetX);
+      }
+      else {
+        entry.mesh.quaternion.copy(this.unitFacing);
+        entry.mesh.position.set(anchor.x, anchor.y, anchor.z)
+          .addScaledVector(this.cameraRight, anchor.offsetX)
+          .addScaledVector(this.unitUp, anchor.center);
+      }
+      // Clone materials track the calibrated color of their original sprite material.
+      const material = entry.mesh.material as THREE.MeshLambertMaterial;
+      const source = entry.mesh.userData.sourceMaterial as THREE.MeshLambertMaterial | undefined;
+      if (source && anchor.flat) material.color.copy(source.color);
+      if (DECORATIONS[entry.placement.id]?.aboveTacticalOverlays) {
+        // Preserve the signpost's baked lighting. An upright card's surface normal
+        // cannot represent the lighting of the individual surfaces painted in its art.
+        if (material.emissiveMap !== material.map) {
+          material.emissiveMap = material.map;
+          material.needsUpdate = true;
+        }
+        material.emissive.set(0xffffff);
+        material.color.set(0x000000);
+        entry.mesh.receiveShadow = false;
+      }
+      if (entry.shadowMesh) {
+        const caster = entry.shadowMesh;
+        caster.position.z = anchor.z + caster.scale.y / 2 - DECOR_SHADOW_GROUND_INSET / 2;
+        if (anchor.fixed) {
+          const right = new THREE.Vector3(1, 0, 0).applyQuaternion(entry.mesh.quaternion);
+          caster.quaternion.copy(entry.mesh.quaternion);
+          caster.position.set(anchor.x, anchor.y, anchor.z + caster.scale.y / 2 - DECOR_SHADOW_GROUND_INSET / 2)
+            .addScaledVector(right, anchor.offsetX);
+        } else if (!anchor.flat) {
+          caster.quaternion.copy(this.unitFacing);
+          caster.position.set(anchor.x, anchor.y, anchor.z)
+            .addScaledVector(this.cameraRight, anchor.offsetX)
+            .addScaledVector(this.unitUp, caster.scale.y / 2 - DECOR_SHADOW_GROUND_INSET / 2);
+        }
+      }
+      if (entry.contactMesh) entry.contactMesh.position.z = anchor.z + CONTACT_SHADOW_Z;
+      if (entry.proxy) entry.proxy.position.z = anchor.z + entry.proxy.scale.z / 2;
+    }
+
+    this.scene.updateMatrixWorld(true);
+    const targets: THREE.Vector3[] = [];
+    const selected = this.unitEntries.get(this.engine.selectedId ?? "");
+    if (selected?.mesh.visible) {
+      for (const fraction of [-0.25, 0, 0.3]) targets.push(selected.mesh.position.clone()
+        .addScaledVector(this.unitUp, selected.mesh.scale.y * fraction));
+    }
+    const cell = this.engine.hover ?? this.engine.cursor;
+    if (this.engine.explored(cell.x, cell.y)) {
+      const point = hexWorld(cell.x, cell.y, tile);
+      targets.push(new THREE.Vector3(point.wx, -point.wy, this.groundHeight(cell.x, cell.y, tile) + tile * 0.08));
+    }
+    // Architecture is solid scenery, not a billboard that should fade to reveal
+    // a unit behind it. Keep wall meshes opaque even when a ray to the selected
+    // unit/cursor intersects them; the FX overlay mask exposes the building
+    // beneath effects without changing its material opacity.
+    for (const entry of [...this.wallEntries, ...this.decorEntries.filter(entry => entry.mesh.userData.tacticsArchitecture || BARRICADE_LIKE_DECOR.has(entry.placement.id))]) {
+      entry.mesh.userData.tacticsOpacity = 1;
+      const materials = Array.isArray(entry.mesh.material) ? entry.mesh.material : [entry.mesh.material];
+      for (const material of materials) {
+        material.opacity = 1;
+        material.depthWrite = true;
+      }
+    }
+    const fadeableDoors = this.wallEntries.filter(entry => {
+      const def = DECORATIONS[entry.placement.id];
+      return entry.mesh.visible && def?.doorStyle === "stoneOak" && def.model3d === "doorway";
+    }).map(entry => entry.mesh);
+    const candidates = [...fadeableDoors, ...this.decorEntries.filter(entry => !entry.mesh.userData.tacticsArchitecture && !BARRICADE_LIKE_DECOR.has(entry.placement.id)).map(entry => entry.mesh)]
+      .filter(mesh => mesh.visible);
+    const covering = new Set<THREE.Object3D>();
+    const distance = this.camera.far;
+    const ray = new THREE.Raycaster();
+    for (const point of targets) {
+      ray.set(point.clone().addScaledVector(this.cameraBack, distance), this.cameraBack.clone().negate());
+      ray.far = distance - tile * 0.04;
+      for (const hit of ray.intersectObjects(candidates, false)) covering.add(hit.object);
+    }
+    // The swung timber leaf can cross an entire unit card even though the
+    // doorway itself is passable. Include passing units, not just selection.
+    for (const wall of this.wallEntries) {
+      const def = DECORATIONS[wall.placement.id];
+      if (!wall.mesh.visible || def?.doorStyle !== "stoneOak" || def.model3d !== "doorway") continue;
+      for (const unit of this.unitEntries.values()) {
+        if (!unit.mesh.visible) continue;
+        const ground = unit.mesh.position.clone().addScaledVector(this.unitUp, -Math.abs(unit.mesh.scale.y) / 2);
+        if (Math.hypot(ground.x - wall.mesh.position.x, ground.y - wall.mesh.position.y) > tile * 1.25) continue;
+        for (const height of [-0.3, 0, 0.3]) for (const side of [-0.25, 0, 0.25]) {
+          const point = unit.mesh.position.clone()
+            .addScaledVector(this.unitUp, Math.abs(unit.mesh.scale.y) * height)
+            .addScaledVector(this.cameraRight, Math.abs(unit.mesh.scale.x) * side);
+          ray.set(point.clone().addScaledVector(this.cameraBack, distance), this.cameraBack.clone().negate());
+          ray.far = distance - tile * 0.04;
+          if (ray.intersectObject(wall.mesh, false).length) covering.add(wall.mesh);
+        }
+      }
+    }
+    for (const mesh of candidates) {
+      const placementId = mesh.userData.tacticsPlacementId;
+      const solidHouse = HOUSE_DECOR_IDS.has(placementId) || BIG_HOUSE_DECOR_IDS.has(placementId) || SOLID_HOUSE_DECOR_IDS.has(placementId);
+      const goal = !solidHouse && covering.has(mesh) ? 0.25 : 1;
+      const opacity = solidHouse ? 1 : THREE.MathUtils.lerp(mesh.userData.tacticsOpacity ?? 1, goal, 0.18);
+      mesh.userData.tacticsOpacity = opacity;
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const material of materials) {
+        material.opacity = opacity;
+        material.depthWrite = !mesh.userData.tacticsCard && opacity > 0.98;
+        if (mesh.userData.tacticsCard && DECORATIONS[mesh.userData.tacticsPlacementId]?.aboveTacticalOverlays) {
+          material.depthTest = false;
+          material.depthWrite = opacity > 0.98;
+        }
+      }
+    }
+  }
+
   /** Fog-of-war visibility, rechecked every frame without touching geometry — cheap, and most
    * missions have `fog` off entirely (see Mission.fog), in which case this is a no-op loop that
    * only ever sets `visible = true`. */
   private syncDecorVisibility(): void {
     const engine = this.engine;
+    for (const entry of this.wallEntries) {
+      entry.mesh.visible = !engine.fogged || engine.explored(entry.placement.x, entry.placement.y);
+      entry.shadowMesh.visible = entry.mesh.visible;
+    }
     if (!engine.fogged) {
       for (const entry of this.decorEntries) {
         entry.mesh.visible = true;
@@ -1632,6 +2580,29 @@ export class ThreeBattleRenderer {
     return mat;
   }
 
+  /** Radial additive color used as a subtle ground glow beneath a highlighted cell. */
+  private overlayGlowMaterialFor(fill: string): THREE.MeshBasicMaterial {
+    const m = /rgba?\(([^,]+),([^,]+),([^,]+)(?:,([^)]+))?\)/.exec(fill);
+    const rgb = m ? `${m[1]},${m[2]},${m[3]}` : fill;
+    const hit = this.gridGlowMatCache.get(rgb);
+    if (hit) return hit;
+    const glow = rgb === "110,0,8";
+    const glowMatch = /rgba?\(([^,]+),([^,]+),([^,]+)(?:,([^)]+))?\)/.exec(GRID_ENEMY_GLOW);
+    const r = glow && glowMatch ? Number(glowMatch[1]) / 255 : m ? Number(m[1]) / 255 : 1;
+    const g = glow && glowMatch ? Number(glowMatch[2]) / 255 : m ? Number(m[2]) / 255 : 1;
+    const b = glow && glowMatch ? Number(glowMatch[3]) / 255 : m ? Number(m[3]) / 255 : 1;
+    const mat = new THREE.MeshBasicMaterial({
+      map: this.flameHaloTexture,
+      color: new THREE.Color(r, g, b),
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      opacity: 0.3,
+    });
+    this.gridGlowMatCache.set(rgb, mat);
+    return mat;
+  }
+
   /** Mirrors the 2D renderer's `drawImage(..., cover)` plus its 42% black wash. Most scenes
    * remain camera-backed, while O Vau's artwork is pinned to its terrain so the painted river
    * continues the river made from map hexes as the camera pans. */
@@ -1651,18 +2622,29 @@ export class ThreeBattleRenderer {
     this.backdropMesh.visible = !!image;
     if (!image) return;
     const imageRatio = image.width / Math.max(1, image.height);
+    this.backdropMesh.renderOrder = -1000;
+    if (this.engine.tacticsCamera) {
+      // Keep the painted background facing the camera and covering its full viewport.
+      // A ground-aligned quad becomes a narrow strip when the board is tilted.
+      const viewWidth = (this.camera.right - this.camera.left) / this.camera.zoom;
+      const viewHeight = (this.camera.top - this.camera.bottom) / this.camera.zoom;
+      const width = Math.max(viewWidth, viewHeight * imageRatio);
+      this.backdropMesh.quaternion.copy(this.camera.quaternion);
+      this.backdropMesh.position.copy(this.camera.position)
+        .addScaledVector(this.cameraBack, -this.camera.far * 0.9)
+        .addScaledVector(this.cameraRight, (this.camera.right + this.camera.left) / (2 * this.camera.zoom))
+        .addScaledVector(this.cameraUp, (this.camera.top + this.camera.bottom) / (2 * this.camera.zoom));
+      this.backdropMesh.scale.set(width, width / imageRatio, 1);
+      return;
+    }
+    this.backdropMesh.quaternion.identity();
     if (this.engine.mission.id === "vau") {
       // O Vau's river occupies rows 5–6 (with shore rows 4 and 7). The supplied panorama's
       // water band sits at ~56% down the frame. Anchor those two centers together in world
       // space; unlike a decorative screen background, it now moves exactly with the map.
-      const boardWidth = tile * SQRT3 * this.engine.cols;
-      const width = Math.max(boardWidth * 1.35, cssW, cssH * imageRatio);
-      const height = width / imageRatio;
-      const mapRiverY = tile * (2.4 + 1.5 * 5.5 + 1);
-      const panoramaRiverY = 0.56;
-      const centerY = mapRiverY - (panoramaRiverY - 0.5) * height;
-      this.backdropMesh.position.set(boardWidth / 2, -centerY, -2);
-      this.backdropMesh.scale.set(width, height, 1);
+      const bounds = vauBackdropBounds(tile, this.engine.cols, cssW, cssH, imageRatio);
+      this.backdropMesh.position.set(bounds.left + bounds.width / 2, -bounds.top - bounds.height / 2, -2);
+      this.backdropMesh.scale.set(bounds.width, bounds.height, 1);
       return;
     }
     const viewRatio = cssW / Math.max(1, cssH);
@@ -1676,7 +2658,26 @@ export class ThreeBattleRenderer {
   private syncOverlay(tile: number): void {
     const engine = this.engine;
     let idx = 0;
-    const place = (x: number, y: number, fill: string, geometry = this.hexGeo, radius = 0.94, z = 0.5) => {
+    let glowIdx = 0;
+    const placeGlow = (x: number, y: number, fill: string, fade: number) => {
+      let mesh = this.gridGlowMeshes[glowIdx];
+      if (!mesh) {
+        mesh = new THREE.Mesh(this.quadGeo, this.overlayGlowMaterialFor(fill));
+        this.gridGlowGroup.add(mesh);
+        this.gridGlowMeshes.push(mesh);
+      }
+      mesh.material = this.overlayGlowMaterialFor(fill);
+      mesh.material.opacity = 0.3 * fade;
+      mesh.visible = true;
+      const { wx, wy } = hexWorld(x, y, tile);
+      const size = tile * 2.7;
+      mesh.scale.set(size, size, 1);
+      mesh.position.set(wx, -wy, 0.49 + this.groundHeight(x, y, tile));
+      mesh.geometry = this.quadGeo;
+      this.drapeTerrainOverlay(mesh, this.quadGeo);
+      glowIdx++;
+    };
+    const place = (x: number, y: number, fill: string, geometry = this.hexGeo, radius = 0.94, z = 0.5, onTop = false) => {
       let mesh = this.overlayMeshPool[idx];
       if (!mesh) {
         mesh = new THREE.Mesh(geometry, this.overlayMaterialFor(fill));
@@ -1684,11 +2685,24 @@ export class ThreeBattleRenderer {
         this.overlayMeshPool.push(mesh);
       }
       mesh.geometry = geometry;
-      mesh.material = this.overlayMaterialFor(fill);
+      const sourceMaterial = this.overlayMaterialFor(fill);
+      mesh.material = sourceMaterial;
+      mesh.renderOrder = 0;
+      if (onTop && engine.tacticsCamera) {
+        if (mesh.userData.cursorSource !== sourceMaterial) {
+          (mesh.userData.cursorMaterial as THREE.Material | undefined)?.dispose();
+          mesh.userData.cursorMaterial = sourceMaterial.clone();
+          mesh.userData.cursorSource = sourceMaterial;
+          mesh.userData.cursorMaterial.depthTest = true;
+        }
+        mesh.material = mesh.userData.cursorMaterial;
+        mesh.renderOrder = 100;
+      }
       mesh.visible = true;
       const { wx, wy } = hexWorld(x, y, tile);
       mesh.scale.set(tile * radius * 2, tile * radius * 2, 1);
-      mesh.position.set(wx, -wy, z);
+      mesh.position.set(wx, -wy, z + this.groundHeight(x, y, tile));
+      this.drapeTerrainOverlay(mesh, geometry);
       idx++;
     };
     const fade = engine.overlayFade;
@@ -1696,8 +2710,10 @@ export class ThreeBattleRenderer {
       const layerFade = layer.fill === GRID_MOVE ? fade : 1;
       const style = tacticalGridStyle(layer.fill);
       for (const c of layer.cells) {
-        // A continuous blue range wash, without drawing the movement lattice.
         place(c.x, c.y, fadedFill(style.fill, layerFade), this.hexGeo, 1.0);
+        if (layer.fill === GRID_MOVE || layer.fill === GRID_ENEMY_TARGET) {
+          place(c.x, c.y, fadedFill(style.edge, layerFade), this.focusBorderGeo, 0.94, 0.505);
+        }
       }
     }
     const route = engine.movementPreview();
@@ -1710,21 +2726,22 @@ export class ThreeBattleRenderer {
     const active = engine.activeTurnHighlight();
     if (active) {
       if (active.player) {
-        place(active.x, active.y, "rgba(220,226,235,0.04)", this.focusBorderGeo, 1.035, 0.516);
-        place(active.x, active.y, "rgba(220,226,235,0.08)", this.focusBorderGeo, 1.01, 0.517);
-        place(active.x, active.y, "rgba(220,226,235,0.14)", this.focusBorderGeo, 0.985, 0.518);
+        place(active.x, active.y, "rgba(220,226,235,0.012)", this.focusBorderGeo, 1.035, 0.516);
+        place(active.x, active.y, "rgba(220,226,235,0.022)", this.focusBorderGeo, 1.01, 0.517);
+        place(active.x, active.y, "rgba(220,226,235,0.04)", this.focusBorderGeo, 0.985, 0.518);
       }
       place(active.x, active.y, "rgba(12,20,25,0.85)", this.focusBorderGeo, 0.98, 0.52);
-      place(active.x, active.y, active.fill, this.focusBorderGeo, 0.94, 0.525);
+      place(active.x, active.y, active.player ? fadedFill(active.fill, 0.28) : active.fill, this.focusBorderGeo, 0.94, 0.525);
     }
     const cur = engine.hover ?? engine.cursor;
     const curId = tileAt(engine.tiles, engine.cols, cur.x, cur.y);
     if (curId !== "void" && engine.explored(cur.x, cur.y)) {
       const blocked = !TERRAIN[curId].passable;
-      place(cur.x, cur.y, "rgba(8,12,16,0.95)", this.focusBorderGeo, 0.985, 0.508);
-      place(cur.x, cur.y, blocked ? "rgba(231,133,115,0.95)" : "rgba(220,226,235,1)", this.focusBorderGeo, 0.94, 0.51);
+      place(cur.x, cur.y, "rgba(8,12,16,0.95)", this.focusBorderGeo, 0.985, 0.508, true);
+      place(cur.x, cur.y, blocked ? "rgba(231,133,115,0.95)" : "rgba(220,226,235,1)", this.focusBorderGeo, 0.94, 0.51, true);
     }
     for (; idx < this.overlayMeshPool.length; idx++) this.overlayMeshPool[idx]!.visible = false;
+    for (; glowIdx < this.gridGlowMeshes.length; glowIdx++) this.gridGlowMeshes[glowIdx]!.visible = false;
   }
 
   private syncPortalFx(): void {
@@ -1771,21 +2788,62 @@ export class ThreeBattleRenderer {
     mesh.position.set(engine.camX + b.x0 + bw / 2, -engine.camY - b.y0 - bh / 2, 0.55);
   }
 
+  /** Keep the scene's camera basis current before positioning camera-facing character cards. */
+  private updateCamera(cssW: number, cssH: number, tile: number): void {
+    const pitch = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(this.engine.cameraTilt, 0, 55));
+    const azimuth = THREE.MathUtils.degToRad(THREE.MathUtils.clamp(this.engine.cameraTiltSide, -360, 360));
+    const sinPitch = Math.sin(pitch), cosPitch = Math.cos(pitch);
+    const sinAzimuth = Math.sin(azimuth), cosAzimuth = Math.cos(azimuth);
+    // Walls retain their authored 3.5x isometric height shear. Match character-card size to
+    // the resulting projected wall height so billboards do not grow relative to the scenery.
+    this.cameraSpriteScale = Math.max(0.28, (3.5 * cosPitch + sinPitch) / 3.5);
+    this.cameraRight.set(cosAzimuth, sinAzimuth, 0);
+    this.cameraUp.set(-sinAzimuth * cosPitch, cosAzimuth * cosPitch, sinPitch);
+    this.cameraGroundDown.set(sinAzimuth, -cosAzimuth, 0);
+    const back = new THREE.Vector3(sinAzimuth * sinPitch, -cosAzimuth * sinPitch, cosPitch);
+    this.cameraBack.copy(back);
+    this.unitUp.copy(this.engine.tacticsCamera ? new THREE.Vector3(0, 0, 1) : this.cameraUp);
+    const unitNormal = new THREE.Vector3().crossVectors(this.cameraRight, this.unitUp).normalize();
+    this.unitFacing.setFromRotationMatrix(new THREE.Matrix4().makeBasis(this.cameraRight, this.unitUp, unitNormal));
+    const centerX = this.engine.camX + cssW / 2;
+    const centerY = -this.engine.camY - cssH / 2;
+    const tileWorldW = tile * Math.sqrt(3) * (this.engine.cols + this.engine.rows * 0.5);
+    const tileWorldH = tile * 1.5 * this.engine.rows;
+    const cameraDistance = Math.max(100, Math.hypot(tileWorldW, tileWorldH) / 2 + Math.max(cssW, cssH));
+    const requiredFar = Math.max(2000, cameraDistance * 2.5);
+    if (this.camera.far !== requiredFar) {
+      this.camera.far = requiredFar;
+      this.camera.updateProjectionMatrix();
+    }
+    this.camera.position.set(centerX, centerY, 0)
+      .addScaledVector(this.cameraRight, -cssW / 2)
+      .addScaledVector(this.cameraUp, -cssH / 2)
+      .addScaledVector(back, cameraDistance);
+    const basis = new THREE.Matrix4().makeBasis(this.cameraRight, this.cameraUp, back);
+    this.camera.quaternion.setFromRotationMatrix(basis);
+    this.camera.updateMatrixWorld(true);
+  }
+
   /** Call once per frame in place of BattleEngine.renderGround — updateCameraLayout runs the
    * exact same camera/visibility bookkeeping renderGround always did (see that method's own
    * comment), just without drawing through the Canvas2D shim afterward. */
-  render(cssW: number, cssH: number): void {
+  render(cssW: number, cssH: number, paused = false): void {
     const tile = this.engine.updateCameraLayout(cssW, cssH);
+    this.updateCamera(cssW, cssH, tile);
+    this.engine.architectureRenderedInThree = true;
     this.syncBackdrop(cssW, cssH, tile);
     this.ensureBuilt(tile);
     this.syncDirtyTiles();
+    this.syncTerrainHeight(tile);
+    this.syncWater(tile);
+    this.syncElevationSteps(tile);
     this.ensureDecorBuilt(tile);
     this.syncGroundAO(tile);
     this.syncFog(tile);
     // Emitter simulation produces its current flicker value, then this same shared light pool
     // applies it to terrain, props and units in the same frame.
     const now = performance.now();
-    const dt = Math.min(0.1, (now - this.lastFrameTime) / 1000);
+    const dt = paused ? 0 : Math.min(0.1, (now - this.lastFrameTime) / 1000);
     this.lastFrameTime = now;
     this.syncPixelElementEmitters(tile, cssW, cssH, dt);
     this.syncLights(tile, cssW, cssH);
@@ -1795,16 +2853,9 @@ export class ThreeBattleRenderer {
     this.syncOverlay(tile);
     this.syncPortalFx();
     this.syncUnits(tile);
+    this.syncTacticsScenery(tile);
     this.syncSky();
     this.applyDevGfx();
-    // MILESTONE 3 — dt derived locally (render() itself only ever receives cssW/cssH, see this
-    // method's own comment) since the mist noise drift and particle GPU animation are the only
-    // things in this file that need real elapsed time rather than per-frame engine state.
-    // The camera moves; the tiles never do — see module comment. This is the one line that
-    // has to run every frame for panning/zooming to work. Y is `-camY - cssH` to match the
-    // mesh placement's own Y-negation (see module comment) — verified numerically to
-    // reproduce BattleEngine's cx/cy screen-pixel formula exactly.
-    this.camera.position.set(this.engine.camX, -this.engine.camY - cssH, 100);
     this.syncFireballVfx(dt, cssW, cssH, tile);
     this.syncCausticVenomVfx(dt, tile);
     this.syncPhantasmalForceVfx(dt, tile);
@@ -1823,6 +2874,7 @@ export class ThreeBattleRenderer {
       { cssW, cssH, camX: this.engine.camX, camY: this.engine.camY },
       (x, y) => this.cellAtWorld(x, y),
       this.unitFeetForMist(),
+      getDevGfx().atmosphericFx,
     );
     // MILESTONE 2 — the sun has to re-aim every frame too, for the same reason the camera does:
     // the shadow-caster boxes are fixed in world space, only the view of them pans.
@@ -1830,8 +2882,402 @@ export class ThreeBattleRenderer {
     // Bloom samples the real 3D scene, except for authored light-source art. Their point
     // lights still illuminate everything normally, but the torch/candle/brazier sprite itself
     // must not turn into a blinding white halo when bloom is enabled.
-    this.renderBloomWithoutLightSourceArt();
-    this.finalComposer.render();
+    // Spell effects switch their lights' visibility on and off. A hidden light drops out of the
+    // scene's light count, and any change to that count recompiles every lit material on screen
+    // (a visible stall when a spell starts or ends). For the draw, hidden lights count as present
+    // but dark, so the count never changes; their own on/off state is restored right after.
+    const parked = this.parkHiddenLights();
+    this.balanceLightCount();
+    try {
+      this.syncSpellVfxLayers();
+      // Nothing is drawn until every shader is compiled in the background — the loading curtain
+      // is up meanwhile — so no frame (first one included) ever freezes compiling them.
+      if (this.meleeVfxWarm !== "done") {
+        this.warmMeleeVfxOnce();
+        return;
+      }
+      this.renderBloomWithoutLightSourceArt();
+      this.finalComposer.render();
+    } finally {
+      this.restoreParkedLights(parked);
+    }
+  }
+
+  private lightBudget: { point: number; shadow: number } | null = null;
+  private readonly fillerLights: { point: THREE.PointLight[]; shadow: THREE.PointLight[] } = { point: [], shadow: [] };
+  /** Pads the drawn point lights up to a fixed budget with dark filler lights, so however spell
+   * effects add, remove, hide or nest their lights, the count the shaders see never changes —
+   * a change recompiles every lit material on screen. Grows (one recompile) only if a battle
+   * ever needs more than the first frame's count plus headroom. */
+  private balanceLightCount(): void {
+    for (const light of [...this.fillerLights.point, ...this.fillerLights.shadow]) light.visible = false;
+    let point = 0;
+    let shadow = 0;
+    this.scene.traverseVisible((o) => {
+      if (!(o as THREE.PointLight).isPointLight) return;
+      if ((o as THREE.PointLight).castShadow) shadow++;
+      else point++;
+    });
+    if (!this.lightBudget) this.lightBudget = { point: point + LIGHT_BUDGET_HEADROOM, shadow: shadow + SHADOW_LIGHT_BUDGET_HEADROOM };
+    this.lightBudget.point = Math.max(this.lightBudget.point, point);
+    this.lightBudget.shadow = Math.max(this.lightBudget.shadow, shadow);
+    const fill = (have: number, budget: number, pool: THREE.PointLight[], castsShadow: boolean) => {
+      for (let i = 0; i < budget - have; i++) {
+        let light = pool[i];
+        if (!light) {
+          light = new THREE.PointLight(0xffffff, 0, 1, 2);
+          light.layers.enable(SPELL_VFX_LAYER);
+          if (castsShadow) {
+            light.castShadow = true;
+            light.shadow.mapSize.set(16, 16);
+            light.shadow.autoUpdate = false;
+          }
+          pool.push(light);
+          this.scene.add(light);
+        }
+        light.visible = true;
+      }
+    };
+    fill(point, this.lightBudget.point, this.fillerLights.point, false);
+    fill(shadow, this.lightBudget.shadow, this.fillerLights.shadow, true);
+  }
+
+  private parkHiddenLights(): { light: THREE.Light; intensity: number; autoUpdate: boolean }[] {
+    const parked: { light: THREE.Light; intensity: number; autoUpdate: boolean }[] = [];
+    this.scene.traverse((child) => {
+      if (!(child instanceof THREE.Light) || child.visible || child instanceof THREE.AmbientLight || child instanceof THREE.HemisphereLight) return;
+      if (this.fillerLights.point.includes(child as THREE.PointLight) || this.fillerLights.shadow.includes(child as THREE.PointLight)) return;
+      const shadow = (child as THREE.PointLight).shadow;
+      parked.push({ light: child, intensity: child.intensity, autoUpdate: shadow ? shadow.autoUpdate : true });
+      child.visible = true;
+      child.intensity = 0;
+      if (shadow) shadow.autoUpdate = false;
+    });
+    return parked;
+  }
+
+  private restoreParkedLights(parked: { light: THREE.Light; intensity: number; autoUpdate: boolean }[]): void {
+    for (const { light, intensity, autoUpdate } of parked) {
+      light.visible = false;
+      light.intensity = intensity;
+      const shadow = (light as THREE.PointLight).shadow;
+      if (shadow) shadow.autoUpdate = autoUpdate;
+    }
+  }
+
+  private meleeVfxWarm: "pending" | "running" | "done" = "pending";
+  /** True once the first frame is drawn and every spell shader is compiled and linked. */
+  isWarm(): boolean {
+    return this.meleeVfxWarm === "done";
+  }
+  /** On the battle's first rendered frame (lights and shadows final), compile and link the shaders
+   * of every spell effect — the hidden ones (Fireball, Caustic Venom, Phantasmal Force, Bless, ...)
+   * and the per-cast Cleave/Sweep — so no first cast stalls (0.45-1.8 s each before). */
+  private warmMeleeVfxOnce(): void {
+    if (this.meleeVfxWarm !== "pending") return;
+    this.meleeVfxWarm = "running";
+    const before = new Set(this.scene.children);
+    const warm = [
+      new CleaveSweepVFX(this.spellVfxScene, new THREE.Vector3(), [], 1, {}, this.vfxLights),
+      new VarreduraVFX(this.spellVfxScene, new THREE.Vector3(), [], 1, this.vfxLights),
+    ];
+    for (const child of this.scene.children) if (!before.has(child)) child.traverse((o) => { o.frustumCulled = false; });
+    // Effects that only build objects mid-cast get a silent dry run first (no-op callbacks; the
+    // loading curtain covers the screen), so their shaders are in the background compile too.
+    const dryFrom = new THREE.Vector3(0, 0, 1);
+    const dryTo = new THREE.Vector3(40, 0, 1);
+    const noop = () => {};
+    const caustic = this.causticVenomVfx;
+    const phantasmal = this.phantasmalForceVfx;
+    if (caustic) {
+      caustic.cast({ id: "warmup", origin: dryFrom, target: dryTo, worldScale: 1, impactHexes: [dryTo], onLaunch: noop, onImpact: noop, onComplete: noop });
+      for (let i = 0; i < 3; i++) caustic.update(0.4); // charge, travel, into the impact
+    }
+    if (phantasmal) {
+      phantasmal.restartAt(dryTo, 1);
+      phantasmal.update(0.3);
+    }
+    // Every hidden effect is revealed for the whole warm-up (nothing is drawn on screen meanwhile —
+    // render() skips drawing until this is done), so the background compile and the final linking
+    // draw see exactly the same objects and lights. Revealing them only for the draw changed the
+    // light count and made every shader compile again in one blocking frame (7.8 s measured).
+    const shown: THREE.Object3D[] = [];
+    const unculled: THREE.Object3D[] = [];
+    const reveal = () => this.scene.traverse((o) => {
+      if (!o.visible && !(o instanceof THREE.Light) && !shown.includes(o)) { o.visible = true; shown.push(o); }
+      if (((o as THREE.Mesh).isMesh || (o as THREE.Points).isPoints || (o as THREE.Line).isLine) && o.frustumCulled) { o.frustumCulled = false; unculled.push(o); }
+    });
+    reveal();
+    const parkedForCompile = this.parkHiddenLights();
+    this.balanceLightCount();
+    // The scene is always drawn into the composers' buffers, which need a different shader
+    // variant than drawing straight to the canvas — compile that one, or the warm-up is wasted.
+    const previousTarget = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(this.bloomComposer.renderTarget1);
+    const jobs: Promise<unknown>[] = [this.renderer.compileAsync(this.scene, this.camera)];
+    this.renderer.setRenderTarget(previousTarget);
+    if (this.magicMissileV2Vfx && this.magicMissileForeground) {
+      this.magicMissileV2Vfx.showAllForWarmup();
+      this.syncSpellVfxLayers();
+      jobs.push(this.magicMissileForeground.warm(this.scene, this.camera));
+    }
+    this.restoreParkedLights(parkedForCompile);
+    void Promise.allSettled(jobs).finally(() => {
+      // One real draw into a tiny off-screen target links every compiled program now, so no
+      // first cast ever does it mid-fight.
+      reveal(); // per-frame updates may have hidden something again in the meantime
+      this.syncSpellVfxLayers();
+      const parked = this.parkHiddenLights();
+      this.balanceLightCount();
+      const target = new THREE.WebGLRenderTarget(4, 4);
+      const previous = this.renderer.getRenderTarget();
+      try {
+        this.renderer.setRenderTarget(target);
+        this.renderer.render(this.scene, this.camera);
+        // Magic Missile draws through its own renderer; link its programs the same way.
+        const missile = this.magicMissileV2Vfx;
+        const foreground = this.magicMissileForeground;
+        if (missile && foreground && !this.activeMagicMissileV2VfxRequestId) {
+          // At the real canvas size, so the first cast does not also have to resize its buffers.
+          const size = this.renderer.getSize(new THREE.Vector2());
+          const dpr = this.renderer.getPixelRatio();
+          missile.showAllForWarmup();
+          foreground.render(this.scene, this.camera, size.x, size.y, dpr, true, this.bloomPass);
+          missile.hide();
+          foreground.render(this.scene, this.camera, size.x, size.y, dpr, false, this.bloomPass);
+        }
+      } finally {
+        this.renderer.setRenderTarget(previous);
+        target.dispose();
+        caustic?.cancel();
+        phantasmal?.hide();
+        this.magicMissileV2Vfx?.hide();
+        for (const o of shown) o.visible = false;
+        for (const o of unculled) o.frustumCulled = true;
+        this.restoreParkedLights(parked);
+        for (const fx of warm) fx.dispose();
+        this.meleeVfxWarm = "done";
+      }
+    });
+  }
+
+  /** Project a legacy top-down screen point onto the actual camera view for map overlays. */
+  projectFlatScreen(x: number, y: number, cssW: number, cssH: number, followSurface = false): { x: number; y: number } {
+    const worldX = this.engine.camX + x, worldY = -this.engine.camY - y;
+    const height = followSurface && this.engine.tacticsCamera ? this.landscape?.heightAt(worldX, worldY) ?? 0 : 0;
+    const point = new THREE.Vector3(worldX, worldY, height).project(this.camera);
+    return { x: (point.x + 1) * cssW / 2, y: (1 - point.y) * cssH / 2 };
+  }
+
+  /** Screen-space transform for the legacy transparent overlay canvas. Orthographic projection
+   * is affine on the ground plane, so three projected points determine its exact 2D matrix. */
+  overlayTransform(cssW: number, cssH: number): [number, number, number, number, number, number] {
+    const origin = this.projectFlatScreen(0, 0, cssW, cssH);
+    const xAxis = this.projectFlatScreen(1, 0, cssW, cssH);
+    const yAxis = this.projectFlatScreen(0, 1, cssW, cssH);
+    return [xAxis.x - origin.x, xAxis.y - origin.y, yAxis.x - origin.x, yAxis.y - origin.y, origin.x, origin.y];
+  }
+
+  /** Map a pointer through the tilted camera onto the z=0 ground plane, then return the
+   * top-down screen coordinates BattleEngine expects for hex picking and hover UI. */
+  screenToFlatScreen(x: number, y: number, cssW: number, cssH: number, pickTerrain = true): { x: number; y: number } {
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2((x / cssW) * 2 - 1, 1 - (y / cssH) * 2), this.camera);
+    if (this.engine.tacticsCamera && pickTerrain) {
+      this.tileGroup.updateMatrixWorld(true);
+      const hit = raycaster.intersectObjects(this.tileGroup.children, false).find(h => h.object.visible);
+      if (hit) {
+        const point = hit.point;
+        return { x: point.x - this.engine.camX, y: -point.y - this.engine.camY };
+      }
+    }
+    const directionZ = raycaster.ray.direction.z;
+    if (Math.abs(directionZ) < 1e-5) return { x, y };
+    const distance = -raycaster.ray.origin.z / directionZ;
+    if (distance < 0) return { x, y };
+    const groundPoint = raycaster.ray.at(distance, new THREE.Vector3());
+    return { x: groundPoint.x - this.engine.camX, y: -groundPoint.y - this.engine.camY };
+  }
+
+  /**
+   * Tactical sprites are camera-facing billboards, so warping their 2D overlay canvas to the
+   * ground plane would skew them. When a screen-space elemental effect is active, draw the
+   * already-synced billboard frames into the upright HUD canvas instead, above that effect.
+   */
+  renderTacticalUnitSprites(ctx: CanvasRenderingContext2D, cssW: number, cssH: number): void {
+    if (!this.engine.tacticsCamera) return;
+    this.camera.updateMatrixWorld(true);
+    const viewHeight = Math.max(1e-6, (this.camera.top - this.camera.bottom) / this.camera.zoom);
+    const pixelsPerWorldUnit = cssH / viewHeight;
+    const sprites = [...this.unitEntries.values()]
+      .filter((entry) => entry.mesh.visible && entry.img && entry.img.naturalWidth > 0)
+      .map((entry) => {
+        const projected = entry.mesh.position.clone().project(this.camera);
+        return {
+          entry,
+          x: (projected.x + 1) * cssW / 2,
+          y: (1 - projected.y) * cssH / 2,
+        };
+      })
+      .sort((a, b) => a.entry.mesh.renderOrder - b.entry.mesh.renderOrder || a.y - b.y);
+
+    for (const { entry, x, y } of sprites) {
+      const img = entry.img;
+      if (!img) continue;
+      const w = Math.abs(entry.mesh.scale.x) * pixelsPerWorldUnit;
+      const h = Math.abs(entry.mesh.scale.y) * pixelsPerWorldUnit;
+      ctx.save();
+      ctx.globalAlpha = entry.material.opacity;
+      ctx.translate(x, y);
+      if (entry.mesh.scale.x < 0) ctx.scale(-1, 1);
+      ctx.drawImage(img, -w / 2, -h / 2, w, h);
+      ctx.restore();
+    }
+  }
+
+  /** CSS alpha mask for the effects canvas: leave Three-rendered architecture visible beneath
+   * elemental FX. The mask is generated from projected architecture triangles and cached until
+   * the camera, viewport, or architecture transforms change. */
+  architectureFxMaskDataUri(cssW: number, cssH: number): string | null {
+    const cards = this.decorEntries.filter(entry => this.decorGroup?.visible !== false
+      && entry.mesh.visible && BARRICADE_LIKE_DECOR.has(entry.placement.id));
+    const meshes = [
+      ...this.wallEntries.map((entry) => entry.mesh),
+      ...this.decorEntries.filter((entry) => entry.mesh.userData.tacticsArchitecture || !!DECORATIONS[entry.placement.id]?.model3d).map((entry) => entry.mesh),
+    ].filter((mesh) => mesh.visible && mesh.geometry.getAttribute("position"));
+    if (!meshes.length && !cards.length) {
+      this.architectureFxMaskKey = "";
+      this.architectureFxMaskUri = null;
+      return null;
+    }
+
+    this.scene.updateMatrixWorld(true);
+    this.camera.updateMatrixWorld(true);
+    const matrixKey = (matrix: THREE.Matrix4) => matrix.elements.map((n) => n.toFixed(3)).join(",");
+    const key = `${cssW}x${cssH}:${matrixKey(this.camera.matrixWorld)}:${matrixKey(this.camera.projectionMatrix)}:${meshes.map((mesh) => `${mesh.geometry.id}:${mesh.geometry.getAttribute("position").count}:${matrixKey(mesh.matrixWorld)}`).join(";")}:${cards.map(({ mesh }) => `${mesh.id}:${matrixKey(mesh.matrixWorld)}`).join(";")}`;
+    if (key === this.architectureFxMaskKey) return this.architectureFxMaskUri;
+
+    const paths: string[] = [];
+    const point = new THREE.Vector3();
+    for (const mesh of meshes) {
+      const geometry = mesh.geometry;
+      const positions = geometry.getAttribute("position");
+      const index = geometry.getIndex();
+      const triangleCount = Math.floor((index?.count ?? positions.count) / 3);
+      for (let tri = 0; tri < triangleCount; tri++) {
+        const coords: [number, number][] = [];
+        for (let corner = 0; corner < 3; corner++) {
+          const vertex = index ? index.getX(tri * 3 + corner) : tri * 3 + corner;
+          point.fromBufferAttribute(positions, vertex).applyMatrix4(mesh.matrixWorld).project(this.camera);
+          const x = ((point.x + 1) * cssW) / 2;
+          const y = ((1 - point.y) * cssH) / 2;
+          if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            coords.length = 0;
+            break;
+          }
+          coords.push([x, y]);
+        }
+        if (coords.length === 3) {
+          // Front/back faces project with opposite winding. Normalize it so
+          // overlapping triangles form a solid silhouette instead of cancelling
+          // each other under SVG's nonzero fill rule.
+          const [a, b, c] = coords;
+          if ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) < 0) {
+            [coords[1], coords[2]] = [coords[2], coords[1]];
+          }
+          const points = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`);
+          paths.push(`M${points[0]}L${points[1]}L${points[2]}Z`);
+        }
+      }
+    }
+
+    const silhouettes: string[] = [];
+    for (const { mesh } of cards) {
+      const texture = (mesh.material as THREE.MeshLambertMaterial).map;
+      const img = texture?.image as HTMLImageElement | HTMLCanvasElement | undefined;
+      if (!texture || !img || !img.width || !img.height) continue;
+      // Embed the bitmap: images inside an SVG mask cannot load external URLs.
+      // Cache it on the shared texture so repeated fence segments reuse one PNG.
+      if (!texture.userData.fxMaskImage) {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) continue;
+        ctx.drawImage(img, 0, 0);
+        texture.userData.fxMaskImage = canvas.toDataURL();
+      }
+      const project = (x: number, y: number) => {
+        point.set(x, y, 0).applyMatrix4(mesh.matrixWorld).project(this.camera);
+        return { x: (point.x + 1) * cssW / 2, y: (1 - point.y) * cssH / 2 };
+      };
+      const a = project(-0.5, 0.5), b = project(0.5, 0.5), c = project(-0.5, -0.5);
+      const transform = [b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y, a.x, a.y];
+      if (!transform.every(Number.isFinite)) continue;
+      silhouettes.push(`<image href="${texture.userData.fxMaskImage}" width="1" height="1" preserveAspectRatio="none" transform="matrix(${transform.join(" ")})" filter="url(#black)"/>`);
+    }
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${cssW}" height="${cssH}" viewBox="0 0 ${cssW} ${cssH}"><defs><filter id="black" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"/></filter><mask id="a" x="0" y="0" width="${cssW}" height="${cssH}" maskUnits="userSpaceOnUse"><rect width="${cssW}" height="${cssH}" fill="white"/><path d="${paths.join("")}" fill="black"/>${silhouettes.join("")}</mask></defs><rect width="${cssW}" height="${cssH}" fill="white" mask="url(#a)"/></svg>`;
+    this.architectureFxMaskKey = key;
+    this.architectureFxMaskUri = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+    return this.architectureFxMaskUri;
+  }
+
+  /** Draw health bars in screen space over their camera-facing unit sprites. */
+  renderUnitHealthHud(ctx: CanvasRenderingContext2D, cssW: number, cssH: number): void {
+    const tile = ZOOM_RADII[this.engine.zoom]!;
+    const cell = tile * SQRT3;
+    const gap = Math.max(8, cell * 0.12) * this.cameraSpriteScale;
+    for (const unit of this.engine.units) {
+      if (!unit.alive || unit.fade <= 0 || this.engine.unitHidden(unit)) continue;
+      const entry = this.unitEntries.get(unit.id);
+      if (!entry?.mesh.visible) continue;
+      const visual = this.engine.unitVisual(unit, tile);
+      const halfHeight = visual.h * visual.scaleY * this.cameraSpriteScale * 0.5;
+      const point = entry.mesh.position.clone().addScaledVector(this.unitUp, halfHeight).project(this.camera);
+      const x = (point.x + 1) * cssW * 0.5;
+      const y = (1 - point.y) * cssH * 0.5 - gap;
+      const size = unitSize(unit);
+      const boss = isBossClass(unit.classId);
+      const width = cell * (size >= 4 ? 1.35 : size === 2 ? 0.9 : boss ? 0.68 : 0.62) * this.cameraSpriteScale;
+      const height = Math.max(4, cell * 0.07) * this.cameraSpriteScale;
+      const left = x - width / 2;
+      const top = y - height;
+
+      ctx.save();
+      ctx.globalAlpha = unit.fade * (unit.moved && unit.side === "player" && this.engine.phase === "player" && !this.engine.isAnimating() ? 0.9 : 1);
+      ctx.fillStyle = "rgba(12,11,10,0.82)";
+      ctx.fillRect(left - 1, top - 1, width + 2, height + 2);
+      ctx.fillStyle = "#2c2824";
+      ctx.fillRect(left, top, width, height);
+      ctx.fillStyle = unit.side === "player" ? "#c8c4bc" : unit.side === "neutral" ? "#5f9e52" : "#b54a32";
+      ctx.fillRect(left, top, width * Math.max(0, unit.hp / unit.maxHp), height);
+      if (cell >= 32) {
+        const fontPx = Math.max(1, Math.round(cell * 0.22 * this.cameraSpriteScale));
+        ctx.font = `600 ${fontPx}px Figtree, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        ctx.lineJoin = "round";
+        ctx.lineWidth = Math.max(1, 3 * this.cameraSpriteScale);
+        ctx.strokeStyle = "rgba(12,11,10,0.9)";
+        ctx.fillStyle = "#f0ebe3";
+        ctx.strokeText(`${unit.hp}`, x, top - 1);
+        ctx.fillText(`${unit.hp}`, x, top - 1);
+      }
+      ctx.restore();
+    }
+  }
+
+  /** Floating combat text ("Missed", damage, heals, level-up) in screen space for the tactics
+   * camera: anchored on the terrain surface, lifted along the same up axis as the upright
+   * character cards, so it stays over the unit when the camera tilts or turns. */
+  renderFloatingText(ctx: CanvasRenderingContext2D, cssW: number, cssH: number): void {
+    const point = new THREE.Vector3();
+    this.engine.renderFloatingTextHud(ctx, (cx, cy, up) => {
+      const worldX = this.engine.camX + cx, worldY = -this.engine.camY - cy;
+      const height = this.landscape?.heightAt(worldX, worldY) ?? 0;
+      point.set(worldX, worldY, height).addScaledVector(this.unitUp, up * this.cameraSpriteScale).project(this.camera);
+      return { x: (point.x + 1) * cssW / 2, y: (1 - point.y) * cssH / 2 };
+    }, this.cameraSpriteScale);
   }
 
   /** Persistent pixel emitters use one shared instanced-particle implementation. Prioritize
@@ -1851,6 +3297,7 @@ export class ThreeBattleRenderer {
       entry.emitter.group.visible = entry.seen;
       entry.emitter.setLightPriority(lightWinners.has(entry.placement.id));
       entry.emitter.update(dt, tile, this.pixelFxClock, entry.x, entry.y);
+      if (this.engine.tacticsCamera && this.landscape) entry.emitter.group.position.z = this.landscape.heightAt(entry.x, -entry.y);
     }
   }
 
@@ -1862,7 +3309,7 @@ export class ThreeBattleRenderer {
       const source=this.engine.unitAnchor(caster);
       const targets=request.targetIds.map((id)=>this.engine.units.find((unit)=>unit.id===id)).filter((unit)=>!!unit).map((unit)=>{const anchor=this.engine.unitAnchor(unit);return{id:unit.id,position:new THREE.Vector3(anchor.worldX,-anchor.worldY,1)};});
       if(targets.length===0)for(const cell of request.tiles){const anchor=this.engine.effectAnchor(cell.x,cell.y);targets.push({id:`tile-${cell.x}-${cell.y}`,position:new THREE.Vector3(anchor.worldX,-anchor.worldY,1)});}
-      this.varreduraVfx.push(new VarreduraVFX(this.scene,new THREE.Vector3(source.worldX,-source.worldY,1),targets,tile));
+      this.varreduraVfx.push(new VarreduraVFX(this.spellVfxScene,new THREE.Vector3(source.worldX,-source.worldY,1),targets,tile,this.vfxLights));
     }
     for(let i=this.varreduraVfx.length-1;i>=0;i--){const fx=this.varreduraVfx[i]!;fx.update(dt);if(fx.finished){fx.dispose();this.varreduraVfx.splice(i,1);}}
   }
@@ -1881,7 +3328,7 @@ export class ThreeBattleRenderer {
         const anchor = this.engine.effectAnchor(cell.x, cell.y);
         targets.push({ id: `tile-${cell.x}-${cell.y}`, position: new THREE.Vector3(anchor.worldX, -anchor.worldY, 1) });
       }
-      this.cleaveVfx.push(new CleaveSweepVFX(this.scene, new THREE.Vector3(source.worldX, -source.worldY, 1), targets, tile));
+      this.cleaveVfx.push(new CleaveSweepVFX(this.spellVfxScene, new THREE.Vector3(source.worldX, -source.worldY, 1), targets, tile, {}, this.vfxLights));
     }
     for (let i = this.cleaveVfx.length - 1; i >= 0; i--) {
       const fx = this.cleaveVfx[i]!;
@@ -2056,6 +3503,63 @@ export class ThreeBattleRenderer {
     if (requests.length) system.update(0);
   }
 
+  hasMagicMissileV2Vfx(): boolean {
+    return !!this.activeMagicMissileV2VfxRequestId || this.pendingMagicMissileV2VfxRequests.length > 0 || this.engine.magicMissileV2VfxRequests.length > 0;
+  }
+
+  attachMagicMissileForeground(canvas: HTMLCanvasElement): void {
+    this.magicMissileForeground?.dispose();
+    this.magicMissileForeground = null;
+    this.magicMissileForegroundCanvas = canvas;
+    this.magicMissileV2Vfx?.setRenderLayer(MagicMissileForeground.layer);
+    // Build the spell's own renderer and compile its shaders now, at battle load, rather than on
+    // the first cast (that first Magic Missile stalled ~0.9 s).
+    this.magicMissileForeground = new MagicMissileForeground(canvas, this.scene, this.camera);
+    // Its shaders are warmed with every other spell's on the first frame (warmMeleeVfxOnce).
+  }
+
+  renderMagicMissileForeground(cssW: number, cssH: number): void {
+    this.syncSpellVfxLayers();
+    const active = this.hasMagicMissileV2Vfx() || this.hasVisibleSpellVfx();
+    if (active && !this.magicMissileForeground && this.magicMissileForegroundCanvas) {
+      this.magicMissileForeground = new MagicMissileForeground(this.magicMissileForegroundCanvas, this.scene, this.camera);
+    }
+    // Same light treatment as the main draw (see render()), so this pass always sees the same
+    // light count its shaders were compiled for, and never recompiles on a first cast.
+    const parked = this.parkHiddenLights();
+    this.balanceLightCount();
+    try {
+      this.magicMissileForeground?.render(this.scene, this.camera, cssW, cssH, this.renderer.getPixelRatio(), active, this.bloomPass);
+    } finally {
+      this.restoreParkedLights(parked);
+    }
+  }
+
+  private hasVisibleSpellVfx(): boolean {
+    let active = false;
+    this.spellVfxScene.traverse((object) => {
+      if (active || (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Line) && !(object instanceof THREE.Points) && !(object instanceof THREE.Sprite))) return;
+      let parent: THREE.Object3D | null = object;
+      while (parent && parent !== this.spellVfxScene) {
+        if (!parent.visible) return;
+        parent = parent.parent;
+      }
+      if (parent === this.spellVfxScene && this.spellVfxScene.visible) active = true;
+    });
+    return active;
+  }
+
+  private syncSpellVfxLayers(): void {
+    // Three.js does not inherit layer masks. This also catches meshes created asynchronously
+    // during a live cast, such as Burning Hands' fire flipbook emitter.
+    this.spellVfxScene.traverse((object) => {
+      object.layers.set(SPELL_VFX_LAYER);
+      // Light budgets must match in both passes. Spell geometry stays in the foreground,
+      // while its lights also illuminate terrain and actors in the main pass.
+      if (object instanceof THREE.Light) object.layers.enable(0);
+    });
+  }
+
   private syncMagicMissileV2Vfx(dt: number, tile: number): void {
     const system = this.magicMissileV2Vfx;
     if (!system) return;
@@ -2110,7 +3614,7 @@ export class ThreeBattleRenderer {
       const relY = -cell.worldY - origin.y;
       halfWidth = Math.max(halfWidth, Math.abs(-direction.y * relX + direction.x * relY));
     }
-    const effect = new BurningHandsV2VFX(this.scene, {
+    const effect = new BurningHandsV2VFX(this.spellVfxScene, {
       id: request.id,
       origin,
       direction,
@@ -2140,21 +3644,25 @@ export class ThreeBattleRenderer {
     const casterVisual = this.engine.unitVisual(caster, tile);
     const casterGroundY = casterAnchor.worldY + casterVisual.footY;
     const casterCenterY = (casterVisual.footOffset - casterVisual.h * 0.38) * casterVisual.scaleY;
-    // This spell is a foreground combat effect: keep it readable over actors along its path.
-    const missileDepth = DEPTH_Z_FRONT - 0.1;
-    const origin = new THREE.Vector3(
-      casterAnchor.worldX + casterVisual.sway,
-      -(casterGroundY + casterVisual.bob - casterVisual.lift + casterCenterY),
-      missileDepth,
-    );
     const targetAnchor = this.engine.unitAnchor(target);
     const targetVisual = this.engine.unitVisual(target, tile);
     const targetGroundY = targetAnchor.worldY + targetVisual.footY;
     const targetCenterY = (targetVisual.footOffset - targetVisual.h * 0.48) * targetVisual.scaleY;
+    // Track the ground-row depth along the shot. A single depth chosen from the nearer
+    // endpoint makes the missile pass behind the caster when Voss stands on a farther row.
+    // Keep each endpoint just in front of that character; the curved trajectory then
+    // interpolates depth naturally between the two planes.
+    const casterMissileDepth = spriteDepthZ(casterGroundY, tile) + UNIT_DEPTH_TIE + 0.01;
+    const targetMissileDepth = spriteDepthZ(targetGroundY, tile) + UNIT_DEPTH_TIE + 0.01;
+    const origin = new THREE.Vector3(
+      casterAnchor.worldX + casterVisual.sway,
+      -(casterGroundY + casterVisual.bob - casterVisual.lift + casterCenterY),
+      casterMissileDepth,
+    );
     const destination = new THREE.Vector3(
       targetAnchor.worldX + targetVisual.sway,
       -(targetGroundY + targetVisual.bob - targetVisual.lift + targetCenterY),
-      missileDepth,
+      targetMissileDepth,
     );
     system.castSpell({
       id: request.id,
@@ -2183,6 +3691,10 @@ export class ThreeBattleRenderer {
     // making the whole building look see-through. Black still adds no bloom of its own.
     const blacked: { mesh: THREE.Mesh; material: THREE.Material | THREE.Material[] }[] = [];
     for (const entry of this.decorEntries) {
+      if (entry.halo?.visible) {
+        entry.halo.visible = false;
+        hidden.push(entry.halo);
+      }
       if (!entry.light || !entry.mesh.visible) continue;
       if (entry.fogCut) {
         blacked.push({ mesh: entry.mesh, material: entry.mesh.material });
@@ -2199,6 +3711,8 @@ export class ThreeBattleRenderer {
     for (const mesh of mutedOverlays) mesh.visible = false;
     const intensities = this.pointLights.map((pl) => pl.intensity);
     for (const pl of this.pointLights) pl.intensity = 0;
+    const bounceIntensities = this.bounceLights.map((bl) => bl.intensity);
+    for (const bl of this.bounceLights) bl.intensity = 0;
     try {
       this.bloomComposer.render();
     } finally {
@@ -2206,6 +3720,7 @@ export class ThreeBattleRenderer {
       for (const mesh of hidden) mesh.visible = true;
       for (const b of blacked) b.mesh.material = b.material;
       this.pointLights.forEach((pl, i) => (pl.intensity = intensities[i]!));
+      this.bounceLights.forEach((bl, i) => (bl.intensity = bounceIntensities[i]!));
     }
   }
 
@@ -2302,10 +3817,27 @@ export class ThreeBattleRenderer {
   /** Dev Controls toggles (see devGfx.ts) — read every frame so a flip applies immediately. */
   private applyDevGfx(): void {
     const gfx = getDevGfx();
+    const shadowType = gfx.softShadows ? THREE.PCFShadowMap : THREE.BasicShadowMap;
+    if (this.renderer.shadowMap.type !== shadowType) {
+      this.renderer.shadowMap.type = shadowType;
+      this.renderer.shadowMap.needsUpdate = true;
+    }
+    const requested = [1024, 2048, 4096].includes(gfx.shadowResolution) ? gfx.shadowResolution : 4096;
+    const resolution = Math.min(requested, this.renderer.capabilities.maxTextureSize);
+    for (const light of [this.sunLight, this.moonLight, ...this.pointLights]) {
+      light.shadow.intensity = gfx.softShadows ? 0.55 : 1;
+      const size = light instanceof THREE.PointLight ? Math.max(256, resolution / 4) : resolution;
+      if (light.shadow.mapSize.x === size) continue;
+      light.shadow.mapSize.set(size, size);
+      light.shadow.map?.dispose(); light.shadow.map = null;
+      light.shadow.mapPass?.dispose(); light.shadow.mapPass = null;
+      light.shadow.needsUpdate = true;
+    }
     this.sunLight.shadow.radius = gfx.softShadows ? SHADOW_RADIUS_SOFT : SHADOW_RADIUS_HARD;
-    this.contactShadowGroup.visible = gfx.contactShadows;
-    this.decorContactGroup.visible = gfx.contactShadows && this.decorGroup.visible;
+    this.contactShadowGroup.visible = this.engine.tacticsCamera && gfx.contactShadows && gfx.realShadows;
+    this.decorContactGroup.visible = false;
     this.groundAO.setEnabled(gfx.ambientOcclusion);
+    this.groundAO.uniforms.groundContactStrength.value = gfx.contactShadows ? 1 : 0;
   }
 
   /** Occluders for the ground AO field: every decoration footprint cell, plus raised/blocking
@@ -2351,19 +3883,55 @@ export class ThreeBattleRenderer {
    * PointLight it receives that light on top, computed by Three. Recomputed every frame since
    * sun/sky intensities are mission- and atmosphere-driven. */
   private syncSpriteExposure(): void {
+    this.currentSpriteLightCap =
+      this.timeOfDay === "dawn" || this.timeOfDay === "dusk"
+        ? 4.5
+        : this.timeOfDay === "brightNight"
+          ? 7.5
+          : this.timeOfDay === "darkNight"
+            ? 9.5
+            : SPRITE_LIGHT_CAP;
+    DECOR_LIGHT_CAP.value = this.currentSpriteLightCap;
+    // Keep the actual tile surface from saturating into a hex-shaped hotspot. Nearby scenery
+    // and units have the higher sprite cap above, so the same real point lights read as light
+    // reaching the environment instead of a bright decal painted on the source tile.
+    this.groundAO.uniforms.groundLightCap.value =
+      this.timeOfDay === "dawn" || this.timeOfDay === "dusk"
+        ? 6
+        : this.timeOfDay === "brightNight"
+          ? 3.5
+          : this.timeOfDay === "darkNight"
+            ? 2.5
+            : 10;
     // Calibrated against the mission's standing daytime sun (default direction and intensity) —
     // not the live values — so night and sun-angle changes reach the sprites as real light.
-    const sunNdotL = Math.max(0, -SUN_DIRECTION.z); // camera-facing plane: normal +Z
-    const sky = this.calibHemiColor;
-    const ground = this.hemiLight.groundColor;
-    // Hemisphere light on a +Z normal (hemi axis is +Y): an even mix of sky and ground colors.
-    const hemi = [(sky.r + ground.r) / 2, (sky.g + ground.g) / 2, (sky.b + ground.b) / 2];
-    const sun = this.calibSunColor;
-    const k = (i: 0 | 1 | 2, sunC: number) => (this.calibSunIntensity * sunNdotL * sunC + this.calibHemiIntensity * hemi[i]!) / Math.PI;
-    const r = 1 / Math.max(0.05, k(0, sun.r));
-    const g = 1 / Math.max(0.05, k(1, sun.g));
-    const b = 1 / Math.max(0.05, k(2, sun.b));
-    for (const m of this.litSpriteMats) m.color.setRGB(r, g, b);
+    const exposureFor = (normal: THREE.Vector3): [number, number, number] => {
+      const sunNdotL = Math.max(0, -normal.dot(SUN_DIRECTION));
+      const skyWeight = THREE.MathUtils.clamp(normal.y * 0.5 + 0.5, 0, 1);
+      const sky = this.calibHemiColor;
+      const ground = this.hemiLight.groundColor;
+      const hemi = [
+        ground.r + (sky.r - ground.r) * skyWeight,
+        ground.g + (sky.g - ground.g) * skyWeight,
+        ground.b + (sky.b - ground.b) * skyWeight,
+      ];
+      const sun = this.calibSunColor;
+      const channel = (i: 0 | 1 | 2, sunC: number) =>
+        1 / Math.max(0.05, (this.calibSunIntensity * sunNdotL * sunC + this.calibHemiIntensity * hemi[i]!) / Math.PI);
+      return [channel(0, sun.r), channel(1, sun.g), channel(2, sun.b)];
+    };
+    const flatExposure = exposureFor(new THREE.Vector3(0, 0, 1));
+    const cameraExposure = exposureFor(new THREE.Vector3(0, 0, 1).applyQuaternion(this.unitFacing));
+    for (const m of this.litSpriteMats) m.color.setRGB(...flatExposure);
+    for (const m of this.unitSpriteMats) m.color.setRGB(...cameraExposure);
+    if (this.engine.tacticsCamera) for (const entry of this.decorEntries) {
+      const anchor = entry.mesh.userData.tacticsAnchor;
+      if (anchor && !anchor.flat) {
+        const exposure = anchor.fixed
+          ? exposureFor(new THREE.Vector3(0, 0, 1).applyQuaternion(entry.mesh.quaternion)) : cameraExposure;
+        (entry.mesh.material as THREE.MeshLambertMaterial).color.setRGB(...exposure);
+      }
+    }
   }
 
   /** Per-frame: every light prop's flame, flickered, drives one real THREE.PointLight (the
@@ -2372,12 +3940,19 @@ export class ThreeBattleRenderer {
   private syncLights(tile: number, cssW: number, cssH: number): void {
     const engine = this.engine;
     const out: EnvLight[] = [];
+    if (!getDevGfx().localLights) for (const e of this.decorEntries) if (e.halo) e.halo.visible = false;
     if (getDevGfx().localLights) {
+      const haloTime =
+        this.timeOfDay === "day" || this.timeOfDay === "noon" ? HALO_DAYLIGHT : this.timeOfDay === "dawn" || this.timeOfDay === "dusk" ? HALO_TWILIGHT : 1;
       for (const e of this.decorEntries) {
         const L = e.light;
         if (!L) continue;
+        if (e.halo) {
+          e.halo.visible = e.mesh.visible;
+          (e.halo.material as THREE.MeshBasicMaterial).opacity = HALO_STRENGTH * haloTime * flickerAt(engine.time, L.seed, L.def.flicker);
+        }
         const k = L.def.intensity * flickerAt(engine.time, L.seed, L.def.flicker);
-        out.push({ x: L.x, y: L.y, h: L.h, r: L.def.radius * LIGHT_RADIUS_MUL * tile, rgb: [L.def.color[0] * k, L.def.color[1] * k, L.def.color[2] * k] });
+        out.push({ x: L.x, y: L.y, h: Math.max(L.h, tile * MAP_LIGHT_MIN_HEIGHT), r: L.def.radius * LIGHT_RADIUS_MUL * tile, decay: MAP_LIGHT_DECAY, normDecay: MAP_LIGHT_DECAY, rgb: [L.def.color[0] * k, L.def.color[1] * k, L.def.color[2] * k] });
       }
       // Units that carry their own light (UNIT_LIGHT_DEFS) — follows the unit's live anchor, so
       // the light walks with it; hidden (fog) or dead units give none, fading ones fade it.
@@ -2407,11 +3982,32 @@ export class ThreeBattleRenderer {
               y: a.worldY + pos.wy - anchorBase.wy,
               h: tile,
               r: def.radius * tile,
+              decay: MAP_LIGHT_DECAY,
+              normDecay: MAP_LIGHT_DECAY,
+              rgb,
+            });
+          }
+        } else if (u.classId === "familiar4") {
+          // Familiar Radiante's reversed Type 3 head and tail occupy the two upper neighboring
+          // hexes. Keep a radius-2 pool on each; the offsets follow its interpolated movement.
+          out.push({ x: a.worldX, y: a.worldY, h: tile, r: tile * 3, decay: MAP_LIGHT_DECAY, normDecay: MAP_LIGHT_DECAY, rgb });
+          const base = hexWorld(u.x, u.y, tile);
+          const upperCells = hexNeighbors(u.x, u.y)
+            .filter((neighbor) => neighbor.y < u.y)
+            .map((cell) => hexWorld(cell.x, cell.y, tile));
+          for (const upperCell of upperCells) {
+            out.push({
+              x: a.worldX + upperCell.wx - base.wx,
+              y: a.worldY + upperCell.wy - base.wy,
+              h: tile,
+              r: tile * 2,
+              decay: MAP_LIGHT_DECAY,
+              normDecay: MAP_LIGHT_DECAY,
               rgb,
             });
           }
         } else {
-          out.push({ x: a.worldX, y: a.worldY, h: tile, r: def.radius * tile, rgb });
+          out.push({ x: a.worldX, y: a.worldY, h: tile, r: def.radius * tile, decay: MAP_LIGHT_DECAY, normDecay: MAP_LIGHT_DECAY, rgb });
         }
       }
       // Procedural Pixel emitters feed the same pooled PointLights as map props and units.
@@ -2438,13 +4034,34 @@ export class ThreeBattleRenderer {
       }
       const peak = Math.max(L.rgb[0], L.rgb[1], L.rgb[2], 1e-6);
       pl.color.setRGB(L.rgb[0] / peak, L.rgb[1] / peak, L.rgb[2] / peak);
-      pl.intensity = peak * GROUND_BASE_IRRADIANCE * Math.pow(tile, LIGHT_DECAY);
+      pl.intensity = peak * GROUND_BASE_IRRADIANCE * Math.pow(tile, L.normDecay ?? LIGHT_DECAY);
       pl.decay = L.decay ?? LIGHT_DECAY;
       pl.position.set(L.x, -L.y, Math.max(L.h, tile * 0.35));
       // Range is measured in 3D from the flame, so it has to include the flame's height to still
       // reach L.r out along the ground. (Three also sets the point-shadow camera's far plane to
       // this distance — ground past it would read as shadowed.)
       pl.distance = Math.hypot(L.r, pl.position.z) * 1.05;
+      if (pl.castShadow && pl.shadow.camera.near !== tile * POINT_SHADOW_NEAR) {
+        pl.shadow.camera.near = tile * POINT_SHADOW_NEAR;
+        pl.shadow.camera.updateProjectionMatrix();
+      }
+    });
+    // Bounce fill for the nearest map lights (props and unit lights; spell/pixel emitters keep
+    // their own look). decay 1, normalized so irradiance straight under it is BOUNCE_FRACTION of
+    // the main light's one-hex irradiance: E(0) = I / z, so I = fraction x E1 x z.
+    const bounced = out.filter((L) => L.normDecay !== undefined);
+    const bh = tile * BOUNCE_HEIGHT;
+    this.bounceLights.forEach((bl, i) => {
+      const L = bounced[i];
+      if (!L) {
+        bl.intensity = 0;
+        return;
+      }
+      const peak = Math.max(L.rgb[0], L.rgb[1], L.rgb[2], 1e-6);
+      bl.color.setRGB(L.rgb[0] / peak, L.rgb[1] / peak, L.rgb[2] / peak);
+      bl.intensity = BOUNCE_FRACTION * peak * GROUND_BASE_IRRADIANCE * bh;
+      bl.position.set(L.x, -L.y, bh);
+      bl.distance = Math.hypot(L.r * BOUNCE_RADIUS_MUL, bh) * 1.05;
     });
   }
 
@@ -2492,6 +4109,17 @@ export class ThreeBattleRenderer {
     return br * engine.cols + bc;
   }
 
+  /** Square, row-banded cell lookup for the continuous landscape's cutout mask.
+   * Terrain artwork still sits on the hex board; only the map's outside contour uses
+   * orthogonal edges, preventing the ground mesh from tracing a row of hexes. */
+  private cellAtSquareWorld(x: number, y: number): number {
+    const engine = this.engine;
+    const row = Math.floor((y - BOARD_PAD_MUL - 0.25) / 1.5);
+    const col = Math.floor(x / SQRT3);
+    if (col < 0 || row < 0 || col >= engine.cols || row >= engine.rows) return -1;
+    return row * engine.cols + col;
+  }
+
   /** Fog of war overlay (see ThreeFogMask.ts) — rebuilt only when the engine's visibility
    * grid changes (visVersion), the debug view is toggled, the board changes, or a player unit
    * steps to a new hex (see clearAround/partyKey below). */
@@ -2519,16 +4147,25 @@ export class ThreeBattleRenderer {
       .filter((u) => u.side === "player" && u.alive)
       .map((u) => `${u.x},${u.y}`)
       .join("|");
-    const key = `${engine.mission.id}:${cols}x${engine.rows}:${engine.visVersion}:${debug ? 1 : 0}:${partyKey}`;
-    this.fogMask.update(key, cols, engine.rows, BOARD_PAD_MUL, tile, debug, (x, y) => this.cellAtWorld(x, y), (i) => {
+    const key = `${engine.mission.id}:${cols}x${engine.rows}:${engine.visVersion}:${debug ? 1 : 0}:${partyKey}:${engine.tacticsCamera}`;
+    this.fogMask.update(key, cols, engine.rows, BOARD_PAD_MUL, tile, debug, (x, y) => {
+      const cell = this.cellAtWorld(x, y);
+      return engine.tacticsCamera && cell < 0 ? cols * engine.rows : cell;
+    }, (i) => {
+      if (engine.tacticsCamera && (i >= cols * engine.rows || engine.tiles[i] === "void")) return FOG_VISIBLE;
       if (clearAround.has(i)) return FOG_VISIBLE;
       const x = i % cols;
       const y = (i - x) / cols;
       return engine.visible(x, y) ? FOG_VISIBLE : engine.explored(x, y) ? FOG_EXPLORED : FOG_UNSEEN;
     });
+    // The legacy elevated mask slides away from the board when viewed obliquely,
+    // revealing a terrain rim around unexplored cells. Keep tactical fog at ground level.
+    if (engine.tacticsCamera) this.fogMask.mesh.position.z = 0.6;
   }
 
   dispose(): void {
+    this.water.dispose();
+    this.elevationSteps.dispose();
     this.disposed = true;
     this.pendingMagicMissileV2VfxRequests.length = 0;
     this.activeMagicMissileV2VfxRequestId = null;
@@ -2547,6 +4184,9 @@ export class ThreeBattleRenderer {
     this.blessVfx?.dispose();
     this.blessVfx = null;
     this.magicMissileV2Vfx?.dispose();
+    this.magicMissileForeground?.dispose();
+    this.magicMissileForeground = null;
+    this.magicMissileForegroundCanvas = null;
     this.magicMissileV2Vfx = null;
     this.webOfDreamsVfx?.dispose();
     this.webOfDreamsVfx = null;
@@ -2566,6 +4206,21 @@ export class ThreeBattleRenderer {
     this.bloomPass.dispose();
     this.atmosphere.dispose();
     this.hexGeo.dispose();
+    this.terrainSolid?.geometry.dispose();
+    this.landscapeTexture?.dispose();
+    this.landscapeMaterial?.dispose();
+    for (const mesh of [...this.overlayMeshPool, ...this.gridGlowMeshes]) (mesh.userData.surfaceGeometry as THREE.BufferGeometry | undefined)?.dispose();
+    this.cliffMaterial?.dispose();
+    for (const entry of this.decorEntries) {
+      if (entry.mesh.userData.importedTree) {
+        (entry.mesh.material as THREE.Material).dispose();
+      } else if (entry.mesh.userData.tacticsModel) {
+        entry.mesh.geometry.dispose();
+        const materials = Array.isArray(entry.mesh.material) ? entry.mesh.material : [entry.mesh.material];
+        materials.forEach(material => material.dispose());
+      } else if (entry.mesh.userData.tacticsCard) (entry.mesh.material as THREE.Material).dispose();
+    }
+    this.trees.dispose();
     this.quadGeo.dispose();
     this.backdropGeometry.dispose();
     this.backdropMaterial.dispose();
@@ -2575,6 +4230,7 @@ export class ThreeBattleRenderer {
     this.fogMask.dispose();
     this.proxyBox.dispose();
     this.proxyCylinder.dispose();
+    this.flameHaloTexture.dispose();
     this.proxyMaterial.dispose();
     for (const mat of this.materialCache.values()) {
       mat.map?.dispose();
@@ -2589,6 +4245,10 @@ export class ThreeBattleRenderer {
     // already disposed above/below, so only the material itself needs disposing here.
     for (const mat of this.decorShadowMatCache.values()) mat.dispose();
     for (const tex of this.unitTexCache.values()) tex.dispose();
+    for (const tex of this.unitFootShadowTextures.values()) tex.dispose();
+    this.unitFootShadowTextures.clear();
+    for (const mask of this.unitContactMasks.values()) mask.texture.dispose();
+    this.unitContactMasks.clear();
     for (const tex of this.glowTexCache.values()) tex.dispose();
     this.webMat?.map?.dispose();
     this.webMat?.dispose();
@@ -2600,9 +4260,20 @@ export class ThreeBattleRenderer {
       entry.contactMaterial.dispose();
     }
     for (const mat of this.overlayMatCache.values()) mat.dispose();
+    for (const mat of this.gridGlowMatCache.values()) mat.dispose();
+    for (const mesh of this.overlayMeshPool) (mesh.userData.cursorMaterial as THREE.Material | undefined)?.dispose();
     this.focusBorderGeo.dispose();
     this.contactShadowTexture.dispose();
     this.decorContactMaterial.dispose();
     this.renderer.dispose();
+    for (const texture of this.wallTextures.values()) texture.dispose();
+    this.wallTextures.clear();
+    this.engine.architectureRenderedInThree = false;
+    for (const entry of this.wallEntries) {
+      entry.mesh.geometry.dispose();
+      entry.mesh.material.dispose();
+      entry.shadowMesh.geometry.dispose();
+      entry.shadowMesh.material.dispose();
+    }
   }
 }

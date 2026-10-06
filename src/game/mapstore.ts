@@ -14,7 +14,7 @@
  * decorateOpenTerrain): those exist to dress the hand-written RAW_MISSIONS, and
  * a map arranged by hand in the editor loads exactly as it was arranged.
  */
-import { MISSIONS, TILE_CHAR, WORLD_LOCATIONS } from "./data";
+import { clearRockColumnTiles, DECORATIONS, MISSIONS, TILE_CHAR, WORLD_LOCATIONS } from "./data";
 import SLOT_CONFIG from "./map-slots.json";
 import ORDER_CONFIG from "./map-order.json";
 import LOCATION_ORDER_CONFIG from "./location-order.json";
@@ -28,6 +28,16 @@ export function isCrossingDungeon(mission: Pick<Mission, "id" | "title" | "win">
   return mission.win === "escape" || /crossing|travessia/i.test(`${mission.id} ${mission.title}`);
 }
 
+/** Any dungeon — a crossing, or a map with a dungeon-exit / floor-connector waypoint — keeps
+ * its defeated enemies dead between visits (no respawns). */
+export function keepsDefeatedSpawns(mission: Pick<Mission, "id" | "title" | "win" | "decorations">): boolean {
+  if (isCrossingDungeon(mission)) return true;
+  return (mission.decorations ?? []).some((d) => {
+    const kind = DECORATIONS[d.id]?.exitKind;
+    return kind === "dungeon" || kind === "connector";
+  });
+}
+
 /** A spawn as edited in the Map Editor — the real Spawn shape plus a per-spawn test
  * level, which only exists for "Testar" (balance testing). It never leaves the editor:
  * draftToMission() strips it back down to a plain Spawn before export/playtest. */
@@ -36,6 +46,7 @@ export interface DraftSpawn extends Spawn {
 }
 
 export interface MapDraft {
+  lockPartyFormation?: boolean;
   /** Which campaign scenario this map authors for — matches a real Mission.id (e.g.
    * "o-vau") to version-edit that scenario, or any free id for a standalone map with no
    * campaign slot. Versions are grouped and saved under this id — it's the "Cenário
@@ -94,6 +105,14 @@ export interface MapDraft {
   /** Art variant per tile (same indexing as tiles) — which numbered version (001, 002,
    * ...) paints there. Defaults to 0 (the "001" file, safe for existing missions). */
   tileVariants: number[];
+  terrainElevations?: number[];
+  /** Independent 3D water surface levels. Null cells have no authored water. */
+  waterLevels?: (number | null)[];
+  /** Free-position water strokes in tile-normalized world coordinates (Y down). */
+  waterVersion?: "v1" | "v2" | "v3" | "v4";
+  waterPatches?: { x: number; y: number; level: number; size: number; shape: "round" | "square" }[];
+  /** Water footprint size and shape per cell; absent means the original full round brush. */
+  waterFootprints?: ({ size: number; shape: "round" | "square" } | null)[];
   /** Ground restored beneath removable terrain props. Set by “Substituir base”. */
   baseTile?: TerrainId;
   baseVariant?: number;
@@ -109,6 +128,7 @@ export interface MapDraft {
   /** Wild things on no side. Optional: map files saved before neutrals existed have no such
    * key, and every reader has to treat a missing list as an empty one. */
   neutralSpawns?: DraftSpawn[];
+  victoryReward?: Mission["victoryReward"];
   /** See Mission.introDialog/introDialogEnabled — shown once, before the player can act. */
   introDialog?: DialogTree;
   introDialogEnabled?: boolean;
@@ -171,6 +191,7 @@ function legacyClassId(id: string): ClassId {
 function normalizeDraft(draft: MapDraft): MapDraft {
   return {
     ...draft,
+    tiles: clearRockColumnTiles(draft.tiles, draft.cols, draft.rows, draft.decorations, draft.baseTile),
     playerSpawns: draft.playerSpawns.map((s) => ({ ...s, classId: legacyClassId(s.classId) })),
     enemySpawns: draft.enemySpawns.map((s) => ({ ...s, classId: legacyClassId(s.classId) })),
     neutralSpawns: draft.neutralSpawns?.map((s) => ({ ...s, classId: legacyClassId(s.classId) })),
@@ -178,13 +199,15 @@ function normalizeDraft(draft: MapDraft): MapDraft {
 }
 
 export function draftToMission(d: MapDraft): Mission {
+  const tiles = clearRockColumnTiles(d.tiles, d.cols, d.rows, d.decorations, d.baseTile);
   const layout: string[] = [];
   for (let r = 0; r < d.rows; r++) {
     let row = "";
-    for (let c = 0; c < d.cols; c++) row += TILE_CHAR[d.tiles[r * d.cols + c] ?? "plains"];
+    for (let c = 0; c < d.cols; c++) row += TILE_CHAR[tiles[r * d.cols + c] ?? "plains"];
     layout.push(row);
   }
   return {
+    lockPartyFormation: d.lockPartyFormation,
     id: d.id,
     index: d.index,
     // This campaign chapter has one canonical name. Old browser-local activated drafts
@@ -199,6 +222,11 @@ export function draftToMission(d: MapDraft): Mission {
     rows: d.rows,
     layout,
     tileVariants: d.tileVariants.some((v) => v) ? d.tileVariants : undefined,
+    terrainElevations: d.terrainElevations,
+    waterVersion: d.waterVersion,
+    waterLevels: d.waterLevels?.slice(),
+    waterPatches: d.waterPatches?.map(p => ({ ...p })),
+    waterFootprints: d.waterFootprints?.map(p => p ? { ...p } : null),
     baseTile: d.baseTile,
     baseVariant: d.baseVariant,
     tileRots: d.tileRots?.some((r) => r) ? d.tileRots : undefined,
@@ -227,6 +255,7 @@ export function draftToMission(d: MapDraft): Mission {
     introDialogEnabled: d.introDialogEnabled,
     outroDialog: d.outroDialog,
     outroDialogEnabled: d.outroDialogEnabled,
+    victoryReward: d.victoryReward,
   };
 }
 
@@ -241,6 +270,7 @@ export function mapFileName(id: string, serial: number): string {
 }
 
 const MAP_MODULES = import.meta.glob<MapFile>("./maps/*.json", { eager: true, import: "default" });
+// Watchtower's six linked floors use the same append-only saved-map loader as other dungeons.
 
 /** Keep the source filename alongside imported JSON. This makes the filename migration
  * non-destructive: new saves use id###, while old id-### saves remain manageable. */

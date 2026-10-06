@@ -7,7 +7,7 @@
 import type { PotionId } from "./types";
 import type { Condition, Effect } from "./progression";
 
-export type QuestNpcId = "brue" | "mudo" | "porao";
+export type QuestNpcId = "brue" | "mudo" | "suspicious" | "porao";
 
 export interface QuestPickupDef {
   id: string;
@@ -21,7 +21,7 @@ export interface QuestDef {
   id: string;
   npc: QuestNpcId;
   title: string;
-  kind: "fetch" | "kill";
+  kind: "fetch" | "kill" | "recruit";
   /** The mission (map) where the objective happens. */
   missionId: string;
   /** Human-readable place, shown in the quest text. */
@@ -73,6 +73,22 @@ export const QUESTS: QuestDef[] = [
     ],
   },
   {
+    id: "suspeito-watchtower-captive",
+    npc: "suspicious",
+    title: "O oficial cativo",
+    kind: "recruit",
+    missionId: "watchtower-prison",
+    place: "Torre de Vigia, nas celas do nível mais baixo",
+    offer: "Ele escreve: “Há um oficial de alta patente da Companhia Carmesim preso na Torre de Vigia. Tire-o de lá. Não pergunte o nome. Não pergunte quem me contou.”",
+    active: "Na tábua: “O oficial continua na Torre de Vigia. Tire-o da cela.”",
+    ready: "Na tábua: “Você o trouxe vivo. Era o bastante.”",
+    done: "Ele apaga a mensagem e guarda o giz. O nome e a origem da informação continuam só com ele.",
+    reward: 300,
+    rewardPotions: [],
+    targetName: "Aldric",
+    availability: { flagSet: "suspeito-watchtower-intel" },
+  },
+  {
     id: "porao-caliches",
     npc: "porao",
     title: "Cálices afogados",
@@ -100,7 +116,7 @@ export const QUESTS: QuestDef[] = [
     missionId: "cemiterio-esquecidos",
     place: "Terreno do Cemitério dos Esquecidos, longe da entrada",
     offer:
-      "“Tem uma coisa de pernas demais rondando o cemitério, lá onde ninguém vai de propósito. Chamam de O Birolho. Comeu dois coveiros e um cavalo. Traga a morte dele e eu pago o que a adega aguenta.”",
+      "“Tem uma coisa com olhos demais rondando o cemitério, lá onde ninguém vai de propósito. Chamam de O Birolho. Comeu dois coveiros e um cavalo. Traga a morte dele e eu pago o que a adega aguenta.”",
     active: "“O Birolho ainda anda por lá. Terreno do cemitério, o canto mais longe da entrada.”",
     ready: "“Então é verdade. Ele caiu.” Brue serve um copo que não cobra.",
     done: "“Os coveiros dormem melhor. Eu também, um pouco.”",
@@ -132,6 +148,7 @@ export interface QuestSaveView {
   questsDone?: string[];
   questItems?: string[];
   questKills?: string[];
+  flags?: string[];
 }
 
 export type QuestStatus = "available" | "active" | "ready" | "done";
@@ -149,6 +166,7 @@ export function pickupKey(quest: QuestDef, pickup: QuestPickupDef): string {
 
 export function questProgress(save: QuestSaveView, quest: QuestDef): { have: number; total: number } {
   if (quest.kind === "kill") return { have: (save.questKills ?? []).includes(quest.targetName ?? "") ? 1 : 0, total: 1 };
+  if (quest.kind === "recruit") return { have: (save.flags ?? []).includes(`recruited:${quest.targetName ?? ""}`) ? 1 : 0, total: 1 };
   const total = quest.pickups?.length ?? 0;
   const held = new Set(save.questItems ?? []);
   return { have: (quest.pickups ?? []).filter((pickup) => held.has(pickupKey(quest, pickup))).length, total };

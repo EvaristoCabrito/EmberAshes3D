@@ -24,11 +24,11 @@ const FIRE: [number, number, number] = [1.0, 0.58, 0.26];
 const LANTERN: [number, number, number] = [1.0, 0.7, 0.36];
 
 // Three lights in linear space and the screen shows gamma-encoded color: +70% linear
-// irradiance reads as only ~+25% on screen (measured). These are ~3x that, so a fire's light
-// is plainly visible in normal play.
-const NORMAL_FIRE: LightDef = { color: FIRE, intensity: 4, radius: 3.6, flicker: 1 };
-const NORMAL_LANTERN: LightDef = { color: LANTERN, intensity: 3.3, radius: 3.3, flicker: 0.4 };
-const WEAK_FIRE: LightDef = { color: FIRE, intensity: 1.6, radius: 2.4, flicker: 1 };
+// irradiance reads as only ~+25% on screen (measured). Strong fixtures use several times the
+// baseline irradiance so their warm point lights visibly reach the surrounding scene.
+const NORMAL_FIRE: LightDef = { color: FIRE, intensity: 8, radius: 3.6, flicker: 1 };
+const NORMAL_LANTERN: LightDef = { color: LANTERN, intensity: 7, radius: 3.3, flicker: 0.4 };
+const WEAK_FIRE: LightDef = { color: FIRE, intensity: 3, radius: 2.4, flicker: 1 };
 
 /** Which decorations emit light, and how strongly (per the user's list). */
 export const LIGHT_DEFS: Record<string, LightDef> = {
@@ -38,14 +38,14 @@ export const LIGHT_DEFS: Record<string, LightDef> = {
   "wilds-brazier-tripod": NORMAL_FIRE,
   "city-campfire": NORMAL_FIRE,
   "wilds-campfire-cauldron": NORMAL_FIRE,
-  "city-forge": { ...NORMAL_FIRE, intensity: 6 },
+  "city-forge": { ...NORMAL_FIRE, intensity: 11 },
   "ember-channels-001": WEAK_FIRE,
   "burning-house": NORMAL_FIRE,
   "burnt-house-ruins": NORMAL_FIRE,
   "burning-hamlet": NORMAL_FIRE,
   // Candles/incense use the same short reach; multi-flame fixtures are brighter, not wider.
-  "light-candle": { color: [1.0, 0.66, 0.34], intensity: 1.6, radius: 2.4, flicker: 0.6 },
-  "wilds-incense-burner": { ...WEAK_FIRE, intensity: 1.2 },
+  "light-candle": { color: [1.0, 0.66, 0.34], intensity: 3, radius: 2.4, flicker: 0.6 },
+  "wilds-incense-burner": { ...WEAK_FIRE, intensity: 2.4 },
   "wilds-candle-menhir": NORMAL_LANTERN,
   "city-shrineCandle": NORMAL_LANTERN,
   Chandelier: NORMAL_LANTERN,
@@ -53,12 +53,13 @@ export const LIGHT_DEFS: Record<string, LightDef> = {
   "wilds-lantern-post": NORMAL_LANTERN,
   // Marco's marker lantern gives a local pool of light without the wide reach of a full
   // street lantern or a brazier.
-  "wilds-lantern-signpost": { color: LANTERN, intensity: 1.8, radius: 1.35, flicker: 0.35 },
+  "wilds-lantern-signpost": { color: LANTERN, intensity: 4, radius: 1.35, flicker: 0.35 },
   lamppost: NORMAL_LANTERN,
   // Wall torches and bowls share normal-fire reach; the fireplace has extra intensity only.
-  "light-wall-torch": { ...NORMAL_FIRE, intensity: 6 },
+  "light-wall-torch": { ...NORMAL_FIRE, intensity: 11 },
   "light-brazier-bowl": NORMAL_FIRE,
-  "light-fireplace": { ...NORMAL_FIRE, intensity: 9, flicker: 0.8 },
+  "light-fireplace": { ...NORMAL_FIRE, intensity: 14, flicker: 0.8 },
+  "inn-fireplace": { ...NORMAL_FIRE, intensity: 14, flicker: 0.8 },
 };
 
 /** Reach multiplier for every light-emitting decoration in LIGHT_DEFS, applied in
@@ -69,11 +70,13 @@ export const LIGHT_RADIUS_MUL = 1.3;
  * props above. Swamp Blue Calf: a soft pale-blue glow, between WEAK_FIRE and NORMAL_FIRE in
  * strength and reach, with a gentle slow pulse instead of a fire's flicker. */
 export const UNIT_LIGHT_DEFS: Record<string, LightDef> = {
-  // Summoned familiars carry compact magical light pools. The stronger tier reaches two
-  // hexes; Familiar Titã spreads a restrained red glow over each occupied body hex so its
-  // full footprint and adjacent target area receive the light.
+  // Summoned familiars carry compact magical light pools. The stronger tiers reach two
+  // hexes; Familiar Radiante keeps the base familiar's cool glow, with a little more strength,
+  // while Familiar Titã spreads a restrained red glow over each occupied body hex so its full
+  // footprint and adjacent target area receive the light.
   familiar: { color: [0.68, 0.82, 1.0], intensity: 1.5, radius: 1, flicker: 0.08 },
   familiar2: { color: [0.64, 0.76, 1.0], intensity: 1.8, radius: 2, flicker: 0.08 },
+  familiar4: { color: [0.68, 0.82, 1.0], intensity: 1.8, radius: 2, flicker: 0.08 },
   familiar3: { color: [1.0, 0.08, 0.1], intensity: 0.7, radius: 2, flicker: 0.04 },
   swampBlueCalf: { color: [0.55, 0.75, 1.0], intensity: 1.8, radius: 3, flicker: 0.3 },
 };
@@ -89,6 +92,9 @@ export interface EnvLight {
   r: number;
   /** Optional Three.js attenuation exponent; defaults to the map lighting standard. */
   decay?: number;
+  /** Exponent the intensity is normalized with (irradiance one hex away = LightDef.intensity);
+   * defaults to LIGHT_DECAY. Map props and unit lights use MAP_LIGHT_DECAY for both. */
+  normDecay?: number;
   /** color x intensity x flicker. */
   rgb: [number, number, number];
 }
@@ -96,6 +102,21 @@ export interface EnvLight {
 /** PointLight.decay. 2 is physical inverse-square; 1.5 keeps a lit pool around a fire instead
  * of only a hot spot at its base. */
 export const LIGHT_DECAY = 1.5;
+
+/** Attenuation for map light props and unit lights (spells keep LIGHT_DECAY). Softer than 1.5 so
+ * a lamp's light keeps reaching the ground a few hexes out instead of dying within one hex. */
+export const MAP_LIGHT_DECAY = 1.25;
+/** Lowest a map light's flame may sit above the ground, in hex radii. Measured flames were only
+ * 0.7–0.9 hex up; a light that close to a flat floor pours almost everything into the hex under
+ * it (1 hex away got ~30% of the center). Raising it spreads the same light over a wider pool. */
+export const MAP_LIGHT_MIN_HEIGHT = 1;
+/** Bounce fill: each of the nearest map lights also drives a wide, dim, high light standing in
+ * for light bouncing off the lit ground onto its surroundings. Irradiance straight under it is
+ * this fraction of the main light's one-hex value, reaching BOUNCE_RADIUS_MUL x its range. */
+export const BOUNCE_FRACTION = 0.12;
+export const BOUNCE_RADIUS_MUL = 2;
+/** Bounce light height above the ground, in hex radii — high, so it spreads flat and even. */
+export const BOUNCE_HEIGHT = 2.5;
 
 /** Smooth, non-repeating-looking fire variation around 1 — a few incommensurate slow sines,
  * never a per-frame random jump. `seed` decorrelates neighbouring fires. */

@@ -2,6 +2,11 @@
 
 ## RULES OF THE PROJECT
 
+- **NEVER UNDO ANY EARLIER WORK.** Never revert, roll back, or overwrite work from an earlier
+  session, another Claude session, or Codex — even if it looks unrelated to the current task or
+  shows up in a diff you didn't make. Every existing change in the files is the user's approved
+  work. Do not revert earlier work, including work from the current session. Fix mistakes through
+  a new, narrowly scoped change that preserves the prior work and history.
 - **NEVER do anything the user did not ask for.**
 - **NEVER take action on your own.**
 - **NEVER rename any files.**
@@ -57,7 +62,6 @@ This is an existing working codebase. Preserve existing behavior by default.
 10. If solving the request appears to require modifying another subsystem, stop and explain what additional file/system would need to change before modifying it.
 11. Do not fix unrelated bugs discovered while working — flag them instead.
 12. Do not add features the user did not request.
-13. Before finishing, inspect the diff (`git diff`) and revert every changed block that was not necessary for the requested task. For each changed file/block ask: "was this modification necessary to satisfy the user's exact request?" — if no, revert it. The final diff must contain only the minimum changes necessary.
 
 The existing implementation is authoritative. "Better", "cleaner", or "more maintainable" is NOT permission to change it.
 
@@ -85,6 +89,23 @@ simplify, revert, or otherwise change any of this as a side effect of unrelated 
 seems to require touching one of these, stop and confirm with the user first instead of assuming
 the old behavior was a mistake. Per direct, explicit instruction: whoever (whatever model/session)
 touches these without being asked to is reborn an LLM on every cycle.
+
+- **Loading bars: settled 2026-10-06 — LOCKED, never change them.** Every loading bar shows
+  REAL progress or nothing. No fake/indeterminate/sweeping/random fill, ever ("it must mean
+  something or shouldn't exist at all"). Current, final state:
+  - Title screen (`TitleLoader` + `useArtLoadProgress` in GameApp.tsx, `.title-loader*` in
+    styles.css): the "Despertando as cinzas" gothic bar with a real `NN%` — width =
+    `artProgress()` (assets.ts: settled image requests / the exact count the last full title load
+    made, remembered in localStorage `ember.artLoadTotal`; first-visit fallback
+    `ART_TOTAL_FALLBACK = 984`, measured). Smooth molten fill: NO diagonal strata/stripes/lines
+    across the fill (`.title-loader-fill::after` was deleted on purpose — never re-add it).
+  - Battle loading curtain (GameApp `LoadingCurtain` props): real `%` of the battle's sprite/
+    decoration/terrain files + 1 final step for the first warmed frame, status
+    "Preparando batalha · loaded/total recursos".
+  - `LoadingArt` (MapLoadingOverlay.tsx): when `progress` is null there is NO fill at all —
+    never the old `loading-progress-sweep` fake bar.
+  - Don't restyle, "improve", animate, or swap these for an indeterminate bar. If the loaded
+    total ever changes a lot, re-measure and update the fallback number only.
 
 - **Target zones (body types) are never entered — by anyone, by any kind of movement.** A
   "target zone" is a creature's body-type footprint (`FOOTPRINT_TYPE_2/3/5/6/7/8` in data.ts,

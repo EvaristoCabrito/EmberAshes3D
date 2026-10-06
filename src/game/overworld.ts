@@ -1,6 +1,8 @@
 import { CHEST_LOOT, EMPTY_BAG, EQUIPMENT, heroRecruited, MAX_LEVEL, partyBagHasRoom, POTION_CARRY_MAX, POTIONS, statsFor, weightedLootPick, weightedPotionPick, WEAPONS, WORLD_LOCATIONS } from "./data";
-import { DAILY_HUNGER_COST, drainHunger } from "./hunger";
-import { missionsForLocation, RANDOM_ENCOUNTER_REGIONS } from "./mapstore";
+import { DAILY_HUNGER_COST, drainHunger, fullness, travelHungerCost } from "./hunger";
+import { campaignHour, campaignTimeOfDay, usesTravelClock } from "./campaignTime";
+import { ALL_LOCATIONS, missionsForLocation, RANDOM_ENCOUNTER_REGIONS } from "./mapstore";
+import ENCOUNTER_ZONES from "./random-encounter-zones.json";
 import { cubeRound, cubeToOddr, hexNeighbors, key, oddrToCube } from "./pathfinding";
 import type { ClassId, Point, SaveData, TierKey, WorldLocation } from "./types";
 
@@ -46,20 +48,48 @@ export const OVERWORLD_WEST_EDGE_COL = OVERWORLD_START_HEX.x;
 
 const STONE_BRIDGE_MISSION_IDS = WORLD_LOCATIONS.find((location) => location.id === "stonebridge")?.missionIds ?? [];
 
-/** The opening is deliberately linear: leave the western edge by the east hex, complete
+export const ASHEN_FOREST_ENTRANCE = worldToHex(73.61215932167728, 52.5);
+export const ASHEN_FOREST_BLOCKED_HEX = { x: ASHEN_FOREST_ENTRANCE.x + 1, y: ASHEN_FOREST_ENTRANCE.y + 1 };
+
+/** True while Wisp Forest has never been cleared: the party may reach it, but not travel past it
+ * to the east until every mission it holds is completed once. */
+export function wispForestUncleared(save: SaveData): boolean {
+  const wisp = ALL_LOCATIONS.find((location) => location.id === "wisp-forest");
+  return !!wisp && !missionsForLocation(wisp).every((mission) => save.completed.includes(mission.id));
+}
+
+/** The column of Wisp Forest's hex — the eastward line nobody crosses before clearing it. */
+export function wispForestHex(): Point | null {
+  const wisp = ALL_LOCATIONS.find((location) => location.id === "wisp-forest");
+  return wisp ? worldToHex(wisp.x, wisp.y) : null;
+}
+
+/** The opening is deliberately linear: clear O Vau before leaving the western edge, complete
  * the full Stone Bridge mission set, then the full three-way travel choice opens up. Kept in the logic layer so a
  * click or a future renderer cannot bypass the tutorial route. */
 export function canStepOverworld(save: SaveData, from: Point, to: Point, test = false): boolean {
+  // Removed map cells are permanent exclusions, including during test-mode travel.
+  if (!isOverworldCell(to.x, to.y)) return false;
+  if (to.x === ASHEN_FOREST_BLOCKED_HEX.x && to.y === ASHEN_FOREST_BLOCKED_HEX.y) return false;
   // Modo teste: full freedom to walk anywhere, same as every other test-mode override —
   // testing movement range/random encounters needs the whole grid open, not just the
   // linear tutorial route out of Stone Bridge.
   if (test) return true;
-  if (STONE_BRIDGE_MISSION_IDS.every((missionId) => save.completed.includes(missionId))) return true;
+  if (!save.completed.includes("vau")) return false;
+  // Nobody travels east past Wisp Forest until it has been cleared once.
+  const wispHex = wispForestHex();
+  if (wispHex && from.x <= wispHex.x && to.x > wispHex.x && wispForestUncleared(save)) return false;
+  // The authored opening is the horizontal line Start -> Stone Bridge -> Wisp Forest
+  // -> Inn. Do not substitute a general eastward fan or explored-cell escape routes.
+  const inn = WORLD_LOCATIONS.find(location => location.id === "estalagem")!;
+  const innHex = worldToHex(inn.x, inn.y);
+  if (save.completed.includes("estalagem") || (from.x === innHex.x && from.y === innHex.y)) return true;
+  if (to.y !== OVERWORLD_START_HEX.y || to.x < OVERWORLD_START_HEX.x || to.x > innHex.x) return false;
   const atStart = from.x === OVERWORLD_START_HEX.x && from.y === OVERWORLD_START_HEX.y;
-  // O Vau is fought right at the western edge, before the party has taken a single step —
-  // the party has nowhere to walk to yet until it's cleared, so the east move (the only one
-  // this edge ever offers) stays closed until save.completed says so.
-  return atStart && to.x > from.x && save.completed.includes("vau");
+  if (to.x < from.x) return true;
+  if (atStart) return to.y === from.y && to.x === from.x + 1;
+  if (!STONE_BRIDGE_MISSION_IDS.every(missionId => save.completed.includes(missionId))) return false;
+  return to.x > from.x;
 }
 
 /** The only notion of adjacency the RPG map is allowed to use. */
@@ -170,6 +200,7 @@ const OVERWORLD_OFF_MAP_HEXES = new Set<string>([
 /** Finite logical board, independent of the map's rendered dimensions and zoom. */
 export function isOverworldCell(col: number, row: number): boolean {
   if (!Number.isInteger(col) || !Number.isInteger(row)) return false;
+  if (col === ASHEN_FOREST_BLOCKED_HEX.x && row === ASHEN_FOREST_BLOCKED_HEX.y) return false;
   if (OVERWORLD_OFF_MAP_HEXES.has(key(col, row))) return false;
   const p = hexToWorld(col, row);
   return col >= OVERWORLD_WEST_EDGE_COL && p.x >= 0 && p.x <= 100 && p.y >= 0 && p.y <= 100;
@@ -201,8 +232,7 @@ export function locationExpired(location: WorldLocation, gameClock: number): boo
  * that day (see `fed` in stepOverworld). */
 const RECOVERY_PCT = 0.08;
 /** Chance a step onto open wild ground (no location) triggers a real battle, pulled from
- * the "road" random-encounter region — the only region mapped to actual overworld travel
- * so far (see RANDOM_ENCOUNTER_REGIONS in mapstore.ts). Checked before the flavor-text
+ * that hex's encounter region (road outside authored zones). Checked before the flavor-text
  * roll below, so the two can never both fire on the same step. */
 const BATTLE_ENCOUNTER_CHANCE = 0.15;
 /** Chance a step onto open wild ground (no location, and no battle rolled above) triggers
@@ -237,7 +267,7 @@ const HERO_BASE_CLASS: Record<string, ClassId> = {
  * fullness left. Exported so a ration action outside of stepping (Alimentar todos, Inn)
  * can clear hungerStreak the moment it's earned instead of waiting for the next step. */
 export function partyIsFed(save: SaveData, test = false): boolean {
-  const ages = (hero: string) => test || (heroRecruited(hero, save.completed) && (save.unitHp[hero] ?? maxHpFor(save, hero)) > 0);
+  const ages = (hero: string) => test || (heroRecruited(hero, save.completed, save.flags) && (save.unitHp[hero] ?? maxHpFor(save, hero)) > 0);
   return Object.keys(HERO_BASE_CLASS).filter(ages).every((hero) => (save.heroHunger[hero] ?? 100) > 0);
 }
 
@@ -263,10 +293,36 @@ export interface OverworldEvent {
   missionId?: string;
 }
 
-/** Every encounter id assigned to the "road" region in random-encounters.json — the only
- * region wired to real overworld travel so far (see BATTLE_ENCOUNTER_CHANCE above). */
-function roadEncounterIds(): string[] {
-  return RANDOM_ENCOUNTER_REGIONS.find((region) => region.id === "road")?.encounterIds ?? [];
+/** A destination hex selects its authored biome pool. An exhausted regional pool never
+ * falls back to road encounters; outside any zone the existing road pool still applies. */
+export function travelRegionAt(col: number, row: number): string {
+  // Explicitly prioritized routes (such as a road through woods) win overlaps; equal
+  // priorities use the later zone so authored additions can refine earlier boundaries.
+  let regionId = "road";
+  let priority = Number.NEGATIVE_INFINITY;
+  for (const zone of ENCOUNTER_ZONES.zones) {
+    const nextPriority = zone.priority ?? 0;
+    if (nextPriority >= priority && zone.hexes.some((hex) => hex.col === col && hex.row === row)) {
+      regionId = zone.regionId;
+      priority = nextPriority;
+    }
+  }
+  return regionId;
+}
+
+export function travelEncounterIds(col: number, row: number): string[] {
+  return RANDOM_ENCOUNTER_REGIONS.find((region) => region.id === travelRegionAt(col, row))?.encounterIds ?? [];
+}
+
+export function travelHoursForHex(col: number, row: number, locations: WorldLocation[]): number {
+  const location = locationAt(locations, col, row);
+  if (location && /cave|caverna|underground/i.test(`${location.id} ${location.name}`)) return 36;
+  const region = travelRegionAt(col, row);
+  return region === "forest" ? 24 : region === "mountain" || region === "underground" || region === "cave" ? 36 : region === "plains" ? 12 : 6;
+}
+
+export function travelTimeLabel(hours: number): string {
+  return hours === 24 ? "1 dia" : hours === 36 ? "1 dia e 12 horas" : `${hours} horas`;
 }
 
 const ENCOUNTERS: { text: string; rationsDice?: number; ember?: number; goldLossDice?: number; lootBag?: boolean; losePotion?: boolean; loseLockpick?: boolean; diseaseChance?: number; alertDays?: number }[] = [
@@ -296,7 +352,7 @@ export function teleportOverworld(save: SaveData, col: number, row: number): Sav
   return { ...save, overworldPos: { col, row } };
 }
 
-/** Advances the RPG map by exactly one hex step, always exactly one day. Refuses (returns
+/** Advances one hex step by its terrain's travel hours. Refuses (returns
  * the save unchanged, no event) if the target hex isn't actually a neighbor of the current
  * position — the UI is expected to only ever offer neighbors, but this is the one place
  * that enforces it regardless. */
@@ -306,26 +362,26 @@ export function stepOverworld(save: SaveData, toCol: number, toRow: number, loca
   if (!isOverworldCell(toCol, toRow) || !isNeighbor(from, to) || !canStepOverworld(save, from, to, test)) return { save, event: null };
 
   const heroHunger = { ...save.heroHunger };
+  const travelHours = travelHoursForHex(toCol, toRow, locations);
+  const totalHours = campaignHour(save) + travelHours;
+  const arrivalTime = campaignTimeOfDay(totalHours % 24);
+  const elapsedDays = Math.floor(totalHours / 24);
   // Modo teste: everyone shown in the party feels the same daily drain, full stop — not
   // gated on heroRecruited OR on unitHp (a hero who never formally joined this save, or
   // whose HP record is stale/zeroed from before they were recruited, still ages). Same
   // god-mode rule this whole file already follows for canStepOverworld. A real campaign
   // still gates on both, same as ever.
-  const ages = (hero: string) => test || (heroRecruited(hero, save.completed) && (save.unitHp[hero] ?? maxHpFor(save, hero)) > 0);
+  const ages = (hero: string) => test || (heroRecruited(hero, save.completed, save.flags) && (save.unitHp[hero] ?? maxHpFor(save, hero)) > 0);
   for (const hero of Object.keys(HERO_BASE_CLASS)) {
-    if (ages(hero)) heroHunger[hero] = drainHunger(heroHunger[hero], DAILY_HUNGER_COST);
+    if (ages(hero)) heroHunger[hero] = drainHunger(heroHunger[hero], travelHungerCost(travelHours));
   }
 
-  // Every overworld step is exactly one day (see this function's own doc comment) — half of
-  // every hero's every spent Tier charge (any class, any tier, not just Create Food and
-  // Water) recovers each day, on top of the existing full reset at scenario end
-  // (GameApp.tsx's scenarioStart check). Rounds in favor of the player: floor(spent/2)
-  // REMAINS spent, so more than half can come back on an odd count.
+  // Recover half the spent spell charges when travel crosses into a new day.
   const spellUses: Record<string, Partial<Record<TierKey, number>>> = {};
   for (const [hero, tiers] of Object.entries(save.spellUses)) {
     const next: Partial<Record<TierKey, number>> = {};
     for (const [t, spent] of Object.entries(tiers ?? {})) {
-      const recovered = Math.floor((spent ?? 0) / 2);
+      const recovered = Math.floor((spent ?? 0) / 2 ** elapsedDays);
       if (recovered > 0) next[t as TierKey] = recovered;
     }
     if (Object.keys(next).length > 0) spellUses[hero] = next;
@@ -334,20 +390,24 @@ export function stepOverworld(save: SaveData, toCol: number, toRow: number, loca
   const fed = Object.keys(HERO_BASE_CLASS).filter(ages).every((hero) => (heroHunger[hero] ?? 100) > 0);
   const rations = save.rations;
   const prevPenalty = hungerPenaltyFor(save.hungerStreak);
-  const hungerStreak = fed ? 0 : save.hungerStreak + 1;
+  const travellingHeroes = Object.keys(HERO_BASE_CLASS).filter(ages);
+  const startingFullness = Math.min(...travellingHeroes.map((hero) => fullness(save.heroHunger[hero])));
+  const newlyHungryHours = Math.max(0, travelHours - startingFullness * 24 / DAILY_HUNGER_COST);
+  const hungerHours = fed ? 0 : (startingFullness > 0 ? 0 : save.hungerHours ?? save.hungerStreak * 24) + newlyHungryHours;
+  const hungerStreak = Math.floor(hungerHours / 24);
 
   const unitHp: Record<string, number> = { ...save.unitHp };
   // Recovery only happens on a day the party actually ate — "não ativa a recuperação de
   // HP durante a exploração do mapa" whenever there's nothing to eat. Hunger itself never
   // does direct HP damage; it only docks combat stats (see hungerPenaltyFor), applied at
   // battle spawn, not here.
-  if (fed) {
+  if (fed && elapsedDays > 0) {
     for (const hero of Object.keys(HERO_BASE_CLASS)) {
       const max = maxHpFor(save, hero);
       if (max <= 0) continue;
       const current = unitHp[hero] ?? max;
       if (current <= 0 || current >= max) continue; // fallen heroes don't heal on the road
-      unitHp[hero] = Math.min(max, Math.round(current + max * RECOVERY_PCT));
+      unitHp[hero] = Math.min(max, Math.round(current + max * RECOVERY_PCT * elapsedDays));
     }
   }
 
@@ -370,24 +430,34 @@ export function stepOverworld(save: SaveData, toCol: number, toRow: number, loca
   let diseaseText = "";
   // This roll happens for every completed travel day, independent of whether the day also
   // produces a battle or text encounter. Once sick, a hero is skipped until cured.
-  if (healthyTravellers.length > 0 && Math.random() < TRAVEL_DISEASE_CHANCE) {
+  if (elapsedDays > 0 && healthyTravellers.length > 0 && Math.random() < 1 - (1 - TRAVEL_DISEASE_CHANCE) ** elapsedDays) {
     const hero = healthyTravellers[Math.floor(Math.random() * healthyTravellers.length)]!;
     heroDiseases[hero] = true;
     diseaseText = `${hero} contraiu uma doença na estrada (−10% nos atributos até ser curado).`;
   }
   const landedLocation = locationAt(locations, toCol, toRow);
-  const roadIds = roadEncounterIds();
+  // Regional encounters share the existing per-slot history. Each is one-time except
+  // the traveling merchant; keep the saved field names compatible with older campaigns.
+  const repeatableMerchantEncounters = new Set(["random-encounter-11", "random-encounter-14"]);
+  const seenRoadEncounters = save.roadEncountersSeen ?? [];
+  const merchantCanAppear = !usesTravelClock(save) || arrivalTime === "brightNight" || arrivalTime === "darkNight";
+  const travelIds = travelEncounterIds(toCol, toRow).filter((id) => {
+    if (repeatableMerchantEncounters.has(id)) return merchantCanAppear;
+    return !save.completed.includes(id) && !seenRoadEncounters.includes(id);
+  });
   // Doubled, not just flat-boosted, while the "large tracks" alert is active — same relative
   // read on the odds regardless of what BATTLE_ENCOUNTER_CHANCE itself is tuned to later.
   const battleChance = save.alertStreak > 0 ? BATTLE_ENCOUNTER_CHANCE * 2 : BATTLE_ENCOUNTER_CHANCE;
-  let alertStreak = Math.max(0, save.alertStreak - 1);
+  let alertStreak = Math.max(0, save.alertStreak - elapsedDays);
   let lastRoadEncounterId = save.lastRoadEncounterId;
-  if (!event && !landedLocation && roadIds.length > 0 && Math.random() < battleChance) {
-    // Never the same road encounter twice in a row — drop last time's pick from the pool
+  let roadEncountersSeen = seenRoadEncounters;
+  if (!event && (!landedLocation || landedLocation.encountersAllowed) && travelIds.length > 0 && Math.random() < battleChance) {
+    // Never the same travel encounter twice in a row — drop last time's pick from the pool
     // unless it's the only one there is, in which case a repeat is unavoidable.
-    const pool = roadIds.length > 1 ? roadIds.filter((id) => id !== save.lastRoadEncounterId) : roadIds;
+    const pool = travelIds.length > 1 ? travelIds.filter((id) => id !== save.lastRoadEncounterId) : travelIds;
     const missionId = pool[Math.floor(Math.random() * pool.length)]!;
     lastRoadEncounterId = missionId;
+    roadEncountersSeen = [...new Set([...roadEncountersSeen, missionId])];
     event = { kind: "battle", text: "", missionId };
   }
   if (!event && !landedLocation && Math.random() < TEXT_ENCOUNTER_CHANCE) {
@@ -411,7 +481,7 @@ export function stepOverworld(save: SaveData, toCol: number, toRow: number, loca
       const found: string[] = [];
       const potionKind = weightedPotionPick(Math.random);
       const recipient = Object.keys(HERO_BASE_CLASS).find(
-        (hero) => (test || heroRecruited(hero, save.completed)) && (bags[hero]?.[potionKind] ?? 0) < POTION_CARRY_MAX[potionKind],
+        (hero) => (test || heroRecruited(hero, save.completed, save.flags)) && (bags[hero]?.[potionKind] ?? 0) < POTION_CARRY_MAX[potionKind],
       );
       if (recipient) {
         bags = { ...bags, [recipient]: { ...(bags[recipient] ?? EMPTY_BAG), [potionKind]: (bags[recipient]?.[potionKind] ?? 0) + 1 } };
@@ -495,15 +565,18 @@ export function stepOverworld(save: SaveData, toCol: number, toRow: number, loca
       ...save,
       overworldPos: { col: toCol, row: toRow },
       exploredHexes,
-      gameClock: save.gameClock + 1,
+      gameClock: save.gameClock + elapsedDays,
+      gameHour: totalHours % 24,
       overworldMoveBudgetUsed: (save.overworldMoveBudgetUsed ?? 0) + 1,
       heroHunger,
       heroDiseases,
       rations: Math.max(0, rations + rationsDelta),
       ember: Math.max(0, save.ember + emberDelta),
       hungerStreak,
+      hungerHours,
       alertStreak,
       lastRoadEncounterId,
+      roadEncountersSeen,
       unitHp,
       weapons,
       looseEquipment,
