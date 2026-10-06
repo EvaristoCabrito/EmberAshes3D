@@ -3903,6 +3903,22 @@ const SPAWN_SIDE: Record<SpawnKey, "player" | "enemy" | "neutral"> = {
   neutralSpawns: "neutral",
 };
 
+/** Resolve a preview selection to the editor draft placement. Watchtower preview
+ * normalization can swap a connector's up/down stair art or rotation without
+ * changing its saved hex, so connector selections fall back to their origin hex. */
+function findPreviewDecoration(
+  placements: DecorationPlacement[],
+  selected: PreviewDecorationSelection,
+): DecorationPlacement | undefined {
+  const exact = placements.find((p) =>
+    p.id === selected.id && p.x === selected.x && p.y === selected.y && (p.rot ?? 0) === (selected.rot ?? 0),
+  );
+  if (exact || DECORATIONS[selected.id]?.exitKind !== "connector") return exact;
+  return placements.find((p) =>
+    p.x === selected.x && p.y === selected.y && DECORATIONS[p.id]?.exitKind === "connector",
+  );
+}
+
 function missionToDraft(m: Mission): MapDraft {
   const n = m.cols * m.rows;
   const variants = m.tileVariants ?? [];
@@ -4972,13 +4988,7 @@ export function MapEditorScreen({
 
   /** The placement the two rule switches act on — the one clicked in the map. */
   const selectedPlacement = selectedPlacedDecoration
-    ? draft.decorations.find(
-        (p) =>
-          p.id === selectedPlacedDecoration.id &&
-          p.x === selectedPlacedDecoration.x &&
-          p.y === selectedPlacedDecoration.y &&
-          (p.rot ?? 0) === (selectedPlacedDecoration.rot ?? 0),
-      )
+    ? findPreviewDecoration(draft.decorations, selectedPlacedDecoration)
     : undefined;
   const selectedPlacementIsSolidHouse = !!selectedPlacement && (
     HOUSE_DECOR_IDS.has(selectedPlacement.id) || BIG_HOUSE_DECOR_IDS.has(selectedPlacement.id) || SOLID_HOUSE_DECOR_IDS.has(selectedPlacement.id)
@@ -5012,9 +5022,7 @@ export function MapEditorScreen({
         return;
       }
       setDraft((d) => {
-        const hit = d.decorations.find(
-          (p) => p.id === selected.id && p.x === selected.x && p.y === selected.y && (p.rot ?? 0) === (selected.rot ?? 0),
-        );
+        const hit = findPreviewDecoration(d.decorations, selected);
         if (!hit) {
           setNote("Essa decoração já não está no mapa.");
           return d;
@@ -5037,7 +5045,7 @@ export function MapEditorScreen({
       const selected = selectedPlacedDecoration;
       if (!selected) return;
       setDraft((d) => {
-        const hit = d.decorations.find((p) => p.id === selected.id && p.x === selected.x && p.y === selected.y && (p.rot ?? 0) === (selected.rot ?? 0));
+        const hit = findPreviewDecoration(d.decorations, selected);
         if (!hit) return d;
         const next: DecorationPlacement = { ...hit, targetMapId: targetMapId || undefined };
         return { ...d, decorations: d.decorations.map((p) => (p === hit ? next : p)) };
@@ -5052,7 +5060,7 @@ export function MapEditorScreen({
     const selected = selectedPlacedDecoration;
     if (!selected) return;
     setDraft((d) => {
-      const hit = d.decorations.find((p) => p.id === selected.id && p.x === selected.x && p.y === selected.y && (p.rot ?? 0) === (selected.rot ?? 0));
+      const hit = findPreviewDecoration(d.decorations, selected);
       if (!hit) return d;
       const next: DecorationPlacement = { ...hit, returnConnector: hit.returnConnector ? undefined : true };
       return { ...d, decorations: d.decorations.map((p) => (p === hit ? next : p)) };
@@ -5066,7 +5074,7 @@ export function MapEditorScreen({
       return;
     }
     setDraft((d) => {
-      const hit = d.decorations.find((p) => p.id === selected.id && p.x === selected.x && p.y === selected.y && (p.rot ?? 0) === (selected.rot ?? 0));
+      const hit = findPreviewDecoration(d.decorations, selected);
       if (!hit) {
         setNote("Essa decoração já não está no mapa.");
         return d;
@@ -5407,9 +5415,7 @@ export function MapEditorScreen({
    * way a turn does, since a moved house has to leave its climbable ground behind, not drag it. */
   const placePreviewDecoration = (selected: PreviewDecorationSelection, x: number, y: number) => {
     setDraft((d) => {
-      const hit = d.decorations.find(
-        (p) => p.id === selected.id && p.x === selected.x && p.y === selected.y && (p.rot ?? 0) === (selected.rot ?? 0),
-      );
+      const hit = findPreviewDecoration(d.decorations, selected);
       if (!hit) {
         setNote("Essa decoração já não está no mapa.");
         return d;
