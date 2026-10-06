@@ -691,6 +691,9 @@ export async function ensureDecorationArt(art: GameArt, ids: Iterable<string>, o
     if (id === "floor-connector") {
       files.add("floor-connector-down-red-v1");
       files.add("floor-connector-up-gold-v1");
+    } else if (id === "stone-stairs-up-001" || id === "stone-stairs-down-001") {
+      files.add("stone-stairs-up-001");
+      files.add("stone-stairs-down-001");
     } else files.add(id);
     if (DECORATIONS[id]?.mirrorAlternate) files.add(decorationSideFile(id, 3));
   }

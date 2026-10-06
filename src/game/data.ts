@@ -598,6 +598,8 @@ export const DECORATIONS: Record<string, DecorationDef> = {
   "merchant-covered-cart-001": { id: "merchant-covered-cart-001", name: "Carroça Coberta do Mercador", footprint: DECO_PAIR, artScale: 1.2, heightScale: 1.15 },
   "inn-stairs-up": { id: "inn-stairs-up", name: "Escada para o Andar de Cima", footprint: DECO_PAIR, artScale: 0.9 },
   "inn-stairs-down": { id: "inn-stairs-down", name: "Escada para o Andar de Baixo", footprint: DECO_PAIR, artScale: 0.9 },
+  "stone-stairs-up-001": { id: "stone-stairs-up-001", name: "Escada de Pedra · Subir", footprint: [{ dx: 0, dy: 0 }, { dx: 0, dy: -1 }], noShadow: true, exitKind: "connector" },
+  "stone-stairs-down-001": { id: "stone-stairs-down-001", name: "Escada de Pedra · Descer", footprint: [{ dx: 0, dy: 0 }, { dx: 0, dy: -1 }], noShadow: true, exitKind: "connector" },
   "spike-crown": { id: "spike-crown", name: "Coroa de Espinhos", footprint: DECO_TRIO },
   ...WILDS_DECORATIONS,
   ...TORTURE_DECORATIONS,
@@ -719,7 +721,7 @@ export const BARRICADE_LIKE_DECOR = new Set([
 ]);
 
 /** These packs are editor art only: scenario generation never places them by accident. */
-const MANUAL_DECORATION_IDS = new Set([...Object.keys(WILDS_DECORATIONS), ...Object.keys(TORTURE_DECORATIONS), ...Object.keys(CITY_DECORATIONS), ...Object.keys(NEW_DECOR_2026)]);
+const MANUAL_DECORATION_IDS = new Set(["stone-stairs-up-001", "stone-stairs-down-001", ...Object.keys(WILDS_DECORATIONS), ...Object.keys(TORTURE_DECORATIONS), ...Object.keys(CITY_DECORATIONS), ...Object.keys(NEW_DECOR_2026)]);
 
 /** Every track in public/game/MUSIC, by file name, A-Z.
  *
@@ -749,9 +751,18 @@ export function decorationSideFile(id: string, step: number): string {
   return step === 0 ? id : `${id}-side${step + 1}`;
 }
 
-export function decorationPlacementArt(p: Pick<DecorationPlacement, "id" | "returnConnector">): string {
+export function isFloorConnector(p: DecorationPlacement | null | undefined): p is DecorationPlacement {
+  return !!p && DECORATIONS[p.id]?.exitKind === "connector";
+}
+
+export function floorConnectorDirection(p: Pick<DecorationPlacement, "id" | "returnConnector" | "connectorDirection">): "up" | "down" {
+  return p.connectorDirection ?? (p.id === "stone-stairs-up-001" ? "up" : p.id === "stone-stairs-down-001" ? "down" : p.returnConnector ? "up" : "down");
+}
+
+export function decorationPlacementArt(p: Pick<DecorationPlacement, "id" | "returnConnector" | "connectorDirection">): string {
+  if (p.id === "stone-stairs-up-001" || p.id === "stone-stairs-down-001") return floorConnectorDirection(p) === "up" ? "stone-stairs-up-001" : "stone-stairs-down-001";
   return p.id === "floor-connector"
-    ? p.returnConnector ? "floor-connector-up-gold-v1" : "floor-connector-down-red-v1"
+    ? (p.connectorDirection ? p.connectorDirection === "up" : p.returnConnector) ? "floor-connector-up-gold-v1" : "floor-connector-down-red-v1"
     : p.id;
 }
 

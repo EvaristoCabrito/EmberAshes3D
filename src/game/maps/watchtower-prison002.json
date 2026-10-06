@@ -6333,829 +6333,826 @@
         "y": 32
       },
       {
-        "id": "floor-connector",
+        "id": "stone-stairs-up-001",
         "x": 24,
         "y": 20,
         "targetMapId": "watchtower-undercroft",
-        "returnConnector": true
+        "returnConnector": true,
+        "connectorDirection": "up",
+        "rot": 0
       },
       {
-        "id": "dungeon-exit",
-        "x": 24,
-        "y": 4
-      },
-      {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 6,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 6,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 7,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 7,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 6,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 6,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 7,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 7,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 8,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 8,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 9,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 9,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 8,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 8,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 9,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 9,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 10,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 10,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 11,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 11,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 10,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 10,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 11,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 11,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 16,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 16,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 17,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 17,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 16,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 16,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 17,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 17,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 18,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 18,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 19,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 19,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 18,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 18,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 19,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 19,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 22,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 22,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 23,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 23,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 22,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 22,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 23,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 23,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 28,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 28,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 29,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 29,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 28,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 28,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 29,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 29,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 30,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 30,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 31,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 31,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 30,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 30,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 31,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 31,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 32,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 32,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 33,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 33,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 32,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 32,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 32,
         "y": 33,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 33,
         "y": 33,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 6,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 7,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 6,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 7,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 8,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 9,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 8,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 9,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 10,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 11,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 10,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 11,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 12,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 13,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 12,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 13,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 14,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 15,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 14,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 15,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 16,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 17,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 16,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 17,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 34,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 35,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 34,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 35,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 36,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 37,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 36,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 37,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 38,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 39,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 38,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 39,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 40,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 41,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 40,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 41,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 42,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 43,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 42,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 43,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 44,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 45,
         "y": 20,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 44,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 45,
         "y": 21,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 4,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 4,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 5,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 5,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 14,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 14,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 18,
         "y": 15,
         "blocksPath": true
       },
       {
-        "id": "city-stone-banner-wall",
+        "id": "wall-3d-dungeon",
         "x": 19,
         "y": 15,
         "blocksPath": true
@@ -7282,6 +7279,20 @@
       {
         "id": "wall-3d-dungeon",
         "x": 23,
+        "y": 4,
+        "rot": 0,
+        "wallOrientation": "horizontal"
+      },
+      {
+        "id": "wall-3d-dungeon",
+        "x": 24,
+        "y": 4,
+        "rot": 0,
+        "wallOrientation": "horizontal"
+      },
+      {
+        "id": "wall-3d-dungeon",
+        "x": 25,
         "y": 4,
         "rot": 0,
         "wallOrientation": "horizontal"

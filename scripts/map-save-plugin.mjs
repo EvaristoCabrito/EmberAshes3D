@@ -25,6 +25,7 @@ export const ORDER_SAVE_ROUTE = "/__map-order";
 
 /** Sets the campaign progression order of the world-map locations. */
 export const LOCATION_ORDER_SAVE_ROUTE = "/__location-order";
+export const LOCATION_SUBMAPS_SAVE_ROUTE = "/__location-submaps";
 /** Stores the standalone random-encounter regions used by the Map Editor. */
 export const RANDOM_ENCOUNTERS_SAVE_ROUTE = "/__random-encounters";
 
@@ -40,6 +41,7 @@ export const ORDER_FILE = join("src", "game", "map-order.json");
 
 /** Ordered location ids, separate from the per-location mission lists. */
 export const LOCATION_ORDER_FILE = join("src", "game", "location-order.json");
+export const LOCATION_SUBMAPS_FILE = join("src", "game", "location-submaps.json");
 export const RANDOM_ENCOUNTERS_FILE = join("src", "game", "random-encounters.json");
 
 /** Deletes one saved map file — the editor's way to throw away a version it created.
@@ -163,6 +165,7 @@ export function mapSavePlugin() {
       const slotsPath = join(server.config.root, SLOTS_FILE);
       const orderPath = join(server.config.root, ORDER_FILE);
       const locationOrderPath = join(server.config.root, LOCATION_ORDER_FILE);
+      const locationSubmapsPath = join(server.config.root, LOCATION_SUBMAPS_FILE);
       const randomEncountersPath = join(server.config.root, RANDOM_ENCOUNTERS_FILE);
       server.middlewares.use((req, res, next) => {
         const pathOnly = (req.url ?? "").split("?", 1)[0];
@@ -170,6 +173,7 @@ export function mapSavePlugin() {
         const isSlots = pathOnly === SLOTS_SAVE_ROUTE;
         const isOrder = pathOnly === ORDER_SAVE_ROUTE;
         const isLocationOrder = pathOnly === LOCATION_ORDER_SAVE_ROUTE;
+        const isLocationSubmaps = pathOnly === LOCATION_SUBMAPS_SAVE_ROUTE;
         const isRandomEncounters = pathOnly === RANDOM_ENCOUNTERS_SAVE_ROUTE;
         const isDelete = pathOnly === MAP_DELETE_ROUTE;
         const isList = pathOnly === MAP_LIST_ROUTE;
@@ -178,9 +182,9 @@ export function mapSavePlugin() {
         // before the isList branch) — see the isConfigRead block's own comment for why this
         // exists: the Locais screen needs a way to refresh its state from disk before it can
         // safely save, or a stale browser tab silently deletes whatever it doesn't know about.
-        const isConfigRead = (isOrder || isSlots || isLocationOrder) && method === "GET";
+        const isConfigRead = (isOrder || isSlots || isLocationOrder || isLocationSubmaps) && method === "GET";
         if (
-          (!isMap && !isSlots && !isOrder && !isLocationOrder && !isRandomEncounters && !isDelete && !isList) ||
+          (!isMap && !isSlots && !isOrder && !isLocationOrder && !isLocationSubmaps && !isRandomEncounters && !isDelete && !isList) ||
           (isList || isConfigRead ? method !== "GET" : method !== "POST")
         ) {
           next();
@@ -203,7 +207,7 @@ export function mapSavePlugin() {
         // location the client never heard of — sent as [] purely from being stale, not from
         // the author actually clearing it — was indistinguishable from a real deletion).
         if (isConfigRead) {
-          const path = isOrder ? orderPath : isSlots ? slotsPath : locationOrderPath;
+          const path = isOrder ? orderPath : isSlots ? slotsPath : isLocationSubmaps ? locationSubmapsPath : locationOrderPath;
           const fallback = isLocationOrder ? [] : {};
           reply(200, { ok: true, value: readBack(path) ?? fallback });
           return;
@@ -235,6 +239,18 @@ export function mapSavePlugin() {
         }
         readBody(req, 8 * 1024 * 1024)
           .then((raw) => {
+            if (isLocationSubmaps) {
+              const wanted = JSON.parse(raw), cleaned = {}, seen = new Set();
+              for (const [locationId, list] of Object.entries(wanted ?? {})) {
+                if (!isSafeMapId(locationId) || !Array.isArray(list)) continue;
+                cleaned[locationId] = list.filter(s => isSafeMapId(s?.missionId) && Number.isInteger(s?.floor) && !seen.has(s.missionId) && !!seen.add(s.missionId))
+                  .map(s => ({ missionId: s.missionId, floor: s.floor })).sort((a,b) => b.floor-a.floor);
+              }
+              writeFileSync(locationSubmapsPath, JSON.stringify(cleaned, null, 2) + "\n", "utf8");
+              invalidateMapstore(server);
+              reply(200, { ok: true, file: LOCATION_SUBMAPS_FILE, onDisk: readBack(locationSubmapsPath) });
+              return;
+            }
             if (isLocationOrder) {
               const wanted = JSON.parse(raw);
               const cleaned = [...new Set(Array.isArray(wanted) ? wanted.filter((id) => isSafeMapId(id)) : [])];

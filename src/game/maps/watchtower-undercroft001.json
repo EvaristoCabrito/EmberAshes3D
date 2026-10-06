@@ -5848,17 +5848,21 @@
         "y": 32
       },
       {
-        "id": "floor-connector",
+        "id": "stone-stairs-up-001",
         "x": 6,
         "y": 18,
         "targetMapId": "watchtower-gate-floor",
-        "returnConnector": true
+        "returnConnector": true,
+        "connectorDirection": "up",
+        "rot": 0
       },
       {
-        "id": "floor-connector",
+        "id": "stone-stairs-down-001",
         "x": 40,
         "y": 6,
-        "targetMapId": "watchtower-prison"
+        "targetMapId": "watchtower-prison",
+        "connectorDirection": "down",
+        "rot": 0
       },
       {
         "id": "wall-3d-dungeon",

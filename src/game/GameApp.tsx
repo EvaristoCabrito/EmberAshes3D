@@ -1,3 +1,4 @@
+import { isFloorConnector, floorConnectorDirection } from "./data";
 import { applyPartyFormation, cleanPartyFormation, cleanPartyLeader, partyLeaderOf } from "./partyFormation";
 import { OptionsButton } from "./OptionsMenu";
 import { CUTSCENE_SUBTITLES, syncEnglishSubtitles } from "./cutsceneSubtitles";
@@ -47,6 +48,7 @@ import { DISPLAY_VERSION } from "./version";
 import {
   ALL_LOCATIONS,
   ALL_MISSIONS,
+  DEFAULT_LOCATION_SUBMAPS,
   LOCATION_SLOTS,
   MAP_ACTIVE_KEY,
   MAP_ACTIVE_DRAFTS_KEY,
@@ -1096,7 +1098,7 @@ export function GameApp() {
    * connector or not enough room around it, the authored spawns are kept. */
   function arriveAtConnector(mission: Mission, fromMissionId: string): Mission {
     const decorations = mission.decorations ?? [];
-    const back = decorations.find((d) => d.id === "floor-connector" && d.targetMapId === fromMissionId);
+    const back = decorations.find((d) => isFloorConnector(d) && d.targetMapId === fromMissionId);
     if (!back || mission.playerSpawns.length === 0) return mission;
     const terrain = parseLayout(mission.layout);
     const overlay = buildDecorOverlay(decorations, mission.cols, mission.rows, placedBlockingFootprint, mission.terrainElevations);
@@ -1349,7 +1351,7 @@ export function GameApp() {
   const persistVictory = useCallback(() => {
     if (!engine || !mission) return;
     const battleHp = engine.battlePlayerHp();
-    const floorConnector = engine.activeExit?.id === "floor-connector";
+    const floorConnector = isFloorConnector(engine.activeExit);
     const bags = engine.remainingBags();
     const growth: GrowthLine[] = [];
     const newPromotions: { name: string; options: [ClassId, ClassId] }[] = [];
@@ -2713,12 +2715,14 @@ export function GameApp() {
               ? "Vocês encontraram a saída da masmorra."
               : hud.activeExit?.id === "escape-exit"
                 ? "Vocês escaparam a tempo."
-                : hud.activeExit?.id === "floor-connector"
+                : isFloorConnector(hud.activeExit)
                   ? mission.id === "estalagem"
                     ? "Subir para o Segundo andar"
                     : mission.id === "estalagem-andar-2"
                       ? "Descer para o Primeiro andar"
-                      : hud.activeExit.returnConnector
+                      : floorConnectorDirection(hud.activeExit)
+                        ? floorConnectorDirection(hud.activeExit) === "up" ? "Subindo para o andar superior." : "Descendo para o andar inferior."
+                        : hud.activeExit.returnConnector
                     ? "Vocês voltam ao andar anterior."
                     : "Vocês seguem mais fundo na masmorra."
                   : "O campo ficou em silêncio."
@@ -2726,13 +2730,13 @@ export function GameApp() {
           // Floor connector only: jumps straight into the linked floor (never listed in any
           // Locais location, so onMap's normal campaign path can't reach it — see
           // WorldLocation.submaps) instead of returning to the campaign map.
-          advanceLabel={hud.activeExit?.id === "floor-connector" ? (hud.activeExit.returnConnector ? "Voltar" : "Avançar") : undefined}
+          advanceLabel={isFloorConnector(hud.activeExit) ? (floorConnectorDirection(hud.activeExit) ? floorConnectorDirection(hud.activeExit) === "up" ? "Subir" : "Descer" : hud.activeExit.returnConnector ? "Voltar" : "Avançar") : undefined}
           onAdvance={
-            hud.activeExit?.id === "floor-connector" && hud.activeExit.targetMapId
+            isFloorConnector(hud.activeExit) && hud.activeExit.targetMapId
               ? () => startBattle(hud.activeExit!.targetMapId!, save.unitHp, undefined, undefined, undefined, undefined, undefined, true, mission.id)
               : undefined
           }
-          resting={hud.activeExit?.id !== "floor-connector"}
+          resting={!isFloorConnector(hud.activeExit)}
           turn={hud.turn}
           growth={mission.id === "estalagem" || mission.id.startsWith("estalagem-andar-") ? null : lastGrowth}
           loot={lastLoot}
@@ -4425,7 +4429,7 @@ export function MapEditorScreen({
   // Transversal Dungeon submaps per location (see WorldLocation.submaps) — purely authoring
   // bookkeeping, so unlike order/slots it has no repo-file/dev-server write of its own; the
   // guaranteed local save below is the only copy.
-  const [submaps, setSubmaps] = useState<Record<string, { missionId: string; floor: number }[]>>(() => locaisLocal?.submaps ?? {});
+  const [submaps, setSubmaps] = useState<Record<string, { missionId: string; floor: number }[]>>(() => ({ ...DEFAULT_LOCATION_SUBMAPS, ...locaisLocal?.submaps }));
 
   // Serialize repo writes so rapid arrow presses cannot let an older request win.
   const orderWrites = useRef<Promise<void>>(Promise.resolve());
@@ -4680,9 +4684,13 @@ export function MapEditorScreen({
    * cannot make a submap appear as its own card in the campaign menu. */
   const setLocationSubmap = (locationId: string, missionId: string, floor: number) => {
     setSubmaps((prev) => {
-      const list = (prev[locationId] ?? []).filter((s) => s.missionId !== missionId);
-      const next = { ...prev, [locationId]: [...list, { missionId, floor }].sort((a, b) => a.floor - b.floor) };
-      saveLocaisLocal({ order, slots, locationOrder, submaps: next });
+      const cleaned = Object.fromEntries(Object.entries(prev).map(([id, list]) => [id, list.filter(s => s.missionId !== missionId)]));
+      const oldFloor = prev[locationId]?.find(s => s.missionId === missionId)?.floor;
+      const list = (cleaned[locationId] ?? []).map(s => oldFloor != null && s.floor === floor ? { ...s, floor: oldFloor } : s);
+      const next = { ...cleaned, [locationId]: [...list, { missionId, floor }].sort((a, b) => b.floor - a.floor) };
+      const nextOrder = Object.fromEntries(Object.entries(order).map(([id, list]) => [id, list.filter(mapId => mapId !== missionId)]));
+      setOrder(nextOrder);
+      saveLocaisLocal({ order: nextOrder, slots, locationOrder, submaps: next });
       return next;
     });
   };
@@ -4710,11 +4718,11 @@ export function MapEditorScreen({
    * yet. */
   const refreshLocaisState = () => {
     const fresh = loadLocaisLocal();
-    if (!fresh) return;
+    if (!fresh) { setSubmaps(prev => ({ ...DEFAULT_LOCATION_SUBMAPS, ...prev })); return; }
     setOrder(Object.fromEntries(locationsForOrder(fresh.order, fresh.locationOrder, fresh.submaps, fresh.knownMissionIds).map((l) => [l.id, [...l.missionIds]])));
     setSlots(fresh.slots);
     setLocationOrder(fresh.locationOrder);
-    setSubmaps(fresh.submaps ?? {});
+    setSubmaps({ ...DEFAULT_LOCATION_SUBMAPS, ...fresh.submaps });
   };
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -4724,7 +4732,7 @@ export function MapEditorScreen({
       setOrder(Object.fromEntries(locationsForOrder(fresh.order, fresh.locationOrder, fresh.submaps, fresh.knownMissionIds).map((l) => [l.id, [...l.missionIds]])));
       setSlots(fresh.slots);
       setLocationOrder(fresh.locationOrder);
-      setSubmaps(fresh.submaps ?? {});
+      setSubmaps({ ...DEFAULT_LOCATION_SUBMAPS, ...fresh.submaps });
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -4766,6 +4774,7 @@ export function MapEditorScreen({
       const o = await post("/__map-order", order);
       const sl = await post("/__map-slots", slots);
       const lo = await post("/__location-order", locationOrder);
+      const floors = await post("/__location-submaps", submaps);
       const locais = Object.keys((o.onDisk as Record<string, unknown>) ?? {}).length;
       const vagas = Object.keys((sl.onDisk as Record<string, unknown>) ?? {}).length;
       setBigNote({
@@ -4776,6 +4785,7 @@ export function MapEditorScreen({
           `Também gravado no repositório: ${o.file} — ${locais} ${locais === 1 ? "local" : "locais"} com ordem definida`,
           `${sl.file} — ${vagas} ${vagas === 1 ? "local" : "locais"} com vagas definidas`,
           `${lo.file} — sequência de locais da campanha confirmada`,
+          `${floors.file} — submaps e andares confirmados`,
         ],
       });
     } catch (err) {
@@ -7462,91 +7472,31 @@ export function MapEditorScreen({
                         ))}
                       </select>
                     </div>
-                    {ids.length === 0 ? (
-                      <p className="text-xs text-muted">Nenhuma missão aqui ainda.</p>
-                    ) : (
-                      <div className="flex flex-col gap-1">
-                        {ids.map((id, i) => {
-                          const m = missionById(id);
-                          return (
-                            <div key={id} className="flex items-center gap-1.5 text-xs bg-bg border border-border rounded-md px-2 py-1.5">
-                              <span className="tabular-nums text-muted w-5 shrink-0">{i + 1}.</span>
-                              <span className="flex-1 min-w-0 truncate">{m ? m.title : id}</span>
-                              <button type="button" disabled={i === 0} onClick={() => moveInOrder(loc.id, id, -1)} className="px-1.5 rounded border border-border disabled:opacity-30" aria-label="Subir">
-                                ↑
-                              </button>
-                              <button type="button" disabled={i === ids.length - 1} onClick={() => moveInOrder(loc.id, id, 1)} className="px-1.5 rounded border border-border disabled:opacity-30" aria-label="Descer">
-                                ↓
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => removeFromLocation(loc.id, id)}
-                                className={`px-1 rounded border ${armedDelete === `location:${loc.id}:${id}` ? "border-danger text-danger font-bold" : "border-border text-danger"}`}
-                                aria-label={`Remover ${m ? m.title : id} deste Local`}
-                              >
-                                {armedDelete === `location:${loc.id}:${id}` ? "Remover?" : "✕"}
-                              </button>
-                              <select
-                                className="bg-bg border border-border rounded px-1 py-0.5 max-w-[8.5rem]"
-                                value=""
-                                title="Mover esta missão para outro local"
-                                onChange={(e) => {
-                                  const to = e.target.value;
-                                  e.target.value = "";
-                                  if (!to) return;
-                                  const dest = ALL_LOCATIONS.find((l) => l.id === to);
-                                  // Moving a mission changes where the campaign sends the
-                                  // player, so it asks before it happens.
-                                  if (!window.confirm(`Mover "${m ? m.title : id}" de ${loc.name} para ${dest?.name ?? to}?`)) return;
-                                  transferMission(id, to);
-                                }}
-                              >
-                                <option value="">Mover para…</option>
-                                {ALL_LOCATIONS.filter((l) => l.id !== loc.id).map((l) => (
-                                  <option key={l.id} value={l.id}>
-                                    {l.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                    <p className="text-xs text-muted mb-2">Andar 0: entrada. Valores negativos: subsolo. Valores positivos: acima da entrada.</p>
+                    <div className="flex flex-col gap-1">
+                      {[...ids.map((missionId, i) => ({ missionId, floor: 0, campaignIndex: i })), ...(submaps[loc.id] ?? []).map(s => ({ ...s, campaignIndex: -1 }))].sort((a,b) => b.floor - a.floor).map(s => {
+                        const m = missionById(s.missionId);
+                        return <div key={s.missionId} className="flex items-center gap-2 text-xs bg-bg border border-border rounded-md px-2 py-1.5">
+                          <label className="flex items-center gap-1">Andar <input type="number" step="1" className="w-16 bg-bg border border-border rounded px-1 py-1" aria-label={`Andar de ${m?.title ?? s.missionId}`} value={s.floor} disabled={s.campaignIndex >= 0}
+                            onChange={e => { const floor = e.target.valueAsNumber; if(Number.isInteger(floor)) setLocationSubmap(loc.id,s.missionId,floor); }} /></label>
+                          <span className="flex-1 min-w-0 truncate">{m?.title ?? s.missionId}</span>
+                          <button type="button" className="px-2 py-1 border border-border rounded" onClick={() => { void loadCampaignMap(s.missionId); setShowLocations(false); }}>Editar</button>
+                          {s.campaignIndex >= 0 ? <>
+                            <button type="button" disabled={s.campaignIndex === 0} onClick={() => moveInOrder(loc.id,s.missionId,-1)} aria-label="Subir na ordem da campanha">↑</button>
+                            <button type="button" disabled={s.campaignIndex === ids.length-1} onClick={() => moveInOrder(loc.id,s.missionId,1)} aria-label="Descer na ordem da campanha">↓</button>
+                          </> : <>
+                            <button type="button" aria-label={`Subir andar de ${m?.title ?? s.missionId}`} onClick={() => setLocationSubmap(loc.id,s.missionId,s.floor === -1 ? 1 : s.floor+1)}>↑</button>
+                            <button type="button" aria-label={`Descer andar de ${m?.title ?? s.missionId}`} onClick={() => setLocationSubmap(loc.id,s.missionId,s.floor === 1 ? -1 : s.floor-1)}>↓</button>
+                          </>}
+                          <button type="button" className="px-1 border border-border rounded text-danger" aria-label={`Remover ${m?.title ?? s.missionId}`} onClick={() => s.campaignIndex >= 0 ? removeFromLocation(loc.id,s.missionId) : removeLocationSubmap(loc.id,s.missionId)}>Remover</button>
+                        </div>;
+                      })}
+                    </div>
 
-                    {/* Transversal Dungeon submaps (see WorldLocation.submaps): extra maps
-                        chained to this location as dungeon floors, reached only through a
-                        floor-connector decoration in-battle — never listed above, so they
-                        never get their own card in the campaign menu. Floor number is author
-                        bookkeeping only, for picking sensible connector targets in the map
-                        editor; it doesn't order or gate anything by itself. */}
                     <div className="mt-2 pt-2 border-t border-border">
                       <p className="text-[10px] uppercase tracking-wide text-muted mb-1">
                         Submaps (andares extras, fora do menu de campanha)
                       </p>
-                      {(submaps[loc.id] ?? []).length === 0 ? (
-                        <p className="text-xs text-muted mb-1.5">Nenhum submap ainda.</p>
-                      ) : (
-                        <div className="flex flex-col gap-1 mb-1.5">
-                          {(submaps[loc.id] ?? []).map((s) => {
-                            const m = missionById(s.missionId);
-                            return (
-                              <div key={s.missionId} className="flex items-center gap-1.5 text-xs bg-bg border border-border rounded-md px-2 py-1.5">
-                                <span className="tabular-nums text-muted w-14 shrink-0">Andar {s.floor}</span>
-                                <span className="flex-1 min-w-0 truncate">{m ? m.title : s.missionId}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => removeLocationSubmap(loc.id, s.missionId)}
-                                  className="px-1 rounded border border-border text-danger"
-                                  aria-label={`Tirar ${m ? m.title : s.missionId} dos submaps`}
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
                       <div className="flex flex-wrap items-center gap-2">
                         <select
                           className="min-w-0 flex-1 bg-bg border border-border rounded px-1.5 py-1 text-xs"
@@ -7556,13 +7506,13 @@ export function MapEditorScreen({
                             const missionId = e.target.value;
                             e.target.value = "";
                             if (!missionId) return;
-                            const nextFloor = Math.max(1, ...(submaps[loc.id] ?? []).map((s) => s.floor)) + 1;
+                            const nextFloor = Math.max(0, ...(submaps[loc.id] ?? []).map((s) => s.floor)) + 1;
                             setLocationSubmap(loc.id, missionId, nextFloor);
                           }}
                         >
                           <option value="">Adicionar submap…</option>
-                          {randomEncounterReferences
-                            .filter((map) => !(submaps[loc.id] ?? []).some((s) => s.missionId === map.id))
+                          {connectorTargetReferences
+                            .filter((map) => !ids.includes(map.id) && !(submaps[loc.id] ?? []).some((s) => s.missionId === map.id))
                             .map((map) => (
                               <option key={map.id} value={map.id}>
                                 {map.title} · {map.id}
@@ -8479,18 +8429,20 @@ function BattleScreen({
                   ? "Encontraram uma rota de fuga. Desejam tentar escapar? (60% de chance)"
                   : hud.activeExit?.id === "dungeon-exit"
                     ? "Encontraram a saída da masmorra. Desejam sair?"
-                    : hud.activeExit?.id === "floor-connector"
-                      ? hud.activeExit.returnConnector
+                    : isFloorConnector(hud.activeExit)
+                      ? floorConnectorDirection(hud.activeExit)
+                        ? floorConnectorDirection(hud.activeExit) === "up" ? "Encontraram uma passagem para subir. Deseja subir?" : "Encontraram uma passagem para descer. Deseja descer?"
+                        : hud.activeExit.returnConnector
                         ? "Encontraram a passagem de volta. Deseja voltar?"
                         : "Encontraram uma passagem para o próximo andar. Deseja avançar?"
                       : "Todos os inimigos caíram. Encerrar a missão?"}
               </p>
               <div className="flex items-center gap-2">
                 <Button size="sm" className="ember-btn ember-btn-sm ember-btn-primary" disabled={!engine.canConfirmFinish()} onClick={() => engine.confirmFinish()}>
-                  {hud.activeExit?.id === "escape-exit" ? "Tentar escapar" : hud.activeExit?.id === "floor-connector" ? "Sim" : hud.activeExit ? "Sair" : "Encerrar missão"}
+                  {hud.activeExit?.id === "escape-exit" ? "Tentar escapar" : isFloorConnector(hud.activeExit) ? "Sim" : hud.activeExit ? "Sair" : "Encerrar missão"}
                 </Button>
                 <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm ember-btn-ghost" onClick={() => setWinPopupDismissed(true)}>
-                  {hud.activeExit?.id === "floor-connector" ? "Não" : hud.activeExit ? "Ficar" : "Continuar explorando"}
+                  {isFloorConnector(hud.activeExit) ? "Não" : hud.activeExit ? "Ficar" : "Continuar explorando"}
                 </Button>
               </div>
             </div>

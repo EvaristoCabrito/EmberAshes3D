@@ -7,7 +7,8 @@ import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, MINOR_VENOM, DECOR_ART_SCALE, HOUSE
 import type { SpellTier } from "./data";
 import { weightedWeaponPick, shieldBashFormula, fantomForceChargesFor, fantomForceDice } from "./data";
 import { clearRockColumnTiles, placedBlockingFootprint, THREE_D_DOOR_VARIANTS } from "./data";
-import { mapFloorRects } from "./mapFloor";
+import { mapFloorRects, floorRectParts } from "./mapFloor";
+import { closeWatchtowerWalls } from "./watchtowerDungeon";
 import { decorationPlacementArt } from "./data";
 import { canCounter, makeForecast, mulberry32, powerOf, protOf, rollDamage, rollDamageCustom } from "./combat";
 import {
@@ -1461,7 +1462,7 @@ export class BattleEngine {
     this.tileVariants = mission.tileVariants ?? [];
     this.tileRots = mission.tileRots ?? [];
     this.decorations = (mission.decorations ?? []).map((d) => ({ ...d }));
-    // Render only authored walls; do not add a second ring around the board.
+    this.decorations = closeWatchtowerWalls(mission.id, this.tiles, this.cols, this.rows, this.decorations);
     this.tiles = clearRockColumnTiles(this.tiles, this.cols, this.rows, this.decorations, mission.baseTile);
     this.elementalFxPlacements = (mission.elementalFx ?? []).map((p) => ({ ...p }));
     // A tile under a full-coverage water FX placement (water/water2) skips its own photo
@@ -5985,7 +5986,7 @@ export class BattleEngine {
   }
 
   /** Refold the decoration switches. Call after anything adds or removes a prop. */
-  private refreshDecorOverlay(): void {
+  refreshDecorOverlay(): void {
     this.decorOverlay = buildDecorOverlay(this.decorations, this.cols, this.rows, placedBlockingFootprint, this.mission.terrainElevations);
   }
 
@@ -9092,6 +9093,7 @@ export class BattleEngine {
       const log = p.id === "fallen-log";
       const wall = p.id === "barricade";
       const waypoint = !!def.exitKind;
+      const stoneStairs = p.id === "stone-stairs-up-001" || p.id === "stone-stairs-down-001";
       // Single-building houses share the "house" art scale (per user request), and their
       // movement-blocking footprint covers the full ground base beneath that art.
       const house = HOUSE_DECOR_IDS.has(p.id);
@@ -9135,9 +9137,9 @@ export class BattleEngine {
       // Global art scale (see DECOR_ART_SCALE), grown from the bottom edge — same as
       // ThreeBattleRenderer's decorSize, so both renderers draw props the same size.
       const artScale = waypoint ? 1 : (anyHouse ? HOUSE_ART_SCALE : DECOR_ART_SCALE) * (def.artScale ?? 1);
-      const w = w0 * artScale;
-      const h = h0 * artScale;
-      const dy = dy0 - (h0 * (artScale - 1)) / 2;
+      const w = stoneStairs ? tile * SQRT3 : w0 * artScale;
+      const h = stoneStairs ? tile * 3.5 : h0 * artScale;
+      const dy = stoneStairs ? 0 : dy0 - (h0 * (artScale - 1)) / 2;
       // Cull on the box actually drawn, which is why this sits after the sizing above and
       // not up by the centre. Every branch below centres the image on `(cx, cy + dy)`, so
       // one bounding circle bounds the turned cases as well as the straight one.
@@ -10127,9 +10129,9 @@ export class BattleEngine {
         const floorRect = floorRects.get(y * this.cols + x);
         if (!floorRect) { ctx.restore(); continue; }
         ctx.beginPath();
-        ctx.rect(floorOrigin.cx - Math.sqrt(3) * tile / 2 + floorRect.minX * tile,
-          floorOrigin.cy - 0.75 * tile + floorRect.minY * tile,
-          (floorRect.maxX - floorRect.minX) * tile, (floorRect.maxY - floorRect.minY) * tile);
+        for (const part of floorRectParts(floorRect)) ctx.rect(floorOrigin.cx - Math.sqrt(3) * tile / 2 + part.minX * tile,
+          floorOrigin.cy - 0.75 * tile + part.minY * tile,
+          (part.maxX - part.minX) * tile, (part.maxY - part.minY) * tile);
         ctx.clip();
         // Remembered but not in sight: the ground the party walked past, dimmed so it
         // reads as recall rather than as somewhere they can currently see into.

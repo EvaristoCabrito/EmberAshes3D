@@ -14,12 +14,36 @@
  * decorateOpenTerrain): those exist to dress the hand-written RAW_MISSIONS, and
  * a map arranged by hand in the editor loads exactly as it was arranged.
  */
-import { clearRockColumnTiles, DECORATIONS, MISSIONS, TILE_CHAR, WORLD_LOCATIONS } from "./data";
+import { clearRockColumnTiles, DECORATIONS, MISSIONS, TILE_CHAR, WORLD_LOCATIONS, parseLayout } from "./data";
 import SLOT_CONFIG from "./map-slots.json";
+import { closeWatchtowerWalls, WATCHTOWER_FLOORS } from "./watchtowerDungeon";
 import ORDER_CONFIG from "./map-order.json";
 import LOCATION_ORDER_CONFIG from "./location-order.json";
 import RANDOM_ENCOUNTER_CONFIG from "./random-encounters.json";
+import LOCATION_SUBMAPS_CONFIG from "./location-submaps.json";
 import type { ClassId, DecorationPlacement, DialogTree, ElementalFxPlacement, MapTimeOfDay, Mission, Spawn, TerrainId, WinCondition, WorldLocation } from "./types";
+export const DEFAULT_LOCATION_SUBMAPS: Record<string, { missionId: string; floor: number }[]> = LOCATION_SUBMAPS_CONFIG;
+
+function withFloorDirections(mission: Mission | undefined): Mission | undefined {
+  if (!mission) return mission;
+  const local = loadLocaisLocal();
+  const groups = { ...DEFAULT_LOCATION_SUBMAPS, ...local?.submaps };
+  const order: Record<string, string[]> = local?.order ?? ORDER_CONFIG;
+  for (const [locationId, floors] of Object.entries(groups)) {
+    const levels = new Map(floors.map(s => [s.missionId, s.floor]));
+    for (const id of order[locationId] ?? []) levels.set(id, 0);
+    const current = levels.get(mission.id);
+    if (current == null) continue;
+    const decorations = (mission.decorations ?? []).map(p => {
+      const target = p.targetMapId ? levels.get(p.targetMapId) : undefined;
+      return DECORATIONS[p.id]?.exitKind === "connector" && target != null && target !== current
+        ? { ...p, connectorDirection: target > current ? "up" as const : "down" as const } : p;
+    });
+    return { ...mission, title: mission.id.startsWith("watchtower-") ? mission.title.replace(/^(?:Andar|Subsolo)\s+[IVX\d-]+/, `Andar ${current}`) : mission.title,
+      decorations: closeWatchtowerWalls(mission.id, clearRockColumnTiles(parseLayout(mission.layout), mission.cols, mission.rows, decorations, mission.baseTile), mission.cols, mission.rows, decorations) };
+  }
+  return mission;
+}
 
 /** A Crossing dungeon is a named crossing/traversal map or one that uses the escape
  * objective. Keep this derived from authored mission data so both campaign maps and
@@ -191,6 +215,8 @@ function legacyClassId(id: string): ClassId {
 function normalizeDraft(draft: MapDraft): MapDraft {
   return {
     ...draft,
+    title: WATCHTOWER_FLOORS[draft.id] != null ? draft.title.replace(/^(?:Andar|Subsolo)\s+[IVX\d-]+/, `Andar ${WATCHTOWER_FLOORS[draft.id]}`) : draft.title,
+    decorations: closeWatchtowerWalls(draft.id, draft.tiles, draft.cols, draft.rows, draft.decorations),
     tiles: clearRockColumnTiles(draft.tiles, draft.cols, draft.rows, draft.decorations, draft.baseTile),
     playerSpawns: draft.playerSpawns.map((s) => ({ ...s, classId: legacyClassId(s.classId) })),
     enemySpawns: draft.enemySpawns.map((s) => ({ ...s, classId: legacyClassId(s.classId) })),
@@ -199,6 +225,7 @@ function normalizeDraft(draft: MapDraft): MapDraft {
 }
 
 export function draftToMission(d: MapDraft): Mission {
+  d = normalizeDraft(d);
   const tiles = clearRockColumnTiles(d.tiles, d.cols, d.rows, d.decorations, d.baseTile);
   const layout: string[] = [];
   for (let r = 0; r < d.rows; r++) {
@@ -444,6 +471,7 @@ export interface LocaisLocal {
    * before this existed has no such list, so that fallback just keeps its old (pre-fix)
    * behavior until the next save fills it in. */
   knownMissionIds?: string[];
+  floorLayoutVersion?: 1;
 }
 
 export function loadLocaisLocal(): LocaisLocal | null {
@@ -453,13 +481,20 @@ export function loadLocaisLocal(): LocaisLocal | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object") return null;
-    const { order, slots, locationOrder, submaps, knownMissionIds } = parsed as Partial<LocaisLocal>;
+    const { order, slots, locationOrder, submaps, knownMissionIds, floorLayoutVersion } = parsed as Partial<LocaisLocal>;
     if (!order || typeof order !== "object" || !slots || typeof slots !== "object" || !Array.isArray(locationOrder)) return null;
+    const groups = { ...DEFAULT_LOCATION_SUBMAPS, ...submaps };
+    if (floorLayoutVersion !== 1) {
+      const existing = groups.watchtower ?? [];
+      const canonical = DEFAULT_LOCATION_SUBMAPS.watchtower;
+      groups.watchtower = [...canonical, ...existing.filter(s => !canonical.some(c => c.missionId === s.missionId))].sort((a,b) => b.floor-a.floor);
+    }
     return {
       order,
       slots,
       locationOrder,
-      submaps: submaps && typeof submaps === "object" ? submaps : undefined,
+      submaps: groups,
+      floorLayoutVersion,
       knownMissionIds: Array.isArray(knownMissionIds) ? knownMissionIds : undefined,
     };
   } catch {
@@ -476,7 +511,7 @@ export function loadLocaisLocal(): LocaisLocal | null {
  * fallback for what this is for. */
 export function saveLocaisLocal(next: LocaisLocal): boolean {
   try {
-    const stamped: LocaisLocal = { ...next, knownMissionIds: ALL_LOCATIONS.flatMap((l) => l.missionIds) };
+    const stamped: LocaisLocal = { ...next, floorLayoutVersion: 1, knownMissionIds: ALL_LOCATIONS.flatMap((l) => l.missionIds) };
     const serialized = JSON.stringify(stamped);
     window.localStorage.setItem(LOCAIS_LOCAL_KEY, serialized);
     if (window.localStorage.getItem(LOCAIS_LOCAL_KEY) !== serialized) return false;
@@ -549,7 +584,7 @@ export function saveActiveDrafts(drafts: Record<string, MapDraft>): boolean {
 export function missionById(id: string): Mission | undefined {
   if (!LATEST.has(id) && typeof window !== "undefined") {
     const exact = loadActiveDrafts()[id];
-    if (exact) return draftToMission(exact);
+    if (exact) return withFloorDirections(draftToMission(exact));
 
     // Migrate activations created before snapshots existed, then every later lookup reads
     // the exact draft selected by the editor rather than a different disk version.
@@ -558,11 +593,11 @@ export function missionById(id: string): Mission | undefined {
       const version = loadVersionStore()[id]?.find((v) => v.serial === active && v.draft.id === id);
       if (version) {
         saveActiveDrafts({ ...loadActiveDrafts(), [id]: version.draft });
-        return draftToMission(version.draft);
+        return withFloorDirections(draftToMission(version.draft));
       }
     }
   }
-  return ALL_MISSIONS.find((m) => m.id === id);
+  return withFloorDirections(ALL_MISSIONS.find((m) => m.id === id));
 }
 
 /** The world map, with saved maps hung off the locations they name. A map whose
@@ -633,7 +668,7 @@ export const ALL_LOCATIONS: WorldLocation[] = (() => {
     const target = out.find((l) => l.id === locationId);
     if (target && !target.missionIds.includes(missionId)) target.missionIds.push(missionId);
   }
-  return inLocationOrder(out).map((l) => ({ ...l, missionIds: inChosenOrder(l.id, l.missionIds) }));
+  return inLocationOrder(out).map((l) => ({ ...l, missionIds: inChosenOrder(l.id, l.missionIds), submaps: DEFAULT_LOCATION_SUBMAPS[l.id] ?? l.submaps }));
 })();
 
 /** Where a mission has been reassigned to, if anywhere — the editor shows this so a moved
@@ -668,12 +703,14 @@ export function locationsForOrder(
   submaps?: Record<string, { missionId: string; floor: number }[]>,
   knownMissionIds?: string[],
 ): WorldLocation[] {
-  const assigned = new Set(Object.values(order).flat());
+  const floorGroups = { ...DEFAULT_LOCATION_SUBMAPS, ...submaps };
+  const floorIds = new Set(Object.values(floorGroups).flatMap(list => list.map(s => s.missionId)));
+  const assigned = new Set([...Object.values(order).flat(), ...floorIds]);
   const known = knownMissionIds ? new Set(knownMissionIds) : null;
   const locations = ALL_LOCATIONS.map((loc) => {
     const chosen = order[loc.id] ?? [];
     const unchanged = loc.missionIds.filter((id) => !assigned.has(id) && !chosen.includes(id) && !(known?.has(id) ?? false));
-    return { ...loc, missionIds: [...chosen, ...unchanged], submaps: submaps?.[loc.id] ?? loc.submaps };
+    return { ...loc, missionIds: [...chosen, ...unchanged].filter(id => !floorIds.has(id)), submaps: floorGroups[loc.id] ?? loc.submaps };
   });
   return inLocationOrder(locations, locationOrder);
 }

@@ -711,7 +711,7 @@ export function BattleCanvas({
   // Keep the renderer and its warmed GPU resources mounted when a briefing/dialog pauses
   // the board. Rebuilding this effect on pause changes caused a visible renderer reset as
   // soon as the dialog closed, after the loading curtain had already gone away.
-  }, [engine, onHud, onInspectUnit]);
+  }, [engine, onHud, onInspectUnit, ThreeBattleRenderer, WebGL2DRenderer]);
 
   // Mission.mistType === "vignette" (Map Editor's "Tipo de névoa") turns this from the always-on
   // subtle diorama edge shading into an author-controlled hazy corner effect, driven by the same

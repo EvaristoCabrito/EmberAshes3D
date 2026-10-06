@@ -48,7 +48,10 @@ import { drawGroundTexture, drawHexGround, GROUND_TEXTURE_INSET, GROUND_TEXTURE_
 import { configureWallDepth, createWallGeometry } from "./ThreeWalls";
 import { lightTacticsMaterial, tacticsProp } from "./ThreeTacticsGeometry";
 import { buildLandscape, type LandscapeSurface } from "./ThreeLandscape";
-import { mapFloorRects } from "../../mapFloor";
+import { mapFloorRects, floorRectContains, floorRectParts } from "../../mapFloor";
+import { closeWatchtowerWalls } from "../../watchtowerDungeon";
+const OUTER_WALL_TEXTURE = "/game/textures/walls/cave-v2.png?v=outer-wall-0.337.3";
+const OUTER_WALL_COLOR = 0xb4a28b;
 import { decorationPlacementArt } from "../../data";
 import { ThreeWater } from "./ThreeWater";
 import { ThreeElevationSteps } from "./ThreeElevationSteps";
@@ -257,6 +260,7 @@ interface TileMeshEntry {
  * a mismatch here means a prop is sized differently on the two renderers, not a crash, so it
  * won't show up as a type error — check against drawDecorations if a prop looks off. */
 function decorSize(id: string, def: DecorationDef, tile: number): { w: number; h: number; dy: number } {
+  if (id === "stone-stairs-up-001" || id === "stone-stairs-down-001") return { w: tile * SQRT3, h: tile * 3.5, dy: 0 };
   if (def.propModel && !def.propModel.startsWith("tavern-")) return decorSize(def.propModel === "grey-outcrop" ? "rocky-outcrop" : def.propModel, DECORATIONS[def.propModel === "grey-outcrop" ? "rocky-outcrop" : def.propModel]!, tile);
   if (def.treeModel) return { w: tile * 3.2, h: tile * 4.8, dy: 0 };
   let minDx = 0;
@@ -950,6 +954,13 @@ export class ThreeBattleRenderer {
     canvas: HTMLCanvasElement,
     private engine: BattleEngine,
   ) {
+    // An open battle keeps its engine through hot reload. Apply the same enclosure
+    // repair here so it receives the wall changes without restarting the battle.
+    if (engine.mission.id.startsWith("watchtower-")) {
+      const walls = closeWatchtowerWalls(engine.mission.id, engine.tiles, engine.cols, engine.rows, engine.decorations);
+      engine.decorations.splice(0, engine.decorations.length, ...walls);
+      engine.refreshDecorOverlay();
+    }
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     this.renderer.setClearColor(0x000000, 1);
     this.renderer.shadowMap.enabled = true;
@@ -1383,7 +1394,9 @@ export class ThreeBattleRenderer {
     if (stamp !== this.terrainSolidKey && cells.length) {
       if (!this.cliffMaterial) {
         this.cliffMaterial = new THREE.MeshStandardMaterial({
-          map: this.tacticsTexture("/game/textures/walls/cave-v2.png"), color: 0xb4a28b, roughness: 1,
+          map: this.tacticsTexture(this.engine.mission.id.startsWith("watchtower-")
+            ? this.engine.art.tiles[this.engine.mission.baseTile ?? "nave"]?.[this.engine.mission.baseVariant ?? 0]?.src ?? OUTER_WALL_TEXTURE
+            : OUTER_WALL_TEXTURE), color: this.engine.mission.id.startsWith("watchtower-") ? 0xffffff : OUTER_WALL_COLOR, roughness: 1,
         });
         lightTacticsMaterial(this.cliffMaterial);
       }
@@ -1420,15 +1433,15 @@ export class ThreeBattleRenderer {
         if (!heights.has(cell)) return false;
         const rect = floorRects.get(cell);
         const fx = x / tile, fy = -y / tile - BOARD_PAD_MUL - 0.25;
-        if (!rect || fx < rect.minX || fx > rect.maxX || fy < rect.minY || fy > rect.maxY) return false;
+        if (!rect || !floorRectContains(rect, fx, fy)) return false;
         if (this.engine.fogged) {
           const col = cell % this.engine.cols, row = Math.floor(cell / this.engine.cols);
           return this.engine.explored(col, row) || this.engine.visible(col, row);
         }
         return true;
       }, true, {
-        x: [...new Set([...floorRects.values()].flatMap(r => [r.minX * tile, r.maxX * tile]))],
-        y: [...new Set([...floorRects.values()].flatMap(r => [-tile * (r.minY + BOARD_PAD_MUL + 0.25), -tile * (r.maxY + BOARD_PAD_MUL + 0.25)]))],
+        x: [...new Set([...floorRects.values()].flatMap(floorRectParts).flatMap(r => [r.minX * tile, r.maxX * tile]))],
+        y: [...new Set([...floorRects.values()].flatMap(floorRectParts).flatMap(r => [-tile * (r.minY + BOARD_PAD_MUL + 0.25), -tile * (r.maxY + BOARD_PAD_MUL + 0.25)]))],
       });
       const canvas = document.createElement("canvas");
       const scale = Math.min(1, 4096 / Math.max(bounds.maxX-bounds.minX, bounds.maxY-bounds.minY));
@@ -1626,11 +1639,17 @@ export class ThreeBattleRenderer {
    * move onto this renderer and a real depth order between the two exists. */
   private ensureDecorBuilt(tile: number): void {
     const engine = this.engine;
+    const wallDefinition = (id: string) => {
+      const def = DECORATIONS[id];
+      return engine.mission.id.startsWith("watchtower-") && def?.model3d === "wall"
+        ? { ...def, wallTexture: engine.art.tiles[engine.mission.baseTile ?? "nave"]?.[engine.mission.baseVariant ?? 0]?.src ?? OUTER_WALL_TEXTURE }
+        : def;
+    };
     // Props can move or change visual treatment without changing the mission id/count
     // (editor previews and hot-reloaded DecorationDefs both do this). Include placement and
     // render-only scale/mirror settings so the mesh cache cannot keep the old-sized art.
     const placementKey = engine.decorations.map((p) => {
-      const def = DECORATIONS[p.id];
+      const def = wallDefinition(p.id);
       const artId = decorationPlacementArt(p);
       const image = engine.art.decorations[artId];
       const imageReady = image?.naturalWidth ?? 0;
@@ -1670,7 +1689,7 @@ export class ThreeBattleRenderer {
     const architectureCells = new Set(engine.decorations.filter(p => DECORATIONS[p.id]?.model3d && !DECORATIONS[p.id]?.rockStyle && !DECORATIONS[p.id]?.treeModel && !DECORATIONS[p.id]?.propModel).map(p => `${p.x},${p.y}`));
 
     for (const p of engine.decorations) {
-      const def = DECORATIONS[p.id];
+      const def = wallDefinition(p.id);
       if (!def) continue;
       if ((def.treeModel || def.propModel === "grey-outcrop" || def.propModel?.startsWith("tavern-")) && engine.tacticsCamera) {
         const mesh = this.trees.create(def.treeModel ?? (def.propModel as "grey-outcrop" | "tavern-barrel" | "tavern-chair" | "tavern-candlestick" | "tavern-mug" | "tavern-table"), tile);

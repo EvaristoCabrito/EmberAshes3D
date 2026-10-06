@@ -1,0 +1,24 @@
+{
+  "watchtower": [
+    {
+      "missionId": "watchtower-beacon",
+      "floor": 3
+    },
+    {
+      "missionId": "watchtower-command",
+      "floor": 2
+    },
+    {
+      "missionId": "watchtower-barracks",
+      "floor": 1
+    },
+    {
+      "missionId": "watchtower-undercroft",
+      "floor": -1
+    },
+    {
+      "missionId": "watchtower-prison",
+      "floor": -2
+    }
+  ]
+}

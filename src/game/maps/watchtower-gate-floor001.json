@@ -2410,21 +2410,25 @@
         "y": 18
       },
       {
-        "id": "floor-connector",
+        "id": "stone-stairs-down-001",
         "x": 4,
         "y": 18,
-        "targetMapId": "watchtower-undercroft"
+        "targetMapId": "watchtower-undercroft",
+        "connectorDirection": "down",
+        "rot": 0
       },
       {
-        "id": "floor-connector",
+        "id": "stone-stairs-up-001",
         "x": 18,
         "y": 6,
-        "targetMapId": "watchtower-barracks"
+        "targetMapId": "watchtower-barracks",
+        "connectorDirection": "up",
+        "rot": 0
       },
       {
         "id": "dungeon-exit",
         "x": 22,
-        "y": 22
+        "y": 18
       },
       {
         "id": "wall-3d-tower",
@@ -3041,6 +3045,26 @@
         "y": 25,
         "rot": 0,
         "wallOrientation": "horizontal"
+      },
+      {
+        "id": "wall-3d-tower",
+        "x": 6,
+        "y": 6
+      },
+      {
+        "id": "wall-3d-tower",
+        "x": 21,
+        "y": 6
+      },
+      {
+        "id": "wall-3d-tower",
+        "x": 6,
+        "y": 21
+      },
+      {
+        "id": "wall-3d-tower",
+        "x": 21,
+        "y": 21
       }
     ],
     "playerSpawns": [

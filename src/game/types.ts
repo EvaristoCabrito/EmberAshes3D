@@ -442,6 +442,10 @@ export interface DecorationPlacement {
    * connector was placed on the deeper floor, pointing back at the one above it. Purely a label/
    * intent flag the author sets; nothing computes it from floor numbers automatically. */
   returnConnector?: true;
+  /** Physical stair direction, independent of whether this is the return route. */
+  connectorDirection?: "up" | "down";
+  /** Stair decoration maintained alongside its Watchtower waypoint. */
+  waypointStairs?: true;
 }
 
 /** A permanent WebGL elemental FX (src/game/gfx) anchored at (x,y) on a mission's map —
