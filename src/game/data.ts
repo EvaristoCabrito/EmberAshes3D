@@ -277,7 +277,7 @@ const NEW_DECOR_2026: Record<string, DecorationDef> = {
   // 2026-10-02 cave art drop: each prop is a separate alpha-cropped 2D decoration.
   // 2026-10-02 forest art drop: preserve the supplied transparent cutouts as separate props.
   "forest-mossy-stump": { id: "forest-mossy-stump", name: "Toco Musgoso com Raízes", footprint: DECO_ONE, heightScale: 0.84 },
-  "forest-amanitas": { id: "forest-amanitas", name: "Grupo de Amanitas", footprint: DECO_ONE, heightScale: 1.08 },
+  "forest-amanitas": { id: "forest-amanitas", name: "Grupo de Amanitas", footprint: DECO_ONE, heightScale: 1.08, artScale: 0.5 },
   "forest-mossy-trunk": { id: "forest-mossy-trunk", name: "Tronco Caído Musgoso", footprint: DECO_ONE, heightScale: 0.68 },
   "cave-stalagmites": { id: "cave-stalagmites", name: "Grupo de Estalagmites", footprint: DECO_ONE },
   "cave-blue-crystals": { id: "cave-blue-crystals", name: "Cristais Azuis", footprint: DECO_ONE },
