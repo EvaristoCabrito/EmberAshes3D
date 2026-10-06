@@ -1641,7 +1641,7 @@ export class ThreeBattleRenderer {
     const engine = this.engine;
     const wallDefinition = (id: string) => {
       const def = DECORATIONS[id];
-      return engine.mission.id.startsWith("watchtower-") && def?.model3d === "wall"
+      return engine.mission.id.startsWith("watchtower-") && (def?.model3d === "wall" || id === "watchtower-stone-open-door-2hex")
         ? { ...def, wallTexture: engine.art.tiles[engine.mission.baseTile ?? "nave"]?.[engine.mission.baseVariant ?? 0]?.src ?? OUTER_WALL_TEXTURE }
         : def;
     };
@@ -1705,7 +1705,10 @@ export class ThreeBattleRenderer {
         continue;
       }
       if (def.model3d && !def.treeModel && !def.propModel) {
-        const { wx, wy } = architectureWorld(p.x, p.y, tile);
+        const cells = placedFootprint(p);
+        const centerX = p.x + cells.reduce((sum, cell) => sum + cell.dx, 0) / cells.length;
+        const centerY = p.y + cells.reduce((sum, cell) => sum + cell.dy, 0) / cells.length;
+        const { wx, wy } = architectureWorld(centerX, centerY, tile);
         // Connect every occupied neighboring architecture cell. Orientation determines
         // the door opening axis; it must not prevent perpendicular wall corners from joining.
         const connections = [{ x: p.x - 1, y: p.y }, { x: p.x + 1, y: p.y }, { x: p.x, y: p.y - 1 }, { x: p.x, y: p.y + 1 }].filter(n => architectureCells.has(`${n.x},${n.y}`)).map(n => {

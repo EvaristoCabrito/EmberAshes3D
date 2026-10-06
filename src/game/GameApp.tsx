@@ -3919,6 +3919,19 @@ function findPreviewDecoration(
   );
 }
 
+const WATCHTOWER_ENTRANCE_ID = "watchtower-stone-open-door-2hex";
+function previewDecorationCells(placements: DecorationPlacement[], candidate: DecorationPlacement): Set<string> {
+  const candidateCells = new Set(placedFootprint(candidate).map(f => `${candidate.x + f.dx},${candidate.y + f.dy}`));
+  const isConnector = DECORATIONS[candidate.id]?.exitKind === "connector";
+  return decorationCells(placements.filter((p) => {
+    const overlaps = placedFootprint(p).some(f => candidateCells.has(`${p.x + f.dx},${p.y + f.dy}`));
+    if (!overlaps) return true;
+    if (candidate.id === WATCHTOWER_ENTRANCE_ID && (DECORATIONS[p.id]?.model3d === "wall" || DECORATIONS[p.id]?.exitKind === "connector")) return false;
+    if (isConnector && p.id === WATCHTOWER_ENTRANCE_ID) return false;
+    return true;
+  }));
+}
+
 function missionToDraft(m: Mission): MapDraft {
   const n = m.cols * m.rows;
   const variants = m.tileVariants ?? [];
@@ -4958,7 +4971,7 @@ export function MapEditorScreen({
       // into" another prop the way turning a real object could (see toggleDecoration's own
       // identical exemption).
       if (!def.exitKind) {
-        const others = decorationCells(d.decorations.filter((p) => p !== hit));
+        const others = previewDecorationCells(d.decorations.filter((p) => p !== hit), turned);
         for (const f of after) {
           if (others.has(`${hit.x + f.dx},${hit.y + f.dy}`)) {
             setNote(`${def.name} nao cabe girada aqui — bateria em outra decoracao.`);
@@ -5115,7 +5128,8 @@ export function MapEditorScreen({
     const clicked = draft.decorations.find((p) => placedFootprint(p).some((f) => p.x + f.dx === x && p.y + f.dy === y));
     if (clicked && DECORATIONS[clicked.id]?.model3d && DECORATIONS[decoBrush]?.model3d && clicked.id !== decoBrush) {
       const replacement: DecorationPlacement = {
-        ...clicked, id: decoBrush, blocksPath: undefined, yieldsHighGround: undefined,
+        ...clicked, id: decoBrush, rot: wallOrientation === "vertical" ? 1 : 0, wallOrientation,
+        blocksPath: undefined, yieldsHighGround: undefined,
       };
       setDraft(d => ({ ...d, decorations: d.decorations.map(p =>
         p.id === clicked.id && p.x === clicked.x && p.y === clicked.y ? replacement : p) }));
@@ -5142,10 +5156,14 @@ export function MapEditorScreen({
     setDraft((d) => {
       const def = DECORATIONS[decoBrush];
       if (!def) return d;
-      const covered = decorationCells(d.decorations);
+      const blocksByDefault = BARRICADE_LIKE_DECOR.has(decoBrush) || HOUSE_DECOR_IDS.has(decoBrush) || BIG_HOUSE_DECOR_IDS.has(decoBrush) || SOLID_HOUSE_DECOR_IDS.has(decoBrush) || SOLID_CART_DECOR_IDS.has(decoBrush) || SOLID_ROCK_DECOR_IDS.has(decoBrush);
+      const placed: DecorationPlacement = def.model3d
+        ? { id: decoBrush, x, y, rot: wallOrientation === "vertical" ? 1 : 0, wallOrientation }
+        : blocksByDefault ? { id: decoBrush, x, y, blocksPath: true } : { id: decoBrush, x, y };
+      const covered = previewDecorationCells(d.decorations, placed);
       // A new prop always stays where it was clicked. Parapets do not choose a new
       // position by themselves; only their ordinary horizontal footprint is occupied.
-      for (const f of def.footprint) {
+      for (const f of placedFootprint(placed)) {
         if (!brushIsWaypoint && covered.has(`${x + f.dx},${y + f.dy}`)) return d;
       }
       const tiles = [...d.tiles];
@@ -5158,10 +5176,6 @@ export function MapEditorScreen({
       // Barricade-family City props block like a real barricade without repainting the
       // hex to barricade's dirt/rubble ground art — defaulted on here instead of the
       // author having to remember to check "Bloquear caminho" every time. Houses too.
-      const blocksByDefault = BARRICADE_LIKE_DECOR.has(decoBrush) || HOUSE_DECOR_IDS.has(decoBrush) || BIG_HOUSE_DECOR_IDS.has(decoBrush) || SOLID_HOUSE_DECOR_IDS.has(decoBrush) || SOLID_CART_DECOR_IDS.has(decoBrush) || SOLID_ROCK_DECOR_IDS.has(decoBrush);
-      const placed: DecorationPlacement = def.model3d
-        ? { id: decoBrush, x, y, rot: wallOrientation === "vertical" ? 1 : 0, wallOrientation }
-        : blocksByDefault ? { id: decoBrush, x, y, blocksPath: true } : { id: decoBrush, x, y };
       // No auto-selection of any sort, per direct instruction: placing stays on the current
       // brush so the author can keep placing more of the same thing; they select something
       // else (to inspect/delete/edit rules) only by clicking it themselves.
@@ -5430,7 +5444,7 @@ export function MapEditorScreen({
         setNote(`${def.name} não cabe aí — sairia do mapa.`);
         return d;
       }
-      const others = decorationCells(d.decorations.filter((p) => p !== hit));
+      const others = previewDecorationCells(d.decorations.filter((p) => p !== hit), moved);
       for (const f of after) {
         if (others.has(`${x + f.dx},${y + f.dy}`)) {
           setNote(`${def.name} não cabe aí — bateria em outra decoração.`);
@@ -5677,6 +5691,7 @@ export function MapEditorScreen({
   const [architectureDecorations, setArchitectureDecorations] = useState(false);
   const [thickWalls, setThickWalls] = useState(false);
   const architectureOptions = Object.values(DECORATIONS).filter(dec => !!dec.model3d && !!(dec.rockStyle || dec.treeModel || dec.propModel) === architectureDecorations
+    && (dec.id !== WATCHTOWER_ENTRANCE_ID || draft.id.startsWith("watchtower-"))
     && (architectureDecorations || !!dec.thickWall === thickWalls))
     .sort((a, b) => Number(a.model3d === "wall") - Number(b.model3d === "wall"));
   const decorationSectionFor = (id: string) => {

@@ -83,7 +83,7 @@ export function createWallGeometry(def: DecorationDef, tile: number, rotation: n
     geometry = mergeGeometries(parts)!;
     parts.forEach(part => part.dispose());
   } else {
-    const width = tile * ((rotation & 1) ? 1.5 : Math.sqrt(3)), post = tile * 0.18, depth = tile * 0.32;
+    const width = tile * ((rotation & 1) ? 1.5 : Math.sqrt(3)) * (def.architectureSpan ?? 1), post = tile * 0.18, depth = tile * 0.32 * (def.wallThicknessScale ?? 1);
     const box = (w: number, h: number, z: number, x: number, elevation: number) =>
       new THREE.BoxGeometry(w, h, z).translate(x, 0, elevation);
     const radius = (width - post * 2) / 2;

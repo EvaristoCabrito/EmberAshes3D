@@ -9,7 +9,7 @@ export function closeWatchtowerWalls(id: string, tiles: TerrainId[], cols: numbe
   const floor = (x: number, y: number) => x >= 0 && y >= 0 && x < cols && y < rows && tiles[y * cols + x] !== "void";
   const boundary = (x: number, y: number) => floor(x, y) && (!floor(x - 1, y) || !floor(x + 1, y) || !floor(x, y - 1) || !floor(x, y + 1));
   // Only the entrance returns outside. Every other floor uses up/down connectors.
-  const result: DecorationPlacement[] = placements.filter(p => !p.waypointStairs && (id === "watchtower-gate-floor" || !DECORATIONS[p.id]?.exitKind || DECORATIONS[p.id]?.exitKind === "connector"))
+  let result: DecorationPlacement[] = placements.filter(p => !p.waypointStairs && (id === "watchtower-gate-floor" || !DECORATIONS[p.id]?.exitKind || DECORATIONS[p.id]?.exitKind === "connector"))
     .map(p => {
       const floors = WATCHTOWER_FLOORS;
       const connectorDirection = p.connectorDirection ?? (p.id === "floor-connector" && p.targetMapId && floors[p.targetMapId] != null && floors[id] != null
@@ -18,7 +18,11 @@ export function closeWatchtowerWalls(id: string, tiles: TerrainId[], cols: numbe
     })
     .filter((p, i, all) => DECORATIONS[p.id]?.model3d !== "wall" || all.findIndex(a => DECORATIONS[a.id]?.model3d === "wall" && a.x === p.x && a.y === p.y) === i);
   const cellsOf = (p: DecorationPlacement) => placedFootprint(p).map(c => ({ x: p.x + c.dx, y: p.y + c.dy }));
+  const entranceCells = new Set(result.filter(p => p.id === "watchtower-stone-open-door-2hex").flatMap(p => cellsOf(p).map(c => `${c.x},${c.y}`)));
+  // The open entrance replaces the generated perimeter pieces underneath its span.
+  result = result.filter(p => DECORATIONS[p.id]?.model3d !== "wall" || !cellsOf(p).some(c => entranceCells.has(`${c.x},${c.y}`)));
   const occupied = new Set(result.filter(p => DECORATIONS[p.id]?.model3d).map(p => `${p.x},${p.y}`));
+  for (const cell of entranceCells) occupied.add(cell);
   const wallId = result.find(p => DECORATIONS[p.id]?.model3d === "wall")?.id ?? "wall-3d-dungeon";
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
     if (boundary(x, y) && !occupied.has(`${x},${y}`)) { result.push({ id: wallId, x, y }); occupied.add(`${x},${y}`); }
@@ -30,8 +34,11 @@ export function closeWatchtowerWalls(id: string, tiles: TerrainId[], cols: numbe
     const join = [{x:a.x,y:b.y},{x:b.x,y:a.y}].find(p => floor(p.x,p.y) && !occupied.has(`${p.x},${p.y}`));
     if (join) { result.push({id:wallId,...join}); occupied.add(`${join.x},${join.y}`); }
   }
-  const clearWaypoint = (p: DecorationPlacement) => cellsOf(p).every(c => floor(c.x,c.y) && TERRAIN[tiles[c.y*cols+c.x]].passable && !boundary(c.x,c.y)
-    && !occupied.has(`${c.x},${c.y}`) && ![-1,0,1].some(dx => [1,2].some(dy => occupied.has(`${c.x+dx},${c.y+dy}`))));
+  const clearWaypoint = (p: DecorationPlacement) => cellsOf(p).every(c => {
+    const key = `${c.x},${c.y}`, insideEntrance = entranceCells.has(key);
+    return floor(c.x,c.y) && TERRAIN[tiles[c.y*cols+c.x]].passable && (!boundary(c.x,c.y) || insideEntrance)
+      && (!occupied.has(key) || insideEntrance) && ![-1,0,1].some(dx => [1,2].some(dy => occupied.has(`${c.x+dx},${c.y+dy}`) && !entranceCells.has(`${c.x+dx},${c.y+dy}`)));
+  });
   // Waypoints belong inside the enclosure; preserve their destination and direction.
   for (const p of result) {
     if (!DECORATIONS[p.id]?.exitKind || clearWaypoint(p)) continue;
