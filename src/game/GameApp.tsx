@@ -9440,7 +9440,7 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
   const spellStatusRow = (spell: SpellKind, label: string) => (
     <div key={spell} className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
       <img src={slotIcon({ kind: "spell", spell })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-      <p className="text-xs truncate min-w-0">{uiText(label)}</p>
+      <p className="text-xs leading-snug min-w-0">{uiText(label)}</p>
       {/* Tier and uses sit outside the truncated label so a long label never hides them. */}
       <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier(spell)} · ×{unit.spells[tierKey(spellTier(spell)!)] ?? 0}</span>
     </div>
@@ -9626,17 +9626,17 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                     <>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={slotIcon({ kind: "spell", spell: "doubleStrike" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs truncate">
-                          {uiText(DOUBLE_STRIKE.name)} {doubleStrikeFormula(unit.level)}{" "}
-                          <span className="tabular-nums text-muted">Tier {spellTier("doubleStrike")} · ×{unit.spells[tierKey(spellTier("doubleStrike")!)]}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {uiText(DOUBLE_STRIKE.name)} {doubleStrikeFormula(unit.level)}
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("doubleStrike")} · ×{unit.spells[tierKey(spellTier("doubleStrike")!)]}</span>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={slotIcon({ kind: "spell", spell: "cleave" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs truncate">
-                          {uiText(CLEAVE.name)} {CLEAVE.hexes} hex, {cleaveFormula(unit.level)} · x{CLEAVE.largeMul} vs 3+ hex{" "}
-                          <span className="tabular-nums text-muted">Tier {spellTier("cleave")} · ×{unit.spells[tierKey(spellTier("cleave")!)]}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {uiText(CLEAVE.name)} {CLEAVE.hexes} hex, {cleaveFormula(unit.level)} · x{CLEAVE.largeMul} vs 3+ hex
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("cleave")} · ×{unit.spells[tierKey(spellTier("cleave")!)]}</span>
                       </div>
                       {spellStatusRow("bullRush", BULL_RUSH.name)}
                       {spellStatusRow("shieldBash", SHIELD_BASH.name)}
@@ -9648,43 +9648,45 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                       {unit.level >= POISON_BREATH.unlockLevel && spellStatusRow("poisonBreath", `${POISON_BREATH.name} · ${poisonBreathFormula(unit.level, unit.mag)} · raio ${poisonBreathPower(unit.level).radius} · Veneno Menor 1D4/turno`)}
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={slotIcon({ kind: "spell", spell: "magicMissile" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs leading-snug">
-                          {uiText(MAGIC_MISSILE.name)} {damageFormula(unit.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)}{" "}
-                          <span className="tabular-nums text-muted">Tier {spellTier("magicMissile")} · ×{unit.spells[tierKey(spellTier("magicMissile")!)]}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {uiText(MAGIC_MISSILE.name)} {damageFormula(unit.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)}
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("magicMissile")} · ×{unit.spells[tierKey(spellTier("magicMissile")!)]}</span>
                       </div>
                       {unit.spells[tierKey(spellTier("lightning")!)] > 0 && (
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("lightning")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                          <p className="text-xs leading-snug">
-                            Raio {damageFormula(unit.mag, LIGHTNING.mul, LIGHTNING.dice, LIGHTNING.faces, LIGHTNING.bonus)} <span className="tabular-nums text-muted">Tier {spellTier("lightning")} · ×{unit.spells[tierKey(spellTier("lightning")!)]}</span>
-                          </p>
+                          <p className="text-xs leading-snug min-w-0">
+                            Raio {damageFormula(unit.mag, LIGHTNING.mul, LIGHTNING.dice, LIGHTNING.faces, LIGHTNING.bonus)}
+                        </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("lightning")} · ×{unit.spells[tierKey(spellTier("lightning")!)]}</span>
                         </div>
                       )}
                       {unit.spells[tierKey(spellTier("fireball")!)] > 0 && (
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("fireball")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                          <p className="text-xs leading-snug">
-                            Fogo {damageFormula(unit.mag, FIREBALL.mul, FIREBALL.dice, FIREBALL.faces, FIREBALL.bonus)} <span className="tabular-nums text-muted">Tier {spellTier("fireball")} · ×{unit.spells[tierKey(spellTier("fireball")!)]}</span>
-                          </p>
+                          <p className="text-xs leading-snug min-w-0">
+                            Fogo {damageFormula(unit.mag, FIREBALL.mul, FIREBALL.dice, FIREBALL.faces, FIREBALL.bonus)}
+                        </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("fireball")} · ×{unit.spells[tierKey(spellTier("fireball")!)]}</span>
                         </div>
                       )}
                       {unit.spells[tierKey(spellTier("causticVenom")!)] > 0 && (
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("caustic-venom")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                          <p className="text-xs leading-snug">
-                            {uiText(unit.classId === "undeadOx" || unit.classId === "plagueBearingCattle" ? MINOR_VENOM.name : CAUSTIC_VENOM.name)} {damageFormula(unit.mag, CAUSTIC_VENOM.centerMul, CAUSTIC_VENOM.centerDice, CAUSTIC_VENOM.centerFaces, CAUSTIC_VENOM.centerBonus)}{" "}
-                            <span className="tabular-nums text-muted">Tier {spellTier("causticVenom")} · ×{unit.spells[tierKey(spellTier("causticVenom")!)]}</span>
-                          </p>
+                          <p className="text-xs leading-snug min-w-0">
+                            {uiText(unit.classId === "undeadOx" || unit.classId === "plagueBearingCattle" ? MINOR_VENOM.name : CAUSTIC_VENOM.name)} {damageFormula(unit.mag, CAUSTIC_VENOM.centerMul, CAUSTIC_VENOM.centerDice, CAUSTIC_VENOM.centerFaces, CAUSTIC_VENOM.centerBonus)}
+                        </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("causticVenom")} · ×{unit.spells[tierKey(spellTier("causticVenom")!)]}</span>
                         </div>
                       )}
                       {unit.classId === "elementalist" && unit.spells[tierKey(spellTier("lightningTier3")!)] > 0 && (
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("lightning")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                          <p className="text-xs leading-snug">
-                            {LIGHTNING_T3.name} {damageFormula(unit.mag, LIGHTNING_T3.mul, LIGHTNING_T3.dice, LIGHTNING_T3.faces, LIGHTNING_T3.bonus)}{" "}
-                            <span className="tabular-nums text-muted">Tier {spellTier("lightningTier3")} · ×{unit.spells[tierKey(spellTier("lightningTier3")!)]}</span>
-                          </p>
+                          <p className="text-xs leading-snug min-w-0">
+                            {LIGHTNING_T3.name} {damageFormula(unit.mag, LIGHTNING_T3.mul, LIGHTNING_T3.dice, LIGHTNING_T3.faces, LIGHTNING_T3.bonus)}
+                        </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("lightningTier3")} · ×{unit.spells[tierKey(spellTier("lightningTier3")!)]}</span>
                         </div>
                       )}
                     </>
@@ -9693,42 +9695,47 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                     <>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={slotIcon({ kind: "spell", spell: "summonFamiliar" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs truncate">
-                          {uiText(SUMMON_FAMILIAR.name)} <span className="tabular-nums text-muted">Tier {spellTier("summonFamiliar")} · ×{unit.spells[tierKey(spellTier("summonFamiliar")!)]}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {uiText(SUMMON_FAMILIAR.name)}
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("summonFamiliar")} · ×{unit.spells[tierKey(spellTier("summonFamiliar")!)]}</span>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={slotIcon({ kind: "spell", spell: "phantasmalForce" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs leading-snug">
-                          {uiText(PHANTASMAL_FORCE.name)} {phantasmalForceFormula(unit.level, unit.mag)}{" "}
-                          <span className="tabular-nums text-muted">Tier {spellTier("phantasmalForce")} · ×{unit.level >= PHANTASMAL_FORCE_UNLOCK_LEVEL ? unit.spells[tierKey(spellTier("phantasmalForce")!)] : 0}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {uiText(PHANTASMAL_FORCE.name)} {phantasmalForceFormula(unit.level, unit.mag)}
                           {unit.level < PHANTASMAL_FORCE_UNLOCK_LEVEL && <span className="text-muted"> · nível {PHANTASMAL_FORCE_UNLOCK_LEVEL}+</span>}
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("phantasmalForce")} · ×{unit.level >= PHANTASMAL_FORCE_UNLOCK_LEVEL ? unit.spells[tierKey(spellTier("phantasmalForce")!)] : 0}</span>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("web-of-dreams")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs truncate">
-                          {uiText(WEB_OF_DREAMS.name)} <span className="tabular-nums text-muted">Tier {spellTier("webOfDreams")} · ×{unit.spells[tierKey(spellTier("webOfDreams")!)]}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {uiText(WEB_OF_DREAMS.name)}
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("webOfDreams")} · ×{unit.spells[tierKey(spellTier("webOfDreams")!)]}</span>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={slotIcon({ kind: "spell", spell: "summonFamiliar2" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs truncate">
-                          {SUMMON_FAMILIAR2.name} <span className="tabular-nums text-muted">Tier {spellTier("summonFamiliar2")} · ×{unit.level >= SUMMON_FAMILIAR2_UNLOCK_LEVEL ? unit.spells[tierKey(spellTier("summonFamiliar2")!)] : 0}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {SUMMON_FAMILIAR2.name}
                           {unit.level < SUMMON_FAMILIAR2_UNLOCK_LEVEL && <span className="text-muted"> · nível {SUMMON_FAMILIAR2_UNLOCK_LEVEL}+</span>}
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("summonFamiliar2")} · ×{unit.level >= SUMMON_FAMILIAR2_UNLOCK_LEVEL ? unit.spells[tierKey(spellTier("summonFamiliar2")!)] : 0}</span>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("summon-familiar4")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs truncate">
-                          {SUMMON_FAMILIAR4.name} <span className="tabular-nums text-muted">Tier {spellTier("summonFamiliar4")} · ×{unit.spells[tierKey(spellTier("summonFamiliar4")!)]}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {SUMMON_FAMILIAR4.name}
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("summonFamiliar4")} · ×{unit.spells[tierKey(spellTier("summonFamiliar4")!)]}</span>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("summon-familiar3")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs truncate">
-                          {SUMMON_FAMILIAR3.name} <span className="tabular-nums text-muted">Tier {spellTier("summonFamiliar3")} · ×{unit.spells[tierKey(spellTier("summonFamiliar3")!)]}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {SUMMON_FAMILIAR3.name}
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("summonFamiliar3")} · ×{unit.spells[tierKey(spellTier("summonFamiliar3")!)]}</span>
                       </div>
                       {spellStatusRow("summonZombieDog", SUMMON_ZOMBIE_DOG.name)}
                     </>
@@ -9736,52 +9743,54 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                   {(familiar1 || familiar2) && (
                     <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                       <img src={spellIcon("magic-missile")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                      <p className="text-xs leading-snug">
-                        {uiText(MAGIC_MISSILE.name)} {damageFormula(unit.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)}{" "}
-                        <span className="tabular-nums text-muted">Tier {spellTier("magicMissile")} · ×{unit.spellCharges ?? 0}</span>
-                      </p>
+                      <p className="text-xs leading-snug min-w-0">
+                        {uiText(MAGIC_MISSILE.name)} {damageFormula(unit.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)}
+                        </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("magicMissile")} · ×{unit.spellCharges ?? 0}</span>
                     </div>
                   )}
                   {familiar4 && (
                     <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                       <img src={slotIcon({ kind: "spell", spell: "shock" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                      <p className="text-xs leading-snug">
-                        {uiText(SHOCK.name)} {damageFormula(unit.mag, SHOCK.mul, SHOCK.dice, SHOCK.faces, SHOCK.bonus)}{" "}
-                        <span className="tabular-nums text-muted">Tier {spellTier("shock")} · ×{unit.spellCharges ?? 0}</span>
-                      </p>
+                      <p className="text-xs leading-snug min-w-0">
+                        {uiText(SHOCK.name)} {damageFormula(unit.mag, SHOCK.mul, SHOCK.dice, SHOCK.faces, SHOCK.bonus)}
+                        </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("shock")} · ×{unit.spellCharges ?? 0}</span>
                     </div>
                   )}
                   {(familiar2 || familiar4) && (
                     <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                       <img src={slotIcon({ kind: "spell", spell: "lifeDrain" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                      <p className="text-xs leading-snug">
-                        {uiText(LIFE_DRAIN.name)} {lifeDrainFormula(unit.level, unit.mag)} · cura {Math.round(lifeDrainHealMul(unit.level) * 100)}% do dano{" "}
-                        <span className="tabular-nums text-muted">Tier {spellTier("lifeDrain")} · ×{unit.lifeDrainCharges ?? 0}</span>
-                      </p>
+                      <p className="text-xs leading-snug min-w-0">
+                        {uiText(LIFE_DRAIN.name)} {lifeDrainFormula(unit.level, unit.mag)} · cura {Math.round(lifeDrainHealMul(unit.level) * 100)}% do dano
+                        </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("lifeDrain")} · ×{unit.lifeDrainCharges ?? 0}</span>
                     </div>
                   )}
                   {familiar3 && (
                     <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                       <img src={spellIcon("fireball")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                      <p className="text-xs leading-snug">
-                        Fogo {damageFormula(unit.mag, FIREBALL.mul, FIREBALL.dice, FIREBALL.faces, FIREBALL.bonus)}{" "}
-                        <span className="tabular-nums text-muted">Tier {spellTier("fireball")} · ×{unit.spellCharges ?? 0}</span>
-                      </p>
+                      <p className="text-xs leading-snug min-w-0">
+                        Fogo {damageFormula(unit.mag, FIREBALL.mul, FIREBALL.dice, FIREBALL.faces, FIREBALL.bonus)}
+                        </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("fireball")} · ×{unit.spellCharges ?? 0}</span>
                     </div>
                   )}
                   {archer && (
                     <>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("long-shot")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs leading-snug">
-                          {uiText(LONG_SHOT.name)} {longShotFormula(unit.level)} <span className="tabular-nums text-muted">Tier {spellTier("longShot")} · ×{unit.spells[tierKey(spellTier("longShot")!)]}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {uiText(LONG_SHOT.name)} {longShotFormula(unit.level)}
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("longShot")} · ×{unit.spells[tierKey(spellTier("longShot")!)]}</span>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("piercing")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs leading-snug">
-                          {uiText(PIERCING.name)} {piercingMul(unit.level)}× dano de arma <span className="tabular-nums text-muted">Tier {spellTier("piercing")} · ×{unit.spells[tierKey(spellTier("piercing")!)]}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {uiText(PIERCING.name)} {piercingMul(unit.level)}× dano de arma
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("piercing")} · ×{unit.spells[tierKey(spellTier("piercing")!)]}</span>
                       </div>
                     </>
                   )}
@@ -9793,22 +9802,25 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                       {unit.name === "Salazar" && spellStatusRow("divineBolt", DIVINE_BOLT.name)}
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("cure-minor")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs leading-snug">
-                          {uiText(CURES.cureMinor.name)} {damageFormula(unit.mag, CURES.cureMinor.mul, CURES.cureMinor.dice, CURES.cureMinor.faces, CURES.cureMinor.bonus)} <span className="tabular-nums text-muted">Tier {spellTier("cureMinor")} · ×{unit.spells[tierKey(spellTier("cureMinor")!)]}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {uiText(CURES.cureMinor.name)} {damageFormula(unit.mag, CURES.cureMinor.mul, CURES.cureMinor.dice, CURES.cureMinor.faces, CURES.cureMinor.bonus)}
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("cureMinor")} · ×{unit.spells[tierKey(spellTier("cureMinor")!)]}</span>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("cure-wounds")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs leading-snug">
-                          {uiText(CURES.cureWounds.name)} {damageFormula(unit.mag, CURES.cureWounds.mul, CURES.cureWounds.dice, CURES.cureWounds.faces, CURES.cureWounds.bonus)} <span className="tabular-nums text-muted">Tier {spellTier("cureWounds")} · ×{unit.spells[tierKey(spellTier("cureWounds")!)]}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {uiText(CURES.cureWounds.name)} {damageFormula(unit.mag, CURES.cureWounds.mul, CURES.cureWounds.dice, CURES.cureWounds.faces, CURES.cureWounds.bonus)}
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("cureWounds")} · ×{unit.spells[tierKey(spellTier("cureWounds")!)]}</span>
                       </div>
                       {unit.spells[tierKey(spellTier("cureDisease")!)] > 0 && (
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("cure-disease")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                          <p className="text-xs leading-snug">
-                            {uiText(CURE_DISEASE.name)} · remove doença e veneno <span className="tabular-nums text-muted">Tier {spellTier("cureDisease")} · ×{unit.spells[tierKey(spellTier("cureDisease")!)]}</span>
-                          </p>
+                          <p className="text-xs leading-snug min-w-0">
+                            {uiText(CURE_DISEASE.name)} · remove doença e veneno
+                        </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("cureDisease")} · ×{unit.spells[tierKey(spellTier("cureDisease")!)]}</span>
                         </div>
                       )}
                     </>
@@ -9817,26 +9829,27 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                     <>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("piercing-thrust")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                        <p className="text-xs leading-snug">
-                          {uiText(PIERCING_THRUST.name)} dano de arma, −{Math.round(PIERCING_THRUST.armorIgnore * 100)}% armadura{" "}
-                          <span className="tabular-nums text-muted">Tier {spellTier("piercingThrust")} · ×{unit.spells[tierKey(spellTier("piercingThrust")!)]}</span>
+                        <p className="text-xs leading-snug min-w-0">
+                          {uiText(PIERCING_THRUST.name)} dano de arma, −{Math.round(PIERCING_THRUST.armorIgnore * 100)}% armadura
                         </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("piercingThrust")} · ×{unit.spells[tierKey(spellTier("piercingThrust")!)]}</span>
                       </div>
                       {unit.spells[tierKey(spellTier("sweep")!)] > 0 && (
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("sweep")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                          <p className="text-xs leading-snug">
-                            {uiText(SWEEP.name)} dano de arma <span className="tabular-nums text-muted">Tier {spellTier("sweep")} · ×{unit.spells[tierKey(spellTier("sweep")!)]}</span>
-                          </p>
+                          <p className="text-xs leading-snug min-w-0">
+                            {uiText(SWEEP.name)} dano de arma
+                        </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("sweep")} · ×{unit.spells[tierKey(spellTier("sweep")!)]}</span>
                         </div>
                       )}
                       {unit.spells[tierKey(spellTier("trip")!)] > 0 && (
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("trip")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-                          <p className="text-xs leading-snug">
-                            {uiText(TRIP.name)} arma +{diceFormula(1, TRIP.bonusFaces, TRIP.bonusBonus)}{" "}
-                            <span className="tabular-nums text-muted">Tier {spellTier("trip")} · ×{unit.spells[tierKey(spellTier("trip")!)]}</span>
-                          </p>
+                          <p className="text-xs leading-snug min-w-0">
+                            {uiText(TRIP.name)} arma +{diceFormula(1, TRIP.bonusFaces, TRIP.bonusBonus)}
+                        </p>
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier("trip")} · ×{unit.spells[tierKey(spellTier("trip")!)]}</span>
                         </div>
                       )}
                     </>
