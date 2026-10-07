@@ -2,7 +2,7 @@ import { dexAccuracy, dexEscapeChance } from "./dexterity";
 import { equippedWeaponType, trainedWeaponSkills, weaponTypesForClass, weaponModifiers, isWeaponAbility } from "./weaponSkills";
 import { elementalDamage, spellElement, sumResistances } from "./resistances";
 import { AFFINITY_HEROES, affinityBonus, affinityScore, changeAffinity, cleanAffinityScores, type AffinityHero } from "./affinity";
-import { tacticalGridStyleQuiet as tacticalGridStyle, GRID_MOVE, GRID_ROUTE, GRID_ALLY, GRID_ENEMY, GRID_ENEMY_TARGET, GRID_ENEMY_GLOW } from "./tacticalGrid";
+import { tacticalGridStyleQuiet as tacticalGridStyle, GRID_MOVE, GRID_ROUTE, GRID_ALLY, GRID_ENEMY, GRID_ENEMY_TARGET, GRID_ENEMY_GLOW, GRID_OFFHAND_TARGET } from "./tacticalGrid";
 import { isHexGroundVariant, requestSpriteArt } from "./assets";
 import { drawGroundTexture, drawHexGround } from "./hexGround";
 import { vauBackdropBounds } from "./vauBackdrop";
@@ -10793,7 +10793,7 @@ export class BattleEngine {
         const { cx, cy } = this.hexCenter(c.x, c.y);
         this.hexPath(ctx, cx, cy, tile);
         ctx.fill();
-        if (fill === GRID_MOVE || fill === GRID_ENEMY_TARGET) {
+        if (fill === GRID_MOVE || fill === GRID_ENEMY_TARGET || fill === GRID_OFFHAND_TARGET) {
           this.hexPath(ctx, cx, cy, tile * 0.94);
           ctx.stroke();
         }
@@ -11080,6 +11080,7 @@ export class BattleEngine {
       const selected = this.units.find((u) => u.id === this.selectedId);
       const offHandReach = selected && this.mode === "awaitOffHand" ? this.offHandReach(selected) : null;
       const atkTiles: Point[] = [];
+      const offHandTiles: Point[] = [];
       for (const foe of this.units) {
         if (!foe.alive || foe.side === "player") continue;
         // Hub maps: NPCs are people to talk to, never marked as targets.
@@ -11089,10 +11090,11 @@ export class BattleEngine {
           atkTiles.push(...footprint(foe));
         }
         if (offHandReach && selected && this.targetable(foe) && canHitFrom(offHandReach, selected, foe, this.tiles, this.cols, this.decorOverlay)) {
-          atkTiles.push(...footprint(foe));
+          offHandTiles.push(...footprint(foe));
         }
       }
       push(atkTiles, GRID_ENEMY_TARGET);
+      push(offHandTiles, GRID_OFFHAND_TARGET);
       if (this.pendingFoeId) {
         const foe = this.units.find((u) => u.id === this.pendingFoeId);
         if (foe) push(footprint(foe), GRID_ENEMY_TARGET);

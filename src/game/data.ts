@@ -3782,7 +3782,7 @@ export const LONG_SHOT = {
 export const BLOODY_SHOT = {
   name: "Bloody Shot",
   unlockLevel: 5,
-  range: LONG_SHOT.range,
+  range: 6,
 };
 
 /** Bloody Shot's direct hit follows the existing Tier 2 weapon-skill progression. */

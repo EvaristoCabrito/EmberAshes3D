@@ -2,7 +2,7 @@ import { ThreeTrees } from "./ThreeTrees";
 import { vauBackdropBounds } from "../../vauBackdrop";
 import { MagicMissileForeground } from "./MagicMissileForeground";
 import { BARRICADE_LIKE_DECOR } from "../../data";
-import { tacticalGridStyleQuiet as tacticalGridStyle, GRID_ROUTE, GRID_MOVE, GRID_ENEMY_TARGET, GRID_ENEMY_GLOW } from "../../tacticalGrid";
+import { tacticalGridStyleQuiet as tacticalGridStyle, GRID_ROUTE, GRID_MOVE, GRID_ENEMY_TARGET, GRID_ENEMY_GLOW, GRID_OFFHAND_TARGET } from "../../tacticalGrid";
 /** MILESTONE 1 (done) — terrain, ground/behind-layer decorations, and animated unit sprites all
  * render through a real Three.js scene instead of the Canvas2D-shim WebGL renderer, as the first
  * slice of migrating the battlefield to a genuine spatial rendering environment (see the
@@ -2734,7 +2734,7 @@ export class ThreeBattleRenderer {
       const style = tacticalGridStyle(layer.fill);
       for (const c of layer.cells) {
         place(c.x, c.y, fadedFill(style.fill, layerFade), this.hexGeo, 1.0);
-        if (layer.fill === GRID_MOVE || layer.fill === GRID_ENEMY_TARGET) {
+        if (layer.fill === GRID_MOVE || layer.fill === GRID_ENEMY_TARGET || layer.fill === GRID_OFFHAND_TARGET) {
           place(c.x, c.y, fadedFill(style.edge, layerFade), this.focusBorderGeo, 0.94, 0.505);
         }
       }
