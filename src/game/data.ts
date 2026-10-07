@@ -2981,6 +2981,7 @@ export function weaponIcon(id: string): string {
 /** Dark-fantasy spell sprites live in their own black-backed atlas slice set so every
  * combat surface uses one cohesive visual family. */
 export function spellIcon(id: string): string {
+  if (id === "divine-bolt") return "/game/icons/divine-bolt.jpg";
   if (id === "summon-familiar2") return "/game/icons/summon-familiar2.png";
   if (id === "summon-familiar3") return "/game/icons/summon-familiar3.png";
   if (id === "summon-familiar4") return "/game/icons/summon-familiar4.png";
@@ -3724,6 +3725,22 @@ export const FIREBALL = {
   faces: 6,
   bonus: 0,
   mul: 1.35,
+};
+
+/** Salazar's Tier 4 Divine Bolt: focused holy lightning with a compact radius-1 splash.
+ * Its center and splash remain below Caustic Venom's corresponding Tier 4 damage. */
+export const DIVINE_BOLT = {
+  name: "Divine Bolt",
+  size: 1,
+  range: 6,
+  centerDice: 2,
+  centerFaces: 4,
+  centerBonus: 0,
+  centerMul: 1.4,
+  splashDice: 1,
+  splashFaces: 4,
+  splashBonus: 0,
+  splashMul: 1.0,
 };
 
 export const CAUSTIC_VENOM = {
@@ -4801,6 +4818,7 @@ export const SPELL_TIER: Partial<Record<SpellKind, SpellTier>> = {
   lightningTier3: 5,
   cureDisease: 3,
   causticVenom: 4,
+  divineBolt: 4,
   minorVenom: 4,
   multiShot: 3,
   secondWind: 3,

@@ -37,7 +37,7 @@ import { resolveCompanionReply } from "./companionDialogues";
 import { AFFINITY_HEROES } from "./affinity";
 import { LIGHT_DEFS } from "./lighting";
 import { DialogEditor } from "./DialogEditor";
-import { BLESS, BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, SOLID_ROCK_DECOR_IDS, CAUSTIC_VENOM, MINOR_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, FOREST_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, expToLevel, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, placedBlockingFootprint, decorationImage, decorationImageWebp, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, heroRecruited, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, POISON_BREATH, poisonBreathPower, poisonBreathFormula, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
+import { BLESS, BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, SOLID_ROCK_DECOR_IDS, CAUSTIC_VENOM, DIVINE_BOLT, MINOR_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, FOREST_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, expToLevel, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, placedBlockingFootprint, decorationImage, decorationImageWebp, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, heroRecruited, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, POISON_BREATH, poisonBreathPower, poisonBreathFormula, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
 import { QUESTS, activePickupsFor, questById, questProgress, questStatus, questsFor } from "./quests";
 import { advanceProgression, evaluate, isGatedMission, missionAccess, type MissionAccess, type ProgressExtras } from "./progression";
 import { BattleEngine, heroSpriteFor } from "./engine";
@@ -473,7 +473,7 @@ const PRESTIGE_SPELLS: Partial<Record<ClassId, SpellKind[]>> = {
   elementalist: ["lightningTier3"],
 };
 
-function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY): SpellKind[] {
+function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY, heroName?: string): SpellKind[] {
   // Promoted classes keep everything the base class already granted (hybrid, nothing
   // lost at PROMOTE_LEVEL), plus their own prestige-only spells from PRESTIGE_SPELLS.
   const base = ((): SpellKind[] => {
@@ -519,17 +519,25 @@ function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY): SpellK
         return [];
     }
   })();
-  return [...base, ...(PRESTIGE_SPELLS[classId] ?? [])].filter((spell) =>
+  const salazarOnly: SpellKind[] = heroName === "Salazar" && rulesClass(classId) === "healer" ? ["divineBolt"] : [];
+  const spells = [...base, ...salazarOnly, ...(PRESTIGE_SPELLS[classId] ?? [])].filter((spell) =>
     (spell !== "bullRush" || level >= BULL_RUSH_UNLOCK_LEVEL) &&
     (spell !== "bless" || level >= BLESS.unlockLevel) &&
     (spell !== "poisonBreath" || level >= POISON_BREATH.unlockLevel) &&
     (spell !== "burningHands" || level >= 5),
   );
+  return spells;
 }
 
-function defaultSlots(classId: ClassId, level = Number.POSITIVE_INFINITY): (SlotAction | null)[] {
+function defaultHotbarSpells(classId: ClassId, level = Number.POSITIVE_INFINITY, heroName?: string): SpellKind[] {
+  // Create Food and Water is a field utility. Keep it available in the spell picker, but
+  // leave it off the default battle hotbar so players can choose it there if they want.
+  return classSpells(classId, level, heroName).filter((spell) => spell !== "createFoodAndWater");
+}
+
+function defaultSlots(classId: ClassId, level = Number.POSITIVE_INFINITY, heroName?: string): (SlotAction | null)[] {
   const combined: SlotAction[] = [
-    ...classSpells(classId, level).map((spell): SlotAction => ({ kind: "spell", spell })),
+    ...defaultHotbarSpells(classId, level, heroName).map((spell): SlotAction => ({ kind: "spell", spell })),
     ...ALL_POTIONS.map((potion): SlotAction => ({ kind: "potion", potion })),
   ];
   const slots: (SlotAction | null)[] = combined.slice(0, HOTBAR_SLOTS);
@@ -566,6 +574,8 @@ function slotIcon(action: SlotAction): string {
     case "causticVenom":
     case "minorVenom":
       return spellIcon("caustic-venom");
+    case "divineBolt":
+      return spellIcon("divine-bolt");
     case "lightning":
       return spellIcon("lightning");
     case "lightningTier3":
@@ -658,6 +668,8 @@ function slotLabel(action: SlotAction): string {
       return FIREBALL.name;
     case "causticVenom":
       return CAUSTIC_VENOM.name;
+    case "divineBolt":
+      return "Divine Bolt";
     case "minorVenom":
       return MINOR_VENOM.name;
     case "lightning":
@@ -3273,6 +3285,7 @@ const SKILL_CLASS: Partial<Record<SpellKind, ClassId>> = {
   lightningTier3: "elementalist",
   fireball: "mage",
   causticVenom: "mage",
+  divineBolt: "healer",
   poisonBreath: "mage",
   summonFamiliar: "conjurer",
   summonFamiliar2: "conjurer",
@@ -3380,6 +3393,13 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     formula: (mag: number) =>
       `centro ${spellFormula(mag, CAUSTIC_VENOM.centerMul, CAUSTIC_VENOM.centerDice, CAUSTIC_VENOM.centerFaces, CAUSTIC_VENOM.centerBonus)} · respingo ${spellFormula(mag, CAUSTIC_VENOM.splashMul, CAUSTIC_VENOM.splashDice, CAUSTIC_VENOM.splashFaces, CAUSTIC_VENOM.splashBonus)}`,
     note: `Alcance ${CAUSTIC_VENOM.range}. ${POISON_TIERS.poison.name}: ${poisonDice("poison")} no início de cada turno do alvo, até curado (−10 pontos de Poison Resistance). Área de raio ${CAUSTIC_VENOM.size}, pega os dois lados.`,
+  },
+  {
+    name: DIVINE_BOLT.name,
+    cls: SKILL_CLASS.divineBolt!,
+    tier: spellTier("divineBolt")!,
+    formula: (mag: number) => `centro ${spellFormula(mag, DIVINE_BOLT.centerMul, DIVINE_BOLT.centerDice, DIVINE_BOLT.centerFaces, DIVINE_BOLT.centerBonus)} · adjacente ${spellFormula(mag, DIVINE_BOLT.splashMul, DIVINE_BOLT.splashDice, DIVINE_BOLT.splashFaces, DIVINE_BOLT.splashBonus)}`,
+    note: `Somente Salazar. Alcance ${DIVINE_BOLT.range}; raio ${DIVINE_BOLT.size}; dano Holy e atinge até seis hexes adjacentes.`,
   },
   {
     name: MULTI_SHOT.name,
@@ -8037,8 +8057,14 @@ function BattleScreen({
   useEffect(() => {
     setHotbars(loadHotbars());
   }, []);
+  // Opening the log starts at the newest line; after that, new lines only pull it down while
+  // the reader is still at the bottom (logPinnedRef, set by the log's onScroll).
+  const logPinnedRef = useRef(true);
   useEffect(() => {
-    if (showLog && logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+    if (showLog) logPinnedRef.current = true;
+  }, [showLog]);
+  useEffect(() => {
+    if (showLog && logRef.current && logPinnedRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [showLog, hud.log.length]);
   // Loot found (a chest opened, a kill dropped gear) jumps the footer straight to the log so
   // it isn't missed; it reverts to the stat sheet on its own once a different unit takes its
@@ -8130,8 +8156,8 @@ function BattleScreen({
   const slots = actor
     ? (() => {
         const saved = hotbars[actor.name];
-        const expectedSpells = classSpells(actor.classId, actor.level);
-        if (!saved) return defaultSlots(actor.classId, actor.level);
+        const expectedSpells = classSpells(actor.classId, actor.level, actor.name);
+        if (!saved) return defaultSlots(actor.classId, actor.level, actor.name);
         // Repair hotbars persisted while a hero alias incorrectly resolved to no spells, or
         // to a stale class's spells (hotbars are keyed by hero NAME, not classId — a bar
         // saved for a name before that hero's class was fixed elsewhere, e.g. Malrec once
@@ -8151,7 +8177,7 @@ function BattleScreen({
         const hasStaleSpell = savedSpellKinds.some((k) => !expectedSpells.includes(k));
         if (hasStaleSpell || (expectedSpells.length > 0 && savedSpellKinds.length === 0)) {
           const repaired: (SlotAction | null)[] = [
-            ...expectedSpells.map((spell): SlotAction => ({ kind: "spell", spell })),
+            ...defaultHotbarSpells(actor.classId, actor.level, actor.name).map((spell): SlotAction => ({ kind: "spell", spell })),
             ...saved.filter((slot) => slot?.kind === "potion"),
           ].slice(0, HOTBAR_SLOTS);
           while (repaired.length < HOTBAR_SLOTS) repaired.push(null);
@@ -8185,6 +8211,9 @@ function BattleScreen({
         break;
       case "causticVenom":
         engine.startCausticVenom();
+        break;
+      case "divineBolt":
+        engine.startDivineBolt();
         break;
       case "minorVenom":
         engine.startMinorVenom();
@@ -8624,14 +8653,35 @@ function BattleScreen({
                 />
                 {unit.side === "player" && <HungerBar name={unit.name} value={unit.fullness} />}
               </button>
-              <button
-                type="button"
-                onClick={() => setShowLog((v) => !v)}
-                className="min-w-0 flex-1 text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              {/* A div, not a <button>: a scroll box inside a button can't be wheel/drag scrolled
+                  reliably, and grabbing its scrollbar counted as a click that closed the log. */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  const log = logRef.current;
+                  if (log && e.target === log && e.nativeEvent.offsetX >= log.clientWidth) return; // scrollbar grab
+                  setShowLog((v) => !v);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setShowLog((v) => !v);
+                  }
+                }}
+                className="min-w-0 flex-1 cursor-pointer text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 title={showLog ? "Fechar log e ver status" : "Abrir log de combate"} aria-label={showLog ? "Fechar log e ver status" : "Abrir log de combate"}
               >
                 {showLog ? (
-                  <div ref={logRef} className="h-16 sm:h-20 overflow-y-auto pr-1">
+                  <div
+                    ref={logRef}
+                    onScroll={(e) => {
+                      // Follow new lines only while the reader is at the bottom; scrolled up, stay put.
+                      const el = e.currentTarget;
+                      logPinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+                    }}
+                    className="h-16 sm:h-20 overflow-y-auto overscroll-contain pr-1 ember-scrollbar"
+                  >
                     {hud.log.length === 0 ? (
                       <p className="text-[12.5px] text-muted">Nada aconteceu ainda.</p>
                     ) : (
@@ -8677,7 +8727,7 @@ function BattleScreen({
                     </p>
                   </>
                 )}
-              </button>
+              </div>
             </>
           ) : (
             <p className="text-xs text-muted">{hud.phase === "enemy" ? "O inimigo age…" : "Toque num aliado ou num inimigo com o botão direito para ver o status."}</p>
@@ -8796,6 +8846,37 @@ function BattleScreen({
               >
                 <Pencil className="size-4" />
               </button>
+              {(() => {
+                const assigned = new Set(
+                  slots.flatMap((slot) => slot?.kind === "spell" ? [slot.spell] : []),
+                );
+                const extraSpells = classSpells(actor.classId, actor.level, actor.name)
+                  .filter((spell) => !assigned.has(spell))
+                  .map((spell) => ({ kind: "spell" as const, spell }))
+                  .filter((action) => slotCount(action, actor) > 0);
+                if (extraSpells.length === 0) return null;
+                return (
+                  <select
+                    aria-label={uiText("Magias fora da barra", { en: "Spells outside the hotbar" })}
+                    title={uiText("Usar uma magia fora da barra", { en: "Cast a spell outside the hotbar" })}
+                    disabled={!showAct || hud.busy || actor.acted || hud.mode === "awaitSpell"}
+                    value=""
+                    onChange={(event) => {
+                      const spell = event.currentTarget.value as SpellKind | "";
+                      event.currentTarget.value = "";
+                      if (spell) runSlot({ kind: "spell", spell });
+                    }}
+                    className="h-9 max-w-[9rem] rounded border border-border bg-surface px-2 text-xs text-fg disabled:opacity-40"
+                  >
+                    <option value="">{uiText("Magias", { en: "Spells" })}</option>
+                    {extraSpells.map((action) => (
+                      <option key={action.spell} value={action.spell}>
+                        {slotLabel(action)} · ×{slotCount(action, actor)}
+                      </option>
+                    ))}
+                  </select>
+                );
+              })()}
             </div>
           )}
           {hud.winAvailable && !hud.result && (
@@ -9069,6 +9150,7 @@ function BattleScreen({
         <SlotPicker
           classId={actor.classId}
           level={actor.level}
+          heroName={actor.name}
           onPick={(action) => {
             setSlot(pickerSlot, action);
             setPickerSlot(null);
@@ -9084,16 +9166,18 @@ function BattleScreen({
 function SlotPicker({
   classId,
   level,
+  heroName,
   onPick,
   onClose,
 }: {
   classId: ClassId;
   level: number;
+  heroName: string;
   onPick: (action: SlotAction | null) => void;
   onClose: () => void;
 }) {
   const options: SlotAction[] = [
-    ...classSpells(classId, level).map((spell): SlotAction => ({ kind: "spell", spell })),
+    ...classSpells(classId, level, heroName).map((spell): SlotAction => ({ kind: "spell", spell })),
     ...ALL_POTIONS.map((potion): SlotAction => ({ kind: "potion", potion })),
   ];
   return (
@@ -9286,7 +9370,7 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
     <div key={spell} className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
       <img src={slotIcon({ kind: "spell", spell })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
       <p className="text-xs truncate">
-        {uiText(label)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier(spell)!)] ?? 0}</span>
+        {uiText(label)} <span className="tabular-nums text-muted">Tier {spellTier(spell)} · ×{unit.spells[tierKey(spellTier(spell)!)] ?? 0}</span>
       </p>
     </div>
   );
@@ -9418,38 +9502,6 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
           </div>
         )}
 
-        {unit.side === "player" && !unit.summoned && <>
-          <p className="text-xs ember-kicker mb-2">Weapon Skills</p>
-          <table className="w-full mb-2 text-xs tabular-nums">
-            <thead><tr className="text-muted"><th className="text-left py-1">Weapon Type</th><th className="text-right py-1">Skill</th><th className="text-right py-1">{accuracyTarget ? `Accuracy vs ${accuracyTarget.name} (DEX ${accuracyTarget.dex})` : "Accuracy vs DEX 0"}</th><th className="text-right py-1">Weapon Dice Bonus</th></tr></thead>
-            <tbody>{weaponTypesForClass(unit.classId).map(type => {
-              const value = unit.weaponSkills?.[type] ?? 0;
-              const modifiers = weaponModifiers(unit, type);
-              const accuracy = Math.max(0, Math.min(100, modifiers.accuracy - (accuracyTarget?.dex ?? 0)));
-              return <tr key={type} className="border-t border-border"><td className="py-1">{WEAPON_TYPE_LABELS[type]}</td><td className="text-right">{value} / 100</td><td className="text-right">{accuracy}%</td><td className="text-right">+{value}%</td></tr>;
-            })}</tbody>
-          </table>
-          {!!unit.blessedHitBonusPct && <p className="text-[11px] text-muted">Bless accuracy: +{unit.blessedHitBonusPct * 100} percentage points, included before the final 0–100% limit.</p>}
-          <p className="text-[11px] text-muted mb-4">Combat attempts, including misses, can raise the used weapon skill by 1, up to 100. Each point adds 1 percentage point to accuracy and 1% to weapon dice. Defender DEX subtracts accuracy. Without a selected enemy, the table assumes DEX 0.</p>
-        </>}
-
-        <p className="text-xs ember-kicker mb-2">Elemental Resistances</p>
-        <table className="w-full mb-4 text-xs tabular-nums">
-          <thead><tr className="text-muted"><th className="text-left py-1">Element</th><th className="text-right py-1">Resistance</th></tr></thead>
-          <tbody>{RESISTANCE_ELEMENTS.map(element => {
-            const items = Object.values(unit.gear).flatMap(id => {
-              const item = id ? EQUIPMENT[id] : undefined;
-              const value = item?.resistances?.[element] ?? 0;
-              return value ? [`${item!.name}: ${value > 0 ? "+" : ""}${value}%`] : [];
-            });
-            return <tr key={element} className="border-t border-border">
-              <td className="py-1">{RESISTANCE_LABELS[element]}</td>
-              <td className="py-1 text-right"><ItemTip text={`Effective resistance = resistance − attacker MAG/2, limited to −50%–100%. Poison also subtracts its tier penalty.${items.length ? `\nEquipment:\n${items.join("\n")}` : ""}`}><span>{unit.resistances?.[element] ?? 0}%</span></ItemTip></td>
-            </tr>;
-          })}</tbody>
-        </table>
-        <p className="text-[11px] text-muted mb-4">Resistance skills improve by 0.1 through hostile magic exposure, up to 100. Equipment adds to trained resistance.</p>
-
         <p className="text-xs ember-kicker mb-2">Atributos</p>
         <div className="grid grid-cols-4 gap-1.5 mb-4">
           {stats.map(({ label, value, stat, gear, penalized }) => (
@@ -9503,14 +9555,14 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                         <img src={slotIcon({ kind: "spell", spell: "doubleStrike" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
                           {uiText(DOUBLE_STRIKE.name)} {doubleStrikeFormula(unit.level)}{" "}
-                          <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("doubleStrike")!)]}</span>
+                          <span className="tabular-nums text-muted">Tier {spellTier("doubleStrike")} · ×{unit.spells[tierKey(spellTier("doubleStrike")!)]}</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={slotIcon({ kind: "spell", spell: "cleave" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
                           {uiText(CLEAVE.name)} {CLEAVE.hexes} hex, {cleaveFormula(unit.level)} · x{CLEAVE.largeMul} vs 3+ hex{" "}
-                          <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("cleave")!)]}</span>
+                          <span className="tabular-nums text-muted">Tier {spellTier("cleave")} · ×{unit.spells[tierKey(spellTier("cleave")!)]}</span>
                         </p>
                       </div>
                       {spellStatusRow("bullRush", BULL_RUSH.name)}
@@ -9525,14 +9577,14 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                         <img src={slotIcon({ kind: "spell", spell: "magicMissile" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
                           {uiText(MAGIC_MISSILE.name)} {damageFormula(unit.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)}{" "}
-                          <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("magicMissile")!)]}</span>
+                          <span className="tabular-nums text-muted">Tier {spellTier("magicMissile")} · ×{unit.spells[tierKey(spellTier("magicMissile")!)]}</span>
                         </p>
                       </div>
                       {unit.spells[tierKey(spellTier("lightning")!)] > 0 && (
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("lightning")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                           <p className="text-xs leading-snug">
-                            Raio {damageFormula(unit.mag, LIGHTNING.mul, LIGHTNING.dice, LIGHTNING.faces, LIGHTNING.bonus)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("lightning")!)]}</span>
+                            Raio {damageFormula(unit.mag, LIGHTNING.mul, LIGHTNING.dice, LIGHTNING.faces, LIGHTNING.bonus)} <span className="tabular-nums text-muted">Tier {spellTier("lightning")} · ×{unit.spells[tierKey(spellTier("lightning")!)]}</span>
                           </p>
                         </div>
                       )}
@@ -9540,7 +9592,7 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("fireball")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                           <p className="text-xs leading-snug">
-                            Fogo {damageFormula(unit.mag, FIREBALL.mul, FIREBALL.dice, FIREBALL.faces, FIREBALL.bonus)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("fireball")!)]}</span>
+                            Fogo {damageFormula(unit.mag, FIREBALL.mul, FIREBALL.dice, FIREBALL.faces, FIREBALL.bonus)} <span className="tabular-nums text-muted">Tier {spellTier("fireball")} · ×{unit.spells[tierKey(spellTier("fireball")!)]}</span>
                           </p>
                         </div>
                       )}
@@ -9549,7 +9601,7 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                           <img src={spellIcon("caustic-venom")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                           <p className="text-xs leading-snug">
                             {uiText(unit.classId === "undeadOx" || unit.classId === "plagueBearingCattle" ? MINOR_VENOM.name : CAUSTIC_VENOM.name)} {damageFormula(unit.mag, CAUSTIC_VENOM.centerMul, CAUSTIC_VENOM.centerDice, CAUSTIC_VENOM.centerFaces, CAUSTIC_VENOM.centerBonus)}{" "}
-                            <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("causticVenom")!)]}</span>
+                            <span className="tabular-nums text-muted">Tier {spellTier("causticVenom")} · ×{unit.spells[tierKey(spellTier("causticVenom")!)]}</span>
                           </p>
                         </div>
                       )}
@@ -9558,7 +9610,7 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                           <img src={spellIcon("lightning")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                           <p className="text-xs leading-snug">
                             {LIGHTNING_T3.name} {damageFormula(unit.mag, LIGHTNING_T3.mul, LIGHTNING_T3.dice, LIGHTNING_T3.faces, LIGHTNING_T3.bonus)}{" "}
-                            <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("lightningTier3")!)]}</span>
+                            <span className="tabular-nums text-muted">Tier {spellTier("lightningTier3")} · ×{unit.spells[tierKey(spellTier("lightningTier3")!)]}</span>
                           </p>
                         </div>
                       )}
@@ -9569,40 +9621,40 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={slotIcon({ kind: "spell", spell: "summonFamiliar" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
-                          {uiText(SUMMON_FAMILIAR.name)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("summonFamiliar")!)]}</span>
+                          {uiText(SUMMON_FAMILIAR.name)} <span className="tabular-nums text-muted">Tier {spellTier("summonFamiliar")} · ×{unit.spells[tierKey(spellTier("summonFamiliar")!)]}</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={slotIcon({ kind: "spell", spell: "phantasmalForce" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
                           {uiText(PHANTASMAL_FORCE.name)} {phantasmalForceFormula(unit.level, unit.mag)}{" "}
-                          <span className="tabular-nums text-muted">×{unit.level >= PHANTASMAL_FORCE_UNLOCK_LEVEL ? unit.spells[tierKey(spellTier("phantasmalForce")!)] : 0}</span>
+                          <span className="tabular-nums text-muted">Tier {spellTier("phantasmalForce")} · ×{unit.level >= PHANTASMAL_FORCE_UNLOCK_LEVEL ? unit.spells[tierKey(spellTier("phantasmalForce")!)] : 0}</span>
                           {unit.level < PHANTASMAL_FORCE_UNLOCK_LEVEL && <span className="text-muted"> · nível {PHANTASMAL_FORCE_UNLOCK_LEVEL}+</span>}
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("web-of-dreams")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
-                          {uiText(WEB_OF_DREAMS.name)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("webOfDreams")!)]}</span>
+                          {uiText(WEB_OF_DREAMS.name)} <span className="tabular-nums text-muted">Tier {spellTier("webOfDreams")} · ×{unit.spells[tierKey(spellTier("webOfDreams")!)]}</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={slotIcon({ kind: "spell", spell: "summonFamiliar2" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
-                          {SUMMON_FAMILIAR2.name} <span className="tabular-nums text-muted">×{unit.level >= SUMMON_FAMILIAR2_UNLOCK_LEVEL ? unit.spells[tierKey(spellTier("summonFamiliar2")!)] : 0}</span>
+                          {SUMMON_FAMILIAR2.name} <span className="tabular-nums text-muted">Tier {spellTier("summonFamiliar2")} · ×{unit.level >= SUMMON_FAMILIAR2_UNLOCK_LEVEL ? unit.spells[tierKey(spellTier("summonFamiliar2")!)] : 0}</span>
                           {unit.level < SUMMON_FAMILIAR2_UNLOCK_LEVEL && <span className="text-muted"> · nível {SUMMON_FAMILIAR2_UNLOCK_LEVEL}+</span>}
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("summon-familiar4")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
-                          {SUMMON_FAMILIAR4.name} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("summonFamiliar4")!)]}</span>
+                          {SUMMON_FAMILIAR4.name} <span className="tabular-nums text-muted">Tier {spellTier("summonFamiliar4")} · ×{unit.spells[tierKey(spellTier("summonFamiliar4")!)]}</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("summon-familiar3")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs truncate">
-                          {SUMMON_FAMILIAR3.name} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("summonFamiliar3")!)]}</span>
+                          {SUMMON_FAMILIAR3.name} <span className="tabular-nums text-muted">Tier {spellTier("summonFamiliar3")} · ×{unit.spells[tierKey(spellTier("summonFamiliar3")!)]}</span>
                         </p>
                       </div>
                       {spellStatusRow("summonZombieDog", SUMMON_ZOMBIE_DOG.name)}
@@ -9649,13 +9701,13 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("long-shot")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
-                          {uiText(LONG_SHOT.name)} {longShotFormula(unit.level)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("longShot")!)]}</span>
+                          {uiText(LONG_SHOT.name)} {longShotFormula(unit.level)} <span className="tabular-nums text-muted">Tier {spellTier("longShot")} · ×{unit.spells[tierKey(spellTier("longShot")!)]}</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("piercing")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
-                          {uiText(PIERCING.name)} {piercingMul(unit.level)}× dano de arma <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("piercing")!)]}</span>
+                          {uiText(PIERCING.name)} {piercingMul(unit.level)}× dano de arma <span className="tabular-nums text-muted">Tier {spellTier("piercing")} · ×{unit.spells[tierKey(spellTier("piercing")!)]}</span>
                         </p>
                       </div>
                     </>
@@ -9665,23 +9717,24 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                       {spellStatusRow("bless", BLESS.name)}
                       {spellStatusRow("burningHands", BURNING_HANDS.name)}
                       {spellStatusRow("createFoodAndWater", CREATE_FOOD_AND_WATER.name)}
+                      {unit.name === "Salazar" && spellStatusRow("divineBolt", DIVINE_BOLT.name)}
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("cure-minor")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
-                          {uiText(CURES.cureMinor.name)} {damageFormula(unit.mag, CURES.cureMinor.mul, CURES.cureMinor.dice, CURES.cureMinor.faces, CURES.cureMinor.bonus)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("cureMinor")!)]}</span>
+                          {uiText(CURES.cureMinor.name)} {damageFormula(unit.mag, CURES.cureMinor.mul, CURES.cureMinor.dice, CURES.cureMinor.faces, CURES.cureMinor.bonus)} <span className="tabular-nums text-muted">Tier {spellTier("cureMinor")} · ×{unit.spells[tierKey(spellTier("cureMinor")!)]}</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={spellIcon("cure-wounds")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
-                          {uiText(CURES.cureWounds.name)} {damageFormula(unit.mag, CURES.cureWounds.mul, CURES.cureWounds.dice, CURES.cureWounds.faces, CURES.cureWounds.bonus)} <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("cureWounds")!)]}</span>
+                          {uiText(CURES.cureWounds.name)} {damageFormula(unit.mag, CURES.cureWounds.mul, CURES.cureWounds.dice, CURES.cureWounds.faces, CURES.cureWounds.bonus)} <span className="tabular-nums text-muted">Tier {spellTier("cureWounds")} · ×{unit.spells[tierKey(spellTier("cureWounds")!)]}</span>
                         </p>
                       </div>
                       {unit.spells[tierKey(spellTier("cureDisease")!)] > 0 && (
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("cure-disease")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                           <p className="text-xs leading-snug">
-                            {uiText(CURE_DISEASE.name)} · remove doença e veneno <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("cureDisease")!)]}</span>
+                            {uiText(CURE_DISEASE.name)} · remove doença e veneno <span className="tabular-nums text-muted">Tier {spellTier("cureDisease")} · ×{unit.spells[tierKey(spellTier("cureDisease")!)]}</span>
                           </p>
                         </div>
                       )}
@@ -9693,14 +9746,14 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                         <img src={spellIcon("piercing-thrust")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                         <p className="text-xs leading-snug">
                           {uiText(PIERCING_THRUST.name)} dano de arma, −{Math.round(PIERCING_THRUST.armorIgnore * 100)}% armadura{" "}
-                          <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("piercingThrust")!)]}</span>
+                          <span className="tabular-nums text-muted">Tier {spellTier("piercingThrust")} · ×{unit.spells[tierKey(spellTier("piercingThrust")!)]}</span>
                         </p>
                       </div>
                       {unit.spells[tierKey(spellTier("sweep")!)] > 0 && (
                         <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                           <img src={spellIcon("sweep")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                           <p className="text-xs leading-snug">
-                            {uiText(SWEEP.name)} dano de arma <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("sweep")!)]}</span>
+                            {uiText(SWEEP.name)} dano de arma <span className="tabular-nums text-muted">Tier {spellTier("sweep")} · ×{unit.spells[tierKey(spellTier("sweep")!)]}</span>
                           </p>
                         </div>
                       )}
@@ -9709,7 +9762,7 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                           <img src={spellIcon("trip")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                           <p className="text-xs leading-snug">
                             {uiText(TRIP.name)} arma +{diceFormula(1, TRIP.bonusFaces, TRIP.bonusBonus)}{" "}
-                            <span className="tabular-nums text-muted">×{unit.spells[tierKey(spellTier("trip")!)]}</span>
+                            <span className="tabular-nums text-muted">Tier {spellTier("trip")} · ×{unit.spells[tierKey(spellTier("trip")!)]}</span>
                           </p>
                         </div>
                       )}

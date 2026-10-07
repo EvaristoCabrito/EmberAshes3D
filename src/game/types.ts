@@ -185,6 +185,7 @@ export type SpellKind =
   | "magicMissile"
   | "magicMissileV2"
   | "causticVenom"
+  | "divineBolt"
   // Veneno Menor: the mobs' radius-2 venom (MINOR_VENOM in data.ts).
   | "minorVenom"
   | "doubleStrike"

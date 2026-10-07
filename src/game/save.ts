@@ -18,7 +18,7 @@ import type { Bag, BattleSnapshot, BattleUnitSnap, ClassId, DialogAction, Dialog
 const START_HEX = OVERWORLD_START_HEX;
 
 export const SLOT_COUNT = 6;
-export const SAVE_VERSION = 18;
+export const SAVE_VERSION = 19;
 const BANK_KEY = "ember-save-bank";
 const SAVE_KEY = "ember-save";
 const SAVE_BAK_KEY = "ember-save.bak";
@@ -304,7 +304,7 @@ function cleanDialogTree(raw: unknown): DialogTree | null {
   return { id: t.id, startId: t.startId, lines };
 }
 
-function cleanBattleUnit(raw: unknown): BattleUnitSnap | null {
+function cleanBattleUnit(raw: unknown, roundLegacyWeaponFractions = false): BattleUnitSnap | null {
   if (!raw || typeof raw !== "object") return null;
   const u = raw as Record<string, unknown>;
   if (typeof u.id !== "string" || typeof u.name !== "string" || typeof u.classId !== "string") return null;
@@ -367,7 +367,7 @@ function cleanBattleUnit(raw: unknown): BattleUnitSnap | null {
     dex: clampInt(savedDex(u), 0, 999),
     statPointAllocation: cleanUnitStatPoints(u.statPointAllocation, clampInt(u.level, 1, MAX_LEVEL)),
     resistances: cleanResistances(u.resistances),
-    weaponSkills: Object.fromEntries(WEAPON_TYPES.filter(type => weaponTypesForClass(u.classId as ClassId).includes(type)).map(type => [type, cleanWeaponSkill((u.weaponSkills as Record<string, unknown> | undefined)?.[type])])),
+    weaponSkills: Object.fromEntries(WEAPON_TYPES.filter(type => weaponTypesForClass(u.classId as ClassId).includes(type)).map(type => [type, cleanWeaponSkill((u.weaponSkills as Record<string, unknown> | undefined)?.[type], roundLegacyWeaponFractions)])),
     mov: clampInt(u.mov, 0, 20),
     minRange: clampInt(u.minRange, 0, 20),
     maxRange: clampInt(u.maxRange, 0, 20),
@@ -391,7 +391,7 @@ function cleanBattleUnit(raw: unknown): BattleUnitSnap | null {
     poisoned: u.poisoned === true,
     poisonTier: poisonTierOf(u.poisonTier) ?? poisonTierOf(u.poisonFaces) ?? "lesser",
     poisonMag: clampInt(u.poisonMag, 0, 999),
-    poisonResist: typeof u.poisonResist === "number" && Number.isFinite(u.poisonResist) ? Math.max(0, Math.min(SKILL_CAP, Math.round(u.poisonResist * 10) / 10)) : 0,
+    poisonResist: typeof u.poisonResist === "number" && Number.isFinite(u.poisonResist) ? Math.max(0, Math.min(SKILL_CAP, Math.round(u.poisonResist * 100) / 100)) : 0,
     stunned: u.stunned === true,
     stunTurns: clampInt(u.stunTurns, 0, 9),
     crippled: u.crippled === true,
@@ -408,7 +408,7 @@ function cleanBattleUnit(raw: unknown): BattleUnitSnap | null {
   };
 }
 
-function cleanBattle(raw: unknown, pendingMission: string | null): BattleSnapshot | null {
+function cleanBattle(raw: unknown, pendingMission: string | null, roundLegacyWeaponFractions = false): BattleSnapshot | null {
   if (!raw || typeof raw !== "object") return null;
   const b = raw as Record<string, unknown>;
   const missionId = typeof b.missionId === "string" && MISSION_IDS.has(b.missionId) ? b.missionId : pendingMission;
@@ -416,7 +416,7 @@ function cleanBattle(raw: unknown, pendingMission: string | null): BattleSnapsho
   if (!Array.isArray(b.units) || !Array.isArray(b.tiles)) return null;
   const units: BattleUnitSnap[] = [];
   for (const item of b.units) {
-    const u = cleanBattleUnit(item);
+    const u = cleanBattleUnit(item, roundLegacyWeaponFractions);
     if (u) units.push(u);
   }
   if (units.length === 0) return null;
@@ -478,7 +478,7 @@ function cleanBattle(raw: unknown, pendingMission: string | null): BattleSnapsho
   return {
     missionId,
     affinityScores: b.affinityScores == null ? undefined : cleanAffinityScores(b.affinityScores),
-    heroSkills: b.heroSkills == null ? undefined : cleanHeroSkills(b.heroSkills, [...HEROES, ...Object.keys(LATE_HERO_BASE_CLASS)], (hero, type) => weaponTypesForClass(units.find(unit => unit.name === hero)?.classId ?? ({ ...HERO_BASE_CLASS, ...LATE_HERO_BASE_CLASS } as Record<string, ClassId>)[hero]).includes(type)),
+    heroSkills: b.heroSkills == null ? undefined : cleanHeroSkills(b.heroSkills, [...HEROES, ...Object.keys(LATE_HERO_BASE_CLASS)], (hero, type) => weaponTypesForClass(units.find(unit => unit.name === hero)?.classId ?? ({ ...HERO_BASE_CLASS, ...LATE_HERO_BASE_CLASS } as Record<string, ClassId>)[hero]).includes(type), roundLegacyWeaponFractions),
     turn: clampInt(b.turn, 1, 999),
     phase,
     units,
@@ -761,7 +761,7 @@ function migrateRecord(raw: Record<string, unknown>, muted: boolean): SaveData {
     muted: raw.muted === true || muted,
     updatedAt: typeof raw.updatedAt === "number" && raw.updatedAt > 0 ? raw.updatedAt : Date.now(),
     pendingMission: pending,
-    battle: cleanBattle(raw.battle, pending),
+    battle: cleanBattle(raw.battle, pending, version < 19),
     seenSmithIntro: raw.seenSmithIntro === true,
     seenOverworldIntro: raw.seenOverworldIntro === true,
     seenWispForestIntro: raw.seenWispForestIntro === true,
@@ -779,7 +779,7 @@ function migrateRecord(raw: Record<string, unknown>, muted: boolean): SaveData {
     heroDiseases: cleanHeroDiseases(raw.heroDiseases),
     heroPoisons: cleanHeroPoisons(raw.heroPoisons),
     heroPoisonMag: cleanHeroPoisonMag(raw.heroPoisonMag),
-    heroSkills: cleanHeroSkills(raw.heroSkills, [...HEROES, ...Object.keys(LATE_HERO_BASE_CLASS)], (hero, type) => weaponTypesForClass(cleanPromotions(raw.promotions)[hero] ?? ({ ...HERO_BASE_CLASS, ...LATE_HERO_BASE_CLASS } as Record<string, ClassId>)[hero]).includes(type)),
+    heroSkills: cleanHeroSkills(raw.heroSkills, [...HEROES, ...Object.keys(LATE_HERO_BASE_CLASS)], (hero, type) => weaponTypesForClass(cleanPromotions(raw.promotions)[hero] ?? ({ ...HERO_BASE_CLASS, ...LATE_HERO_BASE_CLASS } as Record<string, ClassId>)[hero]).includes(type), version < 19),
     travelTraining: cleanTravelTraining(raw.travelTraining, [...HEROES, ...Object.keys(LATE_HERO_BASE_CLASS)]),
     travelTrainingHours: Object.fromEntries(Object.entries(raw.travelTrainingHours && typeof raw.travelTrainingHours === "object" ? raw.travelTrainingHours : {})
       .filter(([, h]) => typeof h === "number" && Number.isFinite(h) && h > 0).map(([hero, h]) => [hero, Math.min(TRAVEL_TRAINING_HOURS * 10, h as number)])),

@@ -816,8 +816,8 @@ export function OverworldMapScreen({
                             <div className="flex items-center justify-between gap-2 text-sm"><span>{SKILLS[id].name}</span>
                               <button type="button" disabled={!onSetTravelTraining} aria-pressed={training} aria-label={`${training ? "Parar de treinar" : "Treinar"} ${SKILLS[id].name} de ${hero} na estrada`} onClick={() => onSetTravelTraining?.(hero, training ? null : id)}
                                 className={`ml-auto ember-btn ember-btn-sm ${training ? "ember-btn-primary" : "ember-btn-ghost"}`}>{training ? "Treinando" : "Treinar"}</button>
-                              <span className="text-muted tabular-nums">{points.toLocaleString("pt-BR", { minimumFractionDigits: id.endsWith("Weapon") ? 0 : 1, maximumFractionDigits: id.endsWith("Weapon") ? 0 : 1 })}/{SKILL_CAP}</span></div>
-                            {id.endsWith("Weapon") && <p className="text-xs text-muted">Dados da arma: +{points}%. Precisão contra DEX 0: {Math.min(100, 75 + points)}%. A DEX do alvo reduz a precisão.</p>}
+                              <span className="text-muted tabular-nums">{points.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}/{SKILL_CAP}</span></div>
+                            {id.endsWith("Weapon") && <p className="text-xs text-muted">Dados da arma: +{points}%. Precisão contra DEX 0: {Math.min(100, 75 + points)}%. A DEX do alvo reduz a precisão. Ao atacar um inimigo 5 níveis abaixo, o ganho é 0,05; com 10 níveis abaixo, não há ganho.</p>}
                             <div role="progressbar" aria-label={`${SKILLS[id].name} de ${hero}`} aria-valuemin={0} aria-valuemax={SKILL_CAP} aria-valuenow={points} className="my-1 h-1.5 overflow-hidden rounded-full bg-border">
                               <div className="h-full bg-accent" style={{ width: `${Math.max(0, Math.min(100, (points / SKILL_CAP) * 100))}%` }} />
                             </div>
@@ -826,7 +826,7 @@ export function OverworldMapScreen({
                       </article>
                     ))}
                   </div>
-                  <p className="mt-2 text-xs text-muted">Perícias de arma podem ganhar +1 por tentativa contra inimigos, inclusive erros; cada ponto dá +1 ponto percentual de precisão e +1% aos dados da arma. Resistências podem ganhar +{SKILL_GAIN.toLocaleString("pt-BR")} ao usar o elemento ou ser atingido por ele. Magias dos familiares também treinam a resistência do conjurador ao elemento usado. Quanto maior a perícia, menor a chance de ganho. Cada ponto de resistência vale 1%.</p>
+                  <p className="mt-2 text-xs text-muted">Perícias de arma podem ganhar +1 por tentativa contra inimigos, inclusive erros; cada ponto dá +1 ponto percentual de precisão e +1% aos dados da arma. Resistências podem ganhar +{SKILL_GAIN.toLocaleString("pt-BR")} ao usar o elemento ou ser atingido por ele. Magias dos familiares também treinam a resistência do conjurador ao elemento usado. Em magias de área, cada inimigo atingido permite uma tentativa de ganho para o conjurador. Quanto maior a perícia, menor a chance de ganho. Cada ponto de resistência vale 1%.</p>
                   <p className="mt-1 text-xs text-muted">Treino na estrada: cada personagem pode treinar uma skill por vez enquanto o grupo viaja — +{SKILL_GAIN.toLocaleString("pt-BR")} a cada {TRAVEL_TRAINING_HOURS}h de viagem. Trocar de skill recomeça a contagem.</p>
                 </section>
               ) : (

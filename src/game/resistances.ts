@@ -36,7 +36,7 @@ const SPELL_ELEMENTS: Partial<Record<SpellKind, ResistanceElement>> = {
   fireball: "fire", burningHands: "fire",
   lightning: "lightning", lightningTier3: "lightning", shock: "lightning",
   magicMissile: "arcane", magicMissileV2: "arcane", phantasmalForce: "arcane", fantomForce: "arcane",
-  lifeDrain: "darkness", divineWrath: "holy",
+  lifeDrain: "darkness", divineWrath: "holy", divineBolt: "holy",
   causticVenom: "poison", minorVenom: "poison", poisonBreath: "poison",
 };
 

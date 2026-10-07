@@ -6,7 +6,7 @@ import { tacticalGridStyleQuiet as tacticalGridStyle, GRID_MOVE, GRID_ROUTE, GRI
 import { isHexGroundVariant, requestSpriteArt } from "./assets";
 import { drawGroundTexture, drawHexGround } from "./hexGround";
 import { vauBackdropBounds } from "./vauBackdrop";
-import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, MINOR_VENOM, DECOR_ART_SCALE, HOUSE_ART_SCALE, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expToLevel, expForHit, FIREBALL, FANTOM_FORCE, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, decorationImageRetryWebp, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashPower, POISON_BREATH, poisonBreathFormula, poisonBreathPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower, BLESS, rulesClass } from "./data";
+import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, DIVINE_BOLT, MINOR_VENOM, DECOR_ART_SCALE, HOUSE_ART_SCALE, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expToLevel, expForHit, FIREBALL, FANTOM_FORCE, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, decorationImageRetryWebp, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashPower, POISON_BREATH, poisonBreathFormula, poisonBreathPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower, BLESS, rulesClass } from "./data";
 import type { SpellTier } from "./data";
 import { weightedWeaponPick, shieldBashFormula, fantomForceChargesFor, fantomForceDice } from "./data";
 import { clearRockColumnTiles, placedBlockingFootprint, THREE_D_DOOR_VARIANTS } from "./data";
@@ -15,7 +15,7 @@ import { closeWatchtowerWalls } from "./watchtowerDungeon";
 import { decorationPlacementArt } from "./data";
 import { canCounter, makeForecast, mulberry32, powerOf, protOf, rollDamage, rollDamageCustom } from "./combat";
 import { effectivePoisonResistance, POISON_TIERS, poisonChance, poisonDice, poisonTickDamage, poisonTierOf, strongerPoison } from "./poison";
-import { cleanHeroSkills, rollWeaponSkillGain, rollSkillGain, skillResistances, type HeroSkills } from "./skills";
+import { cleanHeroSkills, rollWeaponSkillGain, rollSkillGain, skillResistances, SKILL_GAIN, type HeroSkills } from "./skills";
 import {
   attackableEnemies,
   canHitFrom,
@@ -129,6 +129,7 @@ export const ZOOM_RADII = [22, 34, 50, 72];
 const SPELL_ELEMENT_FX: Partial<Record<SpellKind, { kind: ElementKind; duration: number }>> = {
   causticVenom: { kind: "acid", duration: 1.3 },
   minorVenom: { kind: "acid", duration: 1.3 },
+  divineBolt: { kind: "holy", duration: 1.15 },
   // Lightning/Lightning Tier 3/Choque deliberately have NO entry here — per direct report,
   // the newer WebGL shader burst this table drives read as an odd "3D" pop layered on top
   // of the older, plain 2D bolt/spark cue (see emitLightningFx, still called separately for
@@ -312,7 +313,7 @@ interface LightningFx {
   segs: number[];
   branches: LightningBranch[];
   /** "shock" is Choque. "raio" is Relâmpago. "t3" is Lighting Tier 3 — viewport-tall strike. */
-  power: "shock" | "raio" | "t3";
+  power: "shock" | "raio" | "t3" | "divine" | "divineSplash";
 }
 
 const LIGHTNING_FX_CAP = 16;
@@ -2657,6 +2658,13 @@ export class BattleEngine {
         const target = step.tiles[step.tiles.length - 1];
         if (caster && target) this.emitMissileFx(caster.x, caster.y, target.x, target.y, "longShot");
       }
+      if (step.spellKind === "divineBolt") {
+        const center = step.projectileTo ?? step.tiles[0];
+        if (center) this.emitLightningFx(center.x, center.y, "divine");
+        for (const t of step.tiles) {
+          if (!center || t.x !== center.x || t.y !== center.y) this.emitLightningFx(t.x, t.y, "divineSplash");
+        }
+      }
       if (step.spellKind === "lightning" || step.spellKind === "lightningTier3" || step.spellKind === "shock") {
         const power = step.spellKind === "lightningTier3" ? "t3" : step.spellKind === "lightning" ? "raio" : "shock";
         for (const t of step.tiles) this.emitLightningFx(t.x, t.y, power);
@@ -2856,9 +2864,9 @@ export class BattleEngine {
         const hit = dice
           ? rollDamageCustom(this.affinityUnit(actor), this.affinityUnit(target), attTile, defTile, dice.dice, dice.faces, dice.bonus, this.rng, !(a.stage === "hit" && a.spellKind === "shieldBash"))
           : rollDamage(this.affinityUnit(actor), this.affinityUnit(target), attTile, defTile, this.rng, !(a.stage === "hit" && a.spellKind === "shieldBash"));
-        if (target.side === "enemy" && !(a.stage === "hit" && a.spellKind === "shieldBash")) this.trainWeapon(actor, equippedWeaponType(actor, !!dice));
+        if (target.side === "enemy" && !(a.stage === "hit" && a.spellKind === "shieldBash")) this.trainWeapon(actor, equippedWeaponType(actor, !!dice), target.level);
         const usesArcane = arcaneBolt && !this.offHandStrike(a) && (a.stage === "counterHit" || !a.spellKind);
-        if (usesArcane) this.trainElementUse(actor, "arcane");
+        if (usesArcane && target.side === "enemy") this.trainElementUse(actor, "arcane", target.level);
         if (!hit.landed) {
           this.spawnMiss(target);
           this.pushLog(`${actor.name} atacou ${target.name}: Missed`);
@@ -2907,7 +2915,7 @@ export class BattleEngine {
           hit.dmg = Math.max(1, Math.floor(hit.dmg * this.zoneDamageMul(target)));
           if (usesArcane) {
             hit.dmg = Math.floor(elementalDamage(hit.dmg, target.resistances?.arcane ?? 0, this.affinityUnit(actor).mag));
-            this.trainResistance(target, "arcane");
+            this.trainResistance(target, "arcane", actor.level);
           }
           if (a.stage === "hit" && a.spellKind && hit.dmg > 0) this.adjustAffinity(actor, target, -1);
           target.hp = Math.max(0, target.hp - hit.dmg);
@@ -3237,9 +3245,7 @@ export class BattleEngine {
     }
     if (!a.hit && (syncFireballVfx ? a.fireballImpact === true : syncCausticVenomVfx ? a.causticVenomImpact === true : syncPhantasmalVfx ? a.phantasmalImpact === true : syncMagicMissileV2Vfx ? a.magicMissileV2Impact === true : syncBurningHandsVfx ? a.burningHandsReleased === true : a.t >= hitAt)) {
       a.hit = true;
-      // One use check for this cast, independent of how many targets its area hits.
       const usedElement = spellElement(a.spellKind);
-      if (usedElement) this.trainElementUse(att, usedElement);
       // Every attack cue (weapon skills included) already played when its animation began, in startSeq.
       // AoE/line spells: the first enemy actually hit grants full XP, every enemy after
       // that in the same cast grants half — hitting a whole group shouldn't out-earn
@@ -3318,7 +3324,7 @@ export class BattleEngine {
             landed = accuracy >= 100 || this.rng() * 100 < accuracy;
 
           }
-          if (foe.side === "enemy") this.trainWeapon(att, type);
+          if (foe.side === "enemy") this.trainWeapon(att, type, foe.level);
         }
         if (!landed) {
           this.spawnMiss(foe);
@@ -3351,7 +3357,7 @@ export class BattleEngine {
           foe.poisonTier = nextTier;
           foe.poisoned = true;
         }
-        if (element) this.trainResistance(foe, element);
+        if (element) this.trainResistance(foe, element, att.level);
         // Dreno de Vida: heals the familiar's own summoning conjurer for a share of the
         // damage it just dealt (see lifeDrainHealMul) — off the real rolled damage, not a
         // separate estimate, same reasoning as every other on-hit effect in this loop.
@@ -3986,32 +3992,43 @@ export class BattleEngine {
     this.evaluateEnd();
   }
 
-  private trainWeapon(unit: Unit, type: import("./types").WeaponType | undefined): void {
+  private trainingGainForLevel(unitLevel: number, enemyLevel: number): number | null | undefined {
+    const difference = unitLevel - enemyLevel;
+    if (difference === 10) return null;
+    if (difference === 5) return 0.05;
+    return undefined;
+  }
+
+  private trainWeapon(unit: Unit, type: import("./types").WeaponType | undefined, enemyLevel: number): void {
     if (!type || unit.side !== "player" || unit.summoned || !weaponTypesForClass(unit.classId).includes(type)) return;
+    const amount = this.trainingGainForLevel(unit.level, enemyLevel);
+    if (amount === null) return;
     const id = `${type}Weapon` as const;
     const current = this.heroSkills[unit.name]?.[id] ?? 0;
-    const gained = rollWeaponSkillGain(current, this.rng);
+    const gained = rollWeaponSkillGain(current, this.rng, amount ?? 1);
     if (gained === null) return;
     this.heroSkills[unit.name] = { ...this.heroSkills[unit.name], [id]: gained };
     unit.weaponSkills = { ...unit.weaponSkills, [type]: gained };
   }
 
   /** A familiar's elemental magic practises its summoner's matching resistance. */
-  private trainElementUse(caster: Unit, element: import("./types").ResistanceElement): void {
+  private trainElementUse(caster: Unit, element: import("./types").ResistanceElement, enemyLevel: number): void {
     const learner = caster.summoned
       ? this.units.find(unit => unit.id === caster.summonerId && unit.alive && unit.side === caster.side)
       : caster;
-    if (learner) this.trainResistance(learner, element);
+    if (learner) this.trainResistance(learner, element, enemyLevel);
   }
 
-  private trainResistance(unit: Unit, element: import("./types").ResistanceElement): void {
+  private trainResistance(unit: Unit, element: import("./types").ResistanceElement, enemyLevel?: number): void {
     if (unit.side !== "player" || unit.summoned) return;
+    const amount = enemyLevel == null ? undefined : this.trainingGainForLevel(unit.level, enemyLevel);
+    if (amount === null) return;
     const id = `${element}Resistance` as const;
     const current = this.heroSkills[unit.name]?.[id] ?? 0;
-    const gained = rollSkillGain(current, this.rng);
+    const gained = rollSkillGain(current, this.rng, amount ?? SKILL_GAIN);
     if (gained === null) return;
     this.heroSkills[unit.name] = { ...this.heroSkills[unit.name], [id]: gained };
-    unit.resistances = { ...unit.resistances, [element]: Number(((unit.resistances?.[element] ?? 0) + gained - current).toFixed(1)) };
+    unit.resistances = { ...unit.resistances, [element]: Number(((unit.resistances?.[element] ?? 0) + gained - current).toFixed(2)) };
     if (element === "poison") unit.poisonResist = gained;
   }
 
@@ -4299,7 +4316,7 @@ export class BattleEngine {
   /** A bolt struck down onto one hex — see LightningFx. The jagged shape (main bolt plus
    * forks) is rolled once here so it stays put for the strike's whole short life.
    * `power: "shock"` is Choque; `"raio"` is Relâmpago; `"t3"` is Lighting Tier 3. */
-  private emitLightningFx(x: number, y: number, power: "shock" | "raio" | "t3" = "shock"): void {
+  private emitLightningFx(x: number, y: number, power: "shock" | "raio" | "t3" | "divine" | "divineSplash" = "shock"): void {
     if (this.reducedMotion) return;
     const emitOne = (spread: number, segs: number, branchMin: number, branchExtra: number, hue: number) => {
       let slot = this.lightningFx.find((l) => !l.live);
@@ -4318,20 +4335,25 @@ export class BattleEngine {
       slot.x = x;
       slot.y = y;
       slot.t = 0;
-      slot.max = power === "t3" ? LIGHTNING_T3_DUR : power === "raio" ? LIGHTNING_RAIO_DUR : LIGHTNING_STRIKE_DUR;
+      slot.max = power === "t3" ? LIGHTNING_T3_DUR : power === "raio" || power === "divine" ? LIGHTNING_RAIO_DUR : LIGHTNING_STRIKE_DUR;
       slot.hue = hue;
       slot.segs = rollSegs(segs, spread);
       slot.power = power;
       const branchCount = branchMin + Math.floor(this.rng() * (branchExtra + 1));
-      const branchSegs = power === "t3" ? 7 : power === "raio" ? 6 : 4;
-      const branchSpread = power === "t3" ? 0.62 : power === "raio" ? 0.55 : 0.4;
+      const branchSegs = power === "t3" ? 7 : power === "raio" || power === "divine" ? 6 : 4;
+      const branchSpread = power === "t3" ? 0.62 : power === "raio" || power === "divine" ? 0.55 : 0.4;
       slot.branches = Array.from({ length: branchCount }, () => ({
         at: 0.18 + this.rng() * 0.58,
         side: this.rng() < 0.5 ? -1 : 1,
         segs: rollSegs(branchSegs, branchSpread),
       }));
     };
-    if (power === "t3") {
+    if (power === "divine") {
+      emitOne(0.28, 11, 3, 2, 42 + this.rng() * 12);
+      emitOne(0.18, 8, 2, 1, 48 + this.rng() * 8);
+    } else if (power === "divineSplash") {
+      emitOne(0.14, 6, 1, 1, 42 + this.rng() * 12);
+    } else if (power === "t3") {
       emitOne(0.2, 9, 2, 1, 206 + this.rng() * 10);
       emitOne(0.12, 7, 1, 1, 198 + this.rng() * 8);
     } else if (power === "raio") {
@@ -4933,6 +4955,18 @@ export class BattleEngine {
     this.spellAim = null;
     this.hover = null;
     this.tip = `${CAUSTIC_VENOM.name}: alcance ${CAUSTIC_VENOM.range}, alvo ${diceFormula(CAUSTIC_VENOM.centerDice, CAUSTIC_VENOM.centerFaces, CAUSTIC_VENOM.centerBonus)}, respingo ${diceFormula(CAUSTIC_VENOM.splashDice, CAUSTIC_VENOM.splashFaces, CAUSTIC_VENOM.splashBonus)} em área — envenena todos atingidos, até aliados. Toque para mirar, toque de novo para lançar.`;
+    sfxPlay.ui();
+  }
+
+  startDivineBolt(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    if (!u || u.name !== "Salazar" || rulesClass(u.classId) !== "healer" || u.acted || this.tierRemaining(u, "divineBolt") <= 0) return;
+    this.mode = "awaitSpell";
+    this.spellKind = "divineBolt";
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.hover = null;
+    this.tip = `${DIVINE_BOLT.name}: alcance ${DIVINE_BOLT.range}, centro ${spellFormula(u.mag, DIVINE_BOLT.centerMul, DIVINE_BOLT.centerDice, DIVINE_BOLT.centerFaces, DIVINE_BOLT.centerBonus)}, hexes adjacentes ${spellFormula(u.mag, DIVINE_BOLT.splashMul, DIVINE_BOLT.splashDice, DIVINE_BOLT.splashFaces, DIVINE_BOLT.splashBonus)}. Holy, raio ${DIVINE_BOLT.size}; atinge todos na área. Toque para mirar, toque de novo para lançar.`;
     sfxPlay.ui();
   }
 
@@ -5670,6 +5704,10 @@ export class BattleEngine {
       this.confirmCausticVenom();
       return;
     }
+    if (this.spellKind === "divineBolt") {
+      this.confirmDivineBolt();
+      return;
+    }
     if (this.spellKind === "minorVenom") {
       this.confirmMinorVenom();
       return;
@@ -6051,8 +6089,8 @@ export class BattleEngine {
       if (distance > range) return `Alvo fora de alcance (máximo ${range} hexes).`;
       if (kind === "phantasmalForce" && !clearShot(caster, cell, this.tiles, this.cols, "bolt", this.decorOverlay)) return this.shotBlockedTip(caster, cell, "bolt");
     }
-    if (kind === "fireball" || kind === "causticVenom" || kind === "minorVenom" || kind === "webOfDreams") {
-      const range = kind === "fireball" ? FIREBALL.range : kind === "causticVenom" ? CAUSTIC_VENOM.range : kind === "minorVenom" ? MINOR_VENOM.range : WEB_OF_DREAMS.range;
+    if (kind === "fireball" || kind === "causticVenom" || kind === "divineBolt" || kind === "minorVenom" || kind === "webOfDreams") {
+      const range = kind === "fireball" ? FIREBALL.range : kind === "causticVenom" ? CAUSTIC_VENOM.range : kind === "divineBolt" ? DIVINE_BOLT.range : kind === "minorVenom" ? MINOR_VENOM.range : WEB_OF_DREAMS.range;
       if (distance > range) return `Casa fora de alcance (máximo ${range} hexes).`;
       if (!clearShot(caster, fireballOrigin(cell, this.cols, this.rows), this.tiles, this.cols, "bolt", this.decorOverlay)) return this.shotBlockedTip(caster, fireballOrigin(cell, this.cols, this.rows), "bolt");
     }
@@ -6284,6 +6322,10 @@ export class BattleEngine {
     }
     if (this.spellKind === "causticVenom") {
       if (manhattan(caster, cell) > CAUSTIC_VENOM.range) return false;
+      return clearShot(caster, fireballOrigin(cell, this.cols, this.rows), this.tiles, this.cols, "bolt", this.decorOverlay);
+    }
+    if (this.spellKind === "divineBolt") {
+      if (manhattan(caster, cell) > DIVINE_BOLT.range) return false;
       return clearShot(caster, fireballOrigin(cell, this.cols, this.rows), this.tiles, this.cols, "bolt", this.decorOverlay);
     }
     if (this.spellKind === "minorVenom") {
@@ -6527,6 +6569,18 @@ export class BattleEngine {
       return;
     }
     this.castCausticVenom(u, cell);
+  }
+
+  confirmDivineBolt(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    const cell = this.hover;
+    if (!u || u.name !== "Salazar" || this.mode !== "awaitSpell" || this.spellKind !== "divineBolt" || !cell) return;
+    if (!this.spellAimValid(u, cell)) {
+      this.tip = this.spellAimError(u, cell);
+      sfxPlay.ui();
+      return;
+    }
+    this.castDivineBolt(u, cell);
   }
 
   confirmMinorVenom(): void {
@@ -8776,6 +8830,40 @@ export class BattleEngine {
     });
   }
 
+  private castDivineBolt(unit: Unit, click: Point): void {
+    const origin = fireballOrigin(click, this.cols, this.rows);
+    const tiles = hexAreaTiles(origin, DIVINE_BOLT.size, this.cols, this.rows);
+    const ids: string[] = [];
+    for (const t of tiles) {
+      const u = this.units.find((x) => x.alive && occupies(x, t.x, t.y));
+      if (u && !ids.includes(u.id)) ids.push(u.id);
+    }
+    const center = this.units.find((x) => x.alive && occupies(x, origin.x, origin.y));
+    this.spendTier(unit, "divineBolt");
+    this.spellKind = null;
+    this.missileTargets = [];
+    this.tip = null;
+    this.mode = "locked";
+    this.queue.push({
+      type: "spell",
+      att: unit.id,
+      tiles,
+      ids,
+      dice: DIVINE_BOLT.splashDice,
+      faces: DIVINE_BOLT.splashFaces,
+      bonus: DIVINE_BOLT.splashBonus,
+      centerId: center?.id,
+      centerDice: DIVINE_BOLT.centerDice,
+      centerFaces: DIVINE_BOLT.centerFaces,
+      centerBonus: DIVINE_BOLT.centerBonus,
+      label: DIVINE_BOLT.name,
+      spellMul: DIVINE_BOLT.splashMul,
+      centerMul: DIVINE_BOLT.centerMul,
+      spellKind: "divineBolt",
+      projectileTo: origin,
+    });
+  }
+
   /** Veneno Menor (MINOR_VENOM): Caustic Venom's dice and poison on a radius-2 splash. */
   private castMinorVenom(unit: Unit, click: Point): void {
     const origin = fireballOrigin(click, this.cols, this.rows);
@@ -10743,6 +10831,12 @@ export class BattleEngine {
         if (cell && manhattan(selected, cell) <= CAUSTIC_VENOM.range) {
           push(hexAreaTiles(fireballOrigin(cell, this.cols, this.rows), CAUSTIC_VENOM.size, this.cols, this.rows), "rgba(200,210,90,0.55)");
         }
+      } else if (selected && this.spellKind === "divineBolt") {
+        push(this.healRangeTiles(selected, DIVINE_BOLT.range), "rgba(255,205,110,0.48)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && manhattan(selected, cell) <= DIVINE_BOLT.range) {
+          push(hexAreaTiles(fireballOrigin(cell, this.cols, this.rows), DIVINE_BOLT.size, this.cols, this.rows), "rgba(255,225,150,0.62)");
+        }
       } else if (selected && this.spellKind === "minorVenom") {
         push(this.healRangeTiles(selected, MINOR_VENOM.range), "rgba(200,210,90,0.45)");
         const cell = this.hover ?? this.spellAim;
@@ -11839,17 +11933,19 @@ export class BattleEngine {
         if (!l.live) continue;
         const t3 = l.power === "t3";
         const raio = l.power === "raio";
+        const divine = l.power === "divine";
+        const divineSplash = l.power === "divineSplash";
         const { cx, cy } = this.hexCenter(l.x, l.y);
-        const topY = t3 ? -tile * 0.2 : cy - tile * (raio ? LIGHTNING_RAIO_FALL_HEIGHT : LIGHTNING_FALL_HEIGHT);
+        const topY = t3 ? -tile * 0.2 : cy - tile * (raio || divine ? LIGHTNING_RAIO_FALL_HEIGHT : divineSplash ? 1.1 : LIGHTNING_FALL_HEIGHT);
         const k = l.t / l.max;
-        const reveal = Math.min(1, l.t / (t3 ? 0.07 : raio ? 0.1 : 0.06));
-        const hold = t3 ? 0.32 : raio ? 0.28 : 0.35;
+        const reveal = Math.min(1, l.t / (t3 ? 0.07 : raio || divine ? 0.1 : divineSplash ? 0.045 : 0.06));
+        const hold = t3 ? 0.32 : raio || divine ? 0.28 : 0.35;
         const fade = k < hold ? 1 : Math.max(0, 1 - (k - hold) / (1 - hold));
         if (fade <= 0) continue;
 
         ctx.save();
         ctx.globalCompositeOperation = "lighter";
-        const pulse = t3 ? 0.82 + 0.18 * Math.abs(Math.sin(l.t * 52 + l.hue)) : 1;
+        const pulse = t3 || divine || divineSplash ? 0.82 + 0.18 * Math.abs(Math.sin(l.t * 52 + l.hue)) : 1;
         // Real strikes restrike down the same channel two or three times in a fraction of a
         // second — a hard strobe rather than a smooth fade.
         const strobe = l.t < 0.05 ? 1 : l.t < 0.08 ? 0.22 : l.t < 0.14 ? 1 : l.t < 0.17 ? 0.35 : l.t < 0.21 ? 0.95 : 0.8;
@@ -11915,7 +12011,7 @@ export class BattleEngine {
 
         // Three passes per channel: a tight coloured glow, a pale inner sheath and a thin
         // white-hot core — the core stays hairline-thin, which is what reads as electricity.
-        const mainW = t3 ? 2.2 : raio ? 1.5 : 1;
+        const mainW = t3 ? 2.2 : divine ? 1.8 : raio ? 1.5 : divineSplash ? 0.85 : 1;
         const drawChannel = (pts: { x: number; y: number }[], shown: number, w: number, a: number) => {
           if (shown < 2) return;
           ctx.beginPath();
@@ -11943,8 +12039,8 @@ export class BattleEngine {
         // crackle while the bolt is connected.
         if (mainShown >= main.length && k < 0.5) {
           const crackle = makeRng((baseSeed ^ (Math.floor(l.t * 40) * 2654435761)) >>> 0);
-          const arcs = t3 ? 6 : raio ? 5 : 3;
-          const reachT = tile * (t3 ? 1.3 : raio ? 0.9 : 0.6);
+          const arcs = t3 ? 6 : raio || divine ? 5 : 3;
+          const reachT = tile * (t3 ? 1.3 : divine ? 1.15 : raio ? 0.9 : divineSplash ? 0.42 : 0.6);
           for (let i = 0; i < arcs; i++) {
             const ang = crackle() * Math.PI * 2;
             const len = reachT * (0.45 + crackle() * 0.55);
@@ -11953,12 +12049,13 @@ export class BattleEngine {
           }
         }
 
-        if (k < (t3 ? 0.62 : raio ? 0.55 : 0.5)) {
-          const flashFade = Math.max(0, 1 - k / (t3 ? 0.62 : raio ? 0.55 : 0.5));
-          const flashR = tile * (t3 ? 2.1 : raio ? 1.55 : 0.9);
+        const flashDuration = t3 ? 0.62 : divine ? 0.58 : raio ? 0.55 : 0.5;
+        if (k < flashDuration) {
+          const flashFade = Math.max(0, 1 - k / flashDuration);
+          const flashR = tile * (t3 ? 2.1 : divine ? 1.7 : raio ? 1.55 : divineSplash ? 0.48 : 0.9);
           const flash = ctx.createRadialGradient(cx, cy, 0, cx, cy, flashR);
-          flash.addColorStop(0, `hsla(${l.hue}, 100%, 94%, ${(t3 ? 0.98 : raio ? 0.92 : 0.7) * flashFade * pulse})`);
-          flash.addColorStop(0.32, `hsla(${l.hue}, 100%, 78%, ${(t3 ? 0.55 : raio ? 0.45 : 0.3) * flashFade})`);
+          flash.addColorStop(0, `hsla(${l.hue}, 100%, 94%, ${(t3 ? 0.98 : divine ? 0.96 : raio ? 0.92 : divineSplash ? 0.68 : 0.7) * flashFade * pulse})`);
+          flash.addColorStop(0.32, `hsla(${l.hue}, 100%, 78%, ${(t3 ? 0.55 : divine ? 0.52 : raio ? 0.45 : divineSplash ? 0.22 : 0.3) * flashFade})`);
           flash.addColorStop(1, `hsla(${l.hue}, 100%, 70%, 0)`);
           ctx.fillStyle = flash;
           ctx.beginPath();

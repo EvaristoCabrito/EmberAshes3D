@@ -38,9 +38,9 @@ export function skillGainChance(value: number): number {
 }
 
 /** One use of the skill. Returns the new value when it went up, otherwise null. */
-export function rollSkillGain(value: number, rng: () => number): number | null {
+export function rollSkillGain(value: number, rng: () => number, amount = SKILL_GAIN): number | null {
   if (rng() >= skillGainChance(value)) return null;
-  return Math.min(SKILL_CAP, Math.round((value + SKILL_GAIN) * 10) / 10);
+  return Math.min(SKILL_CAP, Math.round((value + amount) * 100) / 100);
 }
 
 /** Travel training: each hero may practise one chosen skill on the road, gaining a flat
@@ -92,7 +92,7 @@ export function cleanTravelTraining(raw: unknown, heroes: readonly string[]): Pa
   return out;
 }
 
-export function cleanHeroSkills(raw: unknown, heroes: readonly string[], allowedWeapon?: (hero: string, type: WeaponType) => boolean): HeroSkills {
+export function cleanHeroSkills(raw: unknown, heroes: readonly string[], allowedWeapon?: (hero: string, type: WeaponType) => boolean, roundLegacyWeaponFractions = false): HeroSkills {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const out: HeroSkills = {};
   for (const hero of heroes) {
@@ -102,16 +102,16 @@ export function cleanHeroSkills(raw: unknown, heroes: readonly string[], allowed
     for (const id of SKILL_IDS) {
       if (id.endsWith("Weapon") && allowedWeapon && !allowedWeapon(hero, id.slice(0, -6) as WeaponType)) continue;
       const v = (values as Record<string, unknown>)[id];
-      if (typeof v === "number" && Number.isFinite(v)) clean[id] = id.endsWith("Weapon") ? cleanWeaponSkill(v) : Math.max(0, Math.min(SKILL_CAP, Math.round(v * 10) / 10));
+      if (typeof v === "number" && Number.isFinite(v)) clean[id] = id.endsWith("Weapon") ? cleanWeaponSkill(v, roundLegacyWeaponFractions) : Math.max(0, Math.min(SKILL_CAP, Math.round(v * 100) / 100));
     }
     if (Object.keys(clean).length) out[hero] = clean;
   }
   return out;
 }
 
-/** Weapon proficiency gains whole points; resistance progression remains unchanged. */
-export function rollWeaponSkillGain(value: number, rng: () => number): number | null {
-  const whole = cleanWeaponSkill(value);
-  if (whole >= SKILL_CAP || rng() >= skillGainChance(whole)) return null;
-  return whole + 1;
+/** Weapon proficiency keeps fractional combat gains when a lower-level enemy is attacked. */
+export function rollWeaponSkillGain(value: number, rng: () => number, amount = 1): number | null {
+  const current = cleanWeaponSkill(value);
+  if (current >= SKILL_CAP || rng() >= skillGainChance(current)) return null;
+  return Math.min(SKILL_CAP, Math.round((current + amount) * 100) / 100);
 }

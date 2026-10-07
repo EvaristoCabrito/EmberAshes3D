@@ -14,7 +14,9 @@ export function weaponSkillDamageMultiplier(value: number): number {
   return (100 + cleanWeaponSkill(value)) / 100;
 }
 
-/** Preserve legacy fractional progress by rounding upward, as approved by the user. */
-export function cleanWeaponSkill(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(100, Math.ceil(value))) : 0;
+/** Preserve small combat gains; old draft fractions can still be rounded up during migration. */
+export function cleanWeaponSkill(value: unknown, roundLegacyUp = false): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  const bounded = Math.max(0, Math.min(100, value));
+  return roundLegacyUp ? Math.ceil(bounded) : bounded;
 }
