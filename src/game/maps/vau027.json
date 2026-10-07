@@ -1,6 +1,6 @@
 {
-  "serial": 21,
-  "savedAt": 1790277064304,
+  "serial": 27,
+  "savedAt": 1791387224297,
   "draft": {
     "id": "vau",
     "index": 0,
@@ -10,9 +10,11 @@
     "objective": "Derrote todos os inimigos",
     "win": "rout",
     "hub": false,
+    "explore": false,
     "autoTactics": false,
     "fog": false,
     "environment": "outdoor",
+    "timeOfDay": "day",
     "sunIntensity": 5,
     "ambientIntensity": 2,
     "mistIntensity": 0.02,
@@ -41,7 +43,7 @@
       "hill",
       "plains",
       "plains",
-      "column",
+      "plains",
       "plains",
       "plains",
       "plains",
@@ -57,7 +59,7 @@
       "plains",
       "hill",
       "plains",
-      "column",
+      "plains",
       "plains",
       "plains",
       "plains",
@@ -709,11 +711,6 @@
         "id": "locked-chest",
         "x": 9,
         "y": 1
-      },
-      {
-        "id": "wooden-barricade-1",
-        "x": 3,
-        "y": 3
       },
       {
         "id": "fallen-log",
