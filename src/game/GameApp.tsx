@@ -8324,6 +8324,12 @@ function BattleScreen({
   useEffect(() => {
     if (showLog && logRef.current && logPinnedRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [showLog, hud.log.length]);
+  // "Abrir log": the whole combat log full screen, opened at the newest line; a click anywhere closes it.
+  const [logFullscreen, setLogFullscreen] = useState(false);
+  const fullLogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (logFullscreen && fullLogRef.current) fullLogRef.current.scrollTop = fullLogRef.current.scrollHeight;
+  }, [logFullscreen]);
   // Loot found (a chest opened, a kill dropped gear) jumps the footer straight to the log so
   // it isn't missed; it reverts to the stat sheet on its own once a different unit takes its
   // turn, same as if the player had never touched the toggle.
@@ -8900,6 +8906,32 @@ function BattleScreen({
             </div>
           </div>
         )}
+        {/* The whole combat log, full screen ("Abrir log"); a click anywhere closes it. */}
+        {logFullscreen && (
+          <div
+            data-log-fullscreen
+            role="button"
+            tabIndex={0}
+            aria-label={uiText("Fechar log", { en: "Close log" })}
+            onClick={() => setLogFullscreen(false)}
+            className="fixed inset-0 z-[60] bg-bg/95 cursor-pointer flex justify-center p-4 sm:p-8"
+          >
+            <div ref={fullLogRef} className="w-full max-w-3xl h-full overflow-y-auto overscroll-contain ember-scrollbar ember-panel p-5">
+              <p className="text-xs ember-kicker mb-3">
+                {uiText("Log de combate", { en: "Combat log" })} · {uiText("clique para fechar", { en: "click to close" })}
+              </p>
+              {hud.log.length === 0 ? (
+                <p className="text-sm text-muted">{uiText("Nada aconteceu ainda.", { en: "Nothing has happened yet." })}</p>
+              ) : (
+                hud.log.map((line, i) => (
+                  <p key={i} className="text-sm text-fg/90 leading-relaxed">
+                    {line}
+                  </p>
+                ))
+              )}
+            </div>
+          </div>
+        )}
         {hud.chestLoot && (
           <div className="absolute inset-0 z-50 ember-veil flex items-center justify-center p-4">
             <div className="relative w-full max-w-sm ember-panel p-5">
@@ -9038,6 +9070,11 @@ function BattleScreen({
                   </>
                 )}
               </div>
+              {showLog && (
+                <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm ember-btn-ghost shrink-0 self-start" onClick={() => setLogFullscreen(true)}>
+                  {uiText("Abrir log", { en: "Open log" })}
+                </Button>
+              )}
             </>
           ) : (
             <p className="text-xs text-muted">{hud.phase === "enemy" ? "O inimigo age…" : "Toque num aliado ou num inimigo com o botão direito para ver o status."}</p>
