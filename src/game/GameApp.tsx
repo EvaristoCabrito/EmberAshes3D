@@ -14,7 +14,7 @@ import { cloneElement, Fragment, isValidElement, type CSSProperties, type Pointe
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Dices, Grip, ListOrdered, Lock, Pencil, RotateCcw, Shuffle, SlidersHorizontal, Swords, Volume2, VolumeX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { artProgress, ensureDecorationArt, ensureTerrainArt, ensureSpriteArt, loadGameArt, portraitFor, releaseSpriteArt, subscribeArtProgress, TILE_VARIANT_COUNT, tileVariantName, tileVariantSrc } from "./assets";
-import { getAudioVolumes, isMuted, installAudioUnlock, pauseMusic, playFile, playMenuMusic, playTheme, resumeAudio, resumeMusic, setCutsceneVolume, setMusicVolume, setMuted, setSfxVolume, sfxPlay, stopMusic, unlockAudio } from "./audio";
+import { getAudioVolumes, installAudioUnlock, pauseMusic, playFile, playMenuMusic, playTheme, resumeAudio, resumeMusic, setCutsceneVolume, setMusicVolume, setMuted, setSfxVolume, sfxPlay, stopMusic, unlockAudio } from "./audio";
 import { BattleCanvas } from "./BattleCanvas";
 import { ELEMENT_LABELS, PLACEABLE_ELEMENT_KINDS, type PlaceableElementKind } from "./gfx/params";
 import { ELEMENT_FX_REGISTRY, pixelDefaults, pixelPresetsFor, type PixelElement, type PixelElementSettings } from "./gfx/three/ProceduralElementEmitter";
@@ -78,6 +78,7 @@ import {
   locationsForOrder,
   mapFileName,
   missionById,
+  missionMapKey,
   missionsForLocation,
   latestSavedDraft,
   saveActiveDrafts,
@@ -1251,6 +1252,11 @@ export function GameApp() {
       const sourceMission = override ?? missionById(id);
       const resolved = sourceMission ? routeWispCrossing(sourceMission, testMode ? [] : save.completed) : undefined;
       if (!resolved) return;
+      // A fight saved on an older version of this map (the editor has saved it since, or the
+      // save predates map fingerprints) is not resumed: its snapshot would paint the old board
+      // over the new map. The battle starts fresh on the map as it is now.
+      const mapKey = missionMapKey(sourceMission!);
+      if (resume && resume.mapKey !== mapKey) resume = undefined;
       const load = ++battleLoadRef.current;
       setBattleLoading(true);
       battleAssetProgress.current = {
@@ -1364,6 +1370,7 @@ export function GameApp() {
       const crossingDefeatedSpawns = !testMode && keepsDefeatedSpawns(m) ? save.crossingDefeatedSpawns[m.id] ?? [] : [];
       const questPickups = testMode ? undefined : activePickupsFor(save, m.id);
       const battle = new BattleEngine(m, art, { hp, levels, bags, xp, promotions, weapons, offHand, equipment, statPointAllocations, enemyLevels, neutralLevels, ownedWeaponIds, affinityScores: save.affinityScores, partyLeader: leaderName, spellSpent, hungerPenaltyPct, heroHunger, heroDiseases, heroPoisons, heroPoisonMag: save.heroPoisonMag, heroSkills: save.heroSkills, crossingDefeatedSpawns, questPickups }, Date.now() % 100000, testMode);
+      battle.mapKey = mapKey;
       if (resume && resume.missionId === m.id) battle.applySnapshot(resume);
       if (typeof window !== "undefined" && window.innerWidth < 720) battle.zoom = 0;
       // Sprites load per battle (see ensureSpriteArt): the board opens once this battle's own
@@ -2991,7 +2998,9 @@ export function CutsceneScreen({
 }) {
   const prefs = useGamePreferences();
   const ref = useRef<HTMLVideoElement>(null);
-  const [soundOn, setSoundOn] = useState(() => !isMuted());
+  // Every cutscene starts with sound on, whatever the game's mute toggle says; the button
+  // here only affects this video and never carries over to the rest of the game.
+  const [soundOn, setSoundOn] = useState(true);
   const subtitleTracks = CUTSCENE_SUBTITLES[src] ?? subtitles;
   const selectedSubtitle = prefs.subtitles ? subtitleTracks?.[prefs.subtitleLanguage] : undefined;
   useEffect(() => {
@@ -3019,10 +3028,10 @@ export function CutsceneScreen({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    // The cutscene volume slider sets its level; the sound toggle silences everything.
+    // The cutscene volume slider sets its level; the game's mute toggle doesn't apply here.
     const cutsceneVolume = getAudioVolumes().cutscene;
     el.volume = cutsceneVolume;
-    el.muted = isMuted() || cutsceneVolume <= 0;
+    el.muted = cutsceneVolume <= 0;
     setSoundOn(!el.muted);
     const syncSound = () => setSoundOn(!el.muted && el.volume > 0);
     el.addEventListener("volumechange", syncSound);

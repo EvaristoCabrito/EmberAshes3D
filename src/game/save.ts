@@ -477,6 +477,7 @@ function cleanBattle(raw: unknown, pendingMission: string | null, roundLegacyWea
   const phase: Phase = b.phase === "enemy" ? "enemy" : "player";
   return {
     missionId,
+    mapKey: typeof b.mapKey === "string" ? b.mapKey : undefined,
     affinityScores: b.affinityScores == null ? undefined : cleanAffinityScores(b.affinityScores),
     heroSkills: b.heroSkills == null ? undefined : cleanHeroSkills(b.heroSkills, [...HEROES, ...Object.keys(LATE_HERO_BASE_CLASS)], (hero, type) => weaponTypesForClass(units.find(unit => unit.name === hero)?.classId ?? ({ ...HERO_BASE_CLASS, ...LATE_HERO_BASE_CLASS } as Record<string, ClassId>)[hero]).includes(type), roundLegacyWeaponFractions),
     turn: clampInt(b.turn, 1, 999),

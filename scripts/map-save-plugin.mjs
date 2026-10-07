@@ -125,9 +125,14 @@ function readBack(file) {
  * until the dev server itself restarted. That is what made Debug/campaign look like they
  * never picked up a Locais change even after a hard refresh. */
 function invalidateMapstore(server) {
-  const mapstoreFile = join(server.config.root, "src", "game", "mapstore.ts");
-  for (const mod of server.moduleGraph.getModulesByFile(mapstoreFile) ?? []) {
-    server.moduleGraph.invalidateModule(mod);
+  // Vite keys its module graph by forward-slash paths. On Windows `join` yields backslashes,
+  // which matched nothing — so this used to silently invalidate NOTHING, and the server kept
+  // serving the first-loaded map list (deleted files still in it, new saves missing) until the
+  // whole dev server restarted. Normalize, and clear every environment's graph, not just one.
+  const mapstoreFile = join(server.config.root, "src", "game", "mapstore.ts").replaceAll("\\", "/");
+  const graphs = [server.moduleGraph, ...Object.values(server.environments ?? {}).map((env) => env.moduleGraph)].filter(Boolean);
+  for (const graph of graphs) {
+    for (const mod of graph.getModulesByFile(mapstoreFile) ?? []) graph.invalidateModule(mod);
   }
 }
 
@@ -316,6 +321,9 @@ export function mapSavePlugin() {
                 return;
               }
               unlinkSync(full);
+              // The map list must drop the deleted file too, or the next page load still
+              // imports a file that no longer exists.
+              invalidateMapstore(server);
               // Same evidence rule as a save: check the disk rather than assume.
               reply(200, { ok: true, file: `${MAPS_DIR}/${name}`, stillOnDisk: existsSync(full) });
               return;

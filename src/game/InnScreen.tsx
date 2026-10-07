@@ -1261,8 +1261,11 @@ function SmithPanel({
   );
 }
 
-function SmithIntroScreen({ muted, onMute, onSkip }: { muted: boolean; onMute: () => void; onSkip: () => void }) {
+function SmithIntroScreen({ onSkip }: { muted: boolean; onMute: () => void; onSkip: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
+  // Every cutscene starts with sound on, whatever the game's mute toggle says; the button
+  // here only affects this video and never carries over to the rest of the game.
+  const [muted, setLocalMuted] = useState(false);
   const prefs = useGamePreferences();
   const subtitleTracks = CUTSCENE_SUBTITLES["/game/smith-intro.mp4"];
   const selectedSubtitle = prefs.subtitles ? subtitleTracks?.[prefs.subtitleLanguage] : undefined;
@@ -1282,7 +1285,9 @@ function SmithIntroScreen({ muted, onMute, onSkip }: { muted: boolean; onMute: (
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.muted = muted;
+    el.muted = false;
+    const syncSound = () => setLocalMuted(el.muted);
+    el.addEventListener("volumechange", syncSound);
     const kick = () => {
       void el.play().catch(() => {
         el.muted = true;
@@ -1294,9 +1299,10 @@ function SmithIntroScreen({ muted, onMute, onSkip }: { muted: boolean; onMute: (
     const t = window.setTimeout(onSkip, 22000);
     return () => {
       el.removeEventListener("canplay", kick);
+      el.removeEventListener("volumechange", syncSound);
       window.clearTimeout(t);
     };
-  }, [muted, onSkip]);
+  }, [onSkip]);
   return (
     <section className="relative h-dvh w-dvw bg-black overflow-hidden">
       <div className="cutscene-stage">
@@ -1315,7 +1321,13 @@ function SmithIntroScreen({ muted, onMute, onSkip }: { muted: boolean; onMute: (
           className="grid size-9 place-items-center rounded bg-black/40 text-white/90"
           aria-label={muted ? "Ativar som" : "Silenciar"}
           aria-pressed={!muted}
-          onClick={onMute}
+          onClick={() => {
+            const video = ref.current;
+            if (!video) return;
+            video.muted = !video.muted;
+            setLocalMuted(video.muted);
+            if (!video.muted) void video.play().catch(() => {});
+          }}
         >
           {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
         </button>

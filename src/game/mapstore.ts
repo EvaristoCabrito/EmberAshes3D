@@ -286,6 +286,20 @@ export function draftToMission(d: MapDraft): Mission {
   };
 }
 
+/** Fingerprint of a mission's authored content (FNV-1a over its JSON). An in-progress fight
+ * is saved with the fingerprint of the map it was played on; resuming it on a map that has
+ * since been edited would paint the OLD board (tiles, decorations, units) over the new one —
+ * which is exactly what made editor saves look like they never reached the campaign. */
+export function missionMapKey(m: Mission): string {
+  const text = JSON.stringify(m);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `${text.length.toString(36)}-${(h >>> 0).toString(36)}`;
+}
+
 /** Pads a serial the way saved file names do — three digits, same convention as the
  * numbered art variants (plains001.png). */
 export function serialLabel(serial: number): string {
@@ -392,6 +406,7 @@ export let ALL_MISSIONS: Mission[] = computeAllMissions();
 export function registerSessionMapOverride(draft: MapDraft): void {
   sessionMapOverrides.set(draft.id, draft);
   ALL_MISSIONS = computeAllMissions();
+  postMapChange({ kind: "set", draft });
 }
 
 /** Called by "Desativar": drops this session's override so the id goes back to resolving
@@ -399,6 +414,30 @@ export function registerSessionMapOverride(draft: MapDraft): void {
 export function clearSessionMapOverride(id: string): void {
   if (!sessionMapOverrides.delete(id)) return;
   ALL_MISSIONS = computeAllMissions();
+  postMapChange({ kind: "clear", id });
+}
+
+/** Every other open game tab gets the same override the instant the editor makes it, so a
+ * campaign running in another tab plays the new map with no reload. BroadcastChannel never
+ * echoes to the sender, so this tab's own change is not applied twice. */
+type MapChange = { kind: "set"; draft: MapDraft } | { kind: "clear"; id: string };
+const mapChannel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("ember-map-changes") : null;
+function postMapChange(change: MapChange): void {
+  try {
+    mapChannel?.postMessage(change);
+  } catch {
+    // A tab that can't broadcast still has the change itself.
+  }
+}
+if (mapChannel) {
+  mapChannel.onmessage = (event: MessageEvent<MapChange>) => {
+    const change = event.data;
+    if (change?.kind === "set" && change.draft?.id) sessionMapOverrides.set(change.draft.id, normalizeDraft(change.draft));
+    else if (change?.kind === "clear" && change.id) sessionMapOverrides.delete(change.id);
+    else return;
+    ALL_MISSIONS = computeAllMissions();
+    window.dispatchEvent(new CustomEvent("ember:missions-saved"));
+  };
 }
 
 /** Browser-local overrides written by the Map Editor's "Ativar" — these are what make an

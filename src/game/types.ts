@@ -1273,6 +1273,9 @@ export interface BattleSnapshot {
   heroSkills?: Record<string, Partial<Record<`${ResistanceElement}Resistance` | `${WeaponType}Weapon`, number>>>;
   affinityScores?: Record<string, number>;
   missionId: string;
+  /** missionMapKey of the map this fight was played on. A fight saved on an older version
+   * of the map (or before this existed) is not resumed — the battle starts on the current map. */
+  mapKey?: string;
   turn: number;
   phase: Phase;
   units: BattleUnitSnap[];

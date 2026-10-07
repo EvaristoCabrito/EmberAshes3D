@@ -1327,6 +1327,9 @@ export class BattleEngine {
    * a long battle doesn't grow it without bound; read via getHud() for the in-battle log
    * view. */
   log: string[] = [];
+  /** missionMapKey of the authored map this battle was built from — set by whoever starts the
+   * battle, stamped into every snapshot (see BattleSnapshot.mapKey). */
+  mapKey = "";
   /** See HudSnapshot.chestLoot — set the instant a chest opens, cleared only by
    * acknowledgeChestLoot() (the player's "Ok" on the popup), not by anything time-based. */
   private chestLoot: { unitName: string; ember: number; items: { name: string; icon: string; tip?: string }[] } | null = null;
@@ -1980,6 +1983,7 @@ export class BattleEngine {
       affinityScores: { ...this.affinityScores },
       heroSkills: structuredClone(this.heroSkills),
       missionId: this.mission.id,
+      mapKey: this.mapKey || undefined,
       turn: this.turn,
       phase: this.phase,
       units,

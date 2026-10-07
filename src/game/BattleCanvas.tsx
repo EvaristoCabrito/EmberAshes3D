@@ -243,7 +243,17 @@ export function BattleCanvas({
     };
     resize();
     const unsubscribeQuality = subscribeGraphicsQuality(resize);
-    const ro = new ResizeObserver(resize);
+    // Resizing a canvas wipes it, and ResizeObserver runs after layout but before paint — so
+    // when the board area changes size (e.g. the bottom HUD growing as a dialog closes and a
+    // unit gets selected) the browser would paint the wiped, black canvas for one frame before
+    // the next animation frame redraws it. Redraw right here instead (zero elapsed time, so the
+    // game doesn't advance), replacing the pending frame so the loop stays a single chain.
+    const ro = new ResizeObserver(() => {
+      resize();
+      if (!running) return;
+      cancelAnimationFrame(raf);
+      loop(last);
+    });
     ro.observe(wrap);
 
     // Tells GameApp the loading curtain can come down (see its battleLoading).
