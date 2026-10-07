@@ -18,3 +18,9 @@ The user explicitly rejects square maps. Future map creation and map edits must 
 ## Ice Storm — user instruction, 2026-10-07
 
 Ice Storm has NO clouds, now or in future versions. Do not create, reuse, or suggest cloud layers for this spell. Its effect uses falling ice, snow, impacts, and real lighting.
+
+## Spell FX style — user instruction, 2026-10-07
+
+Use only the game's existing normal 2D WebGL FX style for spell effects: animated energy, particles, glow, and light rendered through its WebGL effect system. Do not substitute 3D effects, sprite animations, image apparitions, or polygon/cartoon illustrations. Spell icons remain separate artwork. Preview new effects before combat integration.
+
+Provoke FX: NO SKULL in the effect. Use energy, sparks, and glow only. The supplied skull image is the icon only.

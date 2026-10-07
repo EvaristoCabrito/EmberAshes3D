@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { groundDepthLayer } from "./groundDepthLayer";
 
 /** Raised faces for the standard 2D battle camera. Terrain tops are lifted by the renderer;
  * this mesh fills the exposed sides so high hexes read as raised ground instead of inset discs. */
@@ -9,6 +10,10 @@ export class ThreeElevationSteps {
     side: THREE.DoubleSide,
     toneMapped: false,
   });
+
+  constructor(depthLayer?: { value: number }) {
+    if (depthLayer) groundDepthLayer(this.material, depthLayer);
+  }
 
   rebuild(cols: number, rows: number, tile: number, height: (col: number, row: number) => number, stepHeight: number): void {
     for (const child of this.group.children) {

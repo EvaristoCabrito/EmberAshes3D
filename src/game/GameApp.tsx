@@ -1,8 +1,9 @@
 import { FROST, frostPower } from "./frost";
+import { campaignPartySetup } from "./campaignParty";
 import { dexEscapeChance } from "./dexterity";
 import { trainedWeaponSkills, weaponTypesForClass, weaponModifiers } from "./weaponSkills";
 import { WEAPON_TYPE_LABELS, weaponSkillAccuracy, weaponSkillDamageMultiplier } from "./weaponTypes";
-import { skillGainChance, skillResistances, SKILL_CAP, SKILL_GAIN, TRAVEL_TRAINING_HINT_FLAG } from "./skills";
+import { healingAmount, skillValue, rollSkillGain, skillGainChance, skillResistances, SKILL_CAP, SKILL_GAIN, TRAVEL_TRAINING_HINT_FLAG } from "./skills";
 import { sumResistances, RESISTANCE_ELEMENTS, RESISTANCE_LABELS } from "./resistances";
 import { isFloorConnector, floorConnectorDirection } from "./data";
 import { WISP_BOSS_ID, WISP_CROSSING_ID, wispCrossingCompleted, routeWispCrossing, completedAfterWispVictory } from "./wispCrossing";
@@ -285,14 +286,18 @@ function useHeroPotion(save: SaveData, hero: string, kind: PotionId): SaveData {
     delete heroDiseases[hero];
     const heroPoisons = { ...save.heroPoisons };
     delete heroPoisons[hero];
-    return { ...save, bags: { ...save.bags, [hero]: { ...bag, [kind]: bag[kind] - 1 } }, heroDiseases, heroPoisons };
+    const nextHealing = rollSkillGain(skillValue(save.heroSkills, hero, "healing"), Math.random);
+    const heroSkills = nextHealing === null ? save.heroSkills : { ...save.heroSkills, [hero]: { ...save.heroSkills?.[hero], healing: nextHealing } };
+    return { ...save, heroSkills, bags: { ...save.bags, [hero]: { ...bag, [kind]: bag[kind] - 1 } }, heroDiseases, heroPoisons };
   }
   const maxHp = heroMaxHp(save, hero);
   const current = save.unitHp[hero] ?? maxHp;
   if (current >= maxHp) return save;
-  const gained = Math.min(rollPotion(kind, Math.random), maxHp - current);
+  const gained = Math.min(healingAmount(rollPotion(kind, Math.random), skillValue(save.heroSkills, hero, "healing")), maxHp - current);
   if (gained <= 0) return save;
-  return { ...save, unitHp: { ...save.unitHp, [hero]: current + gained }, bags: { ...save.bags, [hero]: { ...bag, [kind]: bag[kind] - 1 } } };
+  const nextHealing = rollSkillGain(skillValue(save.heroSkills, hero, "healing"), Math.random);
+  const heroSkills = nextHealing === null ? save.heroSkills : { ...save.heroSkills, [hero]: { ...save.heroSkills?.[hero], healing: nextHealing } };
+  return { ...save, heroSkills, unitHp: { ...save.unitHp, [hero]: current + gained }, bags: { ...save.bags, [hero]: { ...bag, [kind]: bag[kind] - 1 } } };
 }
 function hudBlank(): HudSnapshot {
   return {
@@ -535,7 +540,11 @@ function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY, heroNam
     (spell !== "poisonBreath" || level >= POISON_BREATH.unlockLevel) &&
     (spell !== "burningHands" || level >= 5) &&
     (spell !== "bloodyShot" || level >= BLOODY_SHOT.unlockLevel) &&
-    (spell !== "provoke" || level >= PROVOKE.unlockLevel),
+    (spell !== "provoke" || level >= PROVOKE.unlockLevel) &&
+    (spell !== "phantasmalForce" || level >= PHANTASMAL_FORCE_UNLOCK_LEVEL) &&
+    (spell !== "summonFamiliar2" || level >= SUMMON_FAMILIAR2_UNLOCK_LEVEL) &&
+    (spell !== "iceStorm" || level >= ICE_STORM.unlockLevel) &&
+    (["familiar", "familiar2", "familiar3", "familiar4", "zombieDog", "cultistV2"].includes(classId) || !spellTier(spell) || tierUses(classId, spellTier(spell)!, level) > 0),
   );
   return spells;
 }
@@ -839,6 +848,7 @@ function mapStatusUnit(save: SaveData, hero: string): UnitPublic {
     dex: Math.round((stats.dex + gearBonus.dex) * hungerKeep * diseaseKeep),
     resistances: sumResistances(stats.resistances, gearBonus.resistances, skillResistances(save.heroSkills, hero)),
     weaponSkills: trainedWeaponSkills(save.heroSkills, hero, classId),
+    healingSkill: skillValue(save.heroSkills, hero, "healing"),
     initiative: cls.init ?? 0, initiativeRoll: cls.init ?? 0, mov: Math.max(1, Math.round((stats.mov + gearBonus.mov) * diseaseKeep)), movLeft: Math.max(1, Math.round((stats.mov + gearBonus.mov) * diseaseKeep)), minRange: cls.minRange, maxRange: cls.maxRange,
     moved: false, acted: false, x: save.overworldPos.col, y: save.overworldPos.row, level, xp: save.xp[hero] ?? 0,
     bag: save.bags[hero] ?? { mid: 0, weak: 0, potent: 0, disease: 0, manaSmall: 0, manaMid: 0, manaLarge: 0, lockpick: 0 },
@@ -1319,6 +1329,10 @@ export function GameApp() {
         : !testMode && led.id.startsWith("watchtower-") && heroRecruited("Aldric", save.completed, save.flags)
           ? addAdditionalPartyHeroes(led, { Aldric: "aldric" })
           : led;
+      if (!testMode && !override) {
+        const campaign = campaignPartySetup(m, save);
+        m = addAdditionalPartyHeroes(campaign.mission, campaign.roster);
+      }
       // Advancing through a dungeon connector carries wounds forward. Heroes who fell on
       // the previous floor stay out of the next one instead of respawning at full HP
       // because zero was treated like a missing HP value.
@@ -2655,6 +2669,14 @@ export function GameApp() {
           muted={muted}
           save={save}
           playtest={!!customMission}
+          firstBattleHintSeen={overworldSave.flags?.includes("hint:first-battle") ?? false}
+          onFirstBattleHintShown={() => {
+            if (customMission) return;
+            const rec = readMapSave();
+            if (rec.flags?.includes("hint:first-battle")) return;
+            const next = { ...rec, flags: [...(rec.flags ?? []), "hint:first-battle"] };
+            writeMapSave(testMode ? next : withLiveBattle(next));
+          }}
           fleeable={!customMission && !!missionId && isRandomEncounter(missionId)}
           onAffinityChange={() => {
             if (!testMode && !customMission) persistCurrent({ ...readMapSave(), affinityScores: { ...engine.affinityScores } });
@@ -3458,7 +3480,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     formula: (mag: number) => fireballFormula(mag),
     note: `Área de raio ${FIREBALL.size}.`,
   },
-  { name: POISON_BREATH.name, cls: SKILL_CLASS.poisonBreath!, tier: spellTier("poisonBreath")!, formula: (mag: number) => poisonBreathFormula(POISON_BREATH.unlockLevel, mag), note: "Aprendido no nível 2; progressão começa no nível 2. Cone de raio 1–5. Progressão de dano de Mãos Flamejantes atrasada em 2 níveis. Veneno Menor: 1D4 por turno; atinge aliados também." },
+  { name: POISON_BREATH.name, cls: SKILL_CLASS.poisonBreath!, tier: spellTier("poisonBreath")!, formula: (mag: number) => poisonBreathFormula(POISON_BREATH.unlockLevel, mag), note: "Aprendido no nível 3; progressão começa no nível 3. Cone de raio 1–5. Progressão de dano de Mãos Flamejantes atrasada em 2 níveis. Veneno Menor: 1D4 por turno; atinge aliados também." },
   { name: FROST.name, cls: "mage" as const, tier: 2 as const, formula: (mag:number)=>spellFormula(mag,FROST.mul,1,6,0), note:"Aprendido no nível 5. Linha de 2 hexes à frente; +1 hex a cada 4 níveis. Dano de Ice e fogo amigo. Cultist V2: 1 carga inicial, +1 nos níveis 5, 12 e 20." },
   { name: CURE_DISEASE.name, cls: SKILL_CLASS.cureDisease!, tier: spellTier("cureDisease")!, formula: "—", note: "Clériga T3. Cura doença e veneno. Luz teal." },
   {
@@ -3578,7 +3600,7 @@ const SKILL_DAMAGE_NOTES_EN: Record<string, string> = {
   [WEB_OF_DREAMS.name]: `Range ${WEB_OF_DREAMS.range}. Radius ${WEB_OF_DREAMS.size} (2 at level 7, 3 at level 12). ${Math.round(WEB_OF_DREAMS.sleepChance * 100)}% chance to sleep for ${diceFormula(WEB_OF_DREAMS.sleepDice, WEB_OF_DREAMS.sleepFaces, 0)} turns (+${Math.round(WEB_OF_DREAMS.sleepBonusDamage * 100)}% damage when awakened); movement is limited to 1 hex in the area for ${WEB_OF_DREAMS.durationRounds} turns.`,
   [TRIP.name]: `Causes Bleeding (1D8 at the start of each action); −${Math.round(TRIP.statPenalty * 100)}% to stats for the rest of the battle.`,
   [FIREBALL.name]: `Area radius ${FIREBALL.size}.`,
-  [POISON_BREATH.name]: "Learned at level 2; progression begins at level 2. Cone radius 1–5. Burning Hands damage progression is delayed by 2 levels. Minor Poison deals 1D4 per turn; it can hit allies too.",
+  [POISON_BREATH.name]: "Learned at level 3; progression begins at level 3. Cone radius 1–5. Burning Hands damage progression is delayed by 2 levels. Minor Poison deals 1D4 per turn; it can hit allies too.",
   [FROST.name]: "Learned at level 5. A line of 2 hexes ahead, +1 hex every 4 levels. Ice damage; can hit allies. Cultist V2: 1 starting charge, +1 at levels 5, 12, and 20.",
   [CURE_DISEASE.name]: "Cleric T3. Cures disease and poison. Teal light.",
   [ICE_STORM.name]: "At the start of each turn, units in the area take Ice damage reduced by Ice Resistance. It can hit allies. The area remains on the battlefield for the listed number of rounds.",
@@ -8191,6 +8213,8 @@ function BattleScreen({
   onDialogAction,
   onAffinityChange,
   onIntroDialogShown,
+  firstBattleHintSeen = false,
+  onFirstBattleHintShown,
 }: {
   engine: BattleEngine;
   onUseRation: (hero: string) => void;
@@ -8224,6 +8248,8 @@ function BattleScreen({
   onAffinityChange?: () => void;
   /** The intro conversation just opened: record it in the save so it never opens again. */
   onIntroDialogShown?: () => void;
+  firstBattleHintSeen?: boolean;
+  onFirstBattleHintShown?: () => void;
 }) {
   const [showStatus, setShowStatus] = useState(false);
   const [showCombatGuide, setShowCombatGuide] = useState(false);
@@ -8286,7 +8312,13 @@ function BattleScreen({
   const [winPopupDismissed, setWinPopupDismissed] = useState(false);
   // The "Primeira batalha" orientation hint below — stays up until tapped, since it was
   // pointer-events-none and had no way to dismiss it at all.
-  const [firstBattleHintDismissed, setFirstBattleHintDismissed] = useState(false);
+  const [firstBattleHintDismissed, setFirstBattleHintDismissed] = useState(firstBattleHintSeen);
+  const firstBattleHintRecorded = useRef(false);
+  useEffect(() => {
+    if (engine.mission.id !== "vau" || playtest || firstBattleHintDismissed || firstBattleHintRecorded.current) return;
+    firstBattleHintRecorded.current = true;
+    onFirstBattleHintShown?.();
+  }, [engine, playtest, firstBattleHintDismissed, onFirstBattleHintShown]);
   // The mission's intro dialog — lazy-init so it only ever opens once, right as this screen
   // first mounts (a fresh mount happens per battle: see BattleEngine construction in
   // startBattle), never on a re-render.
@@ -8958,10 +8990,10 @@ function BattleScreen({
           </div>
         )}
         {introDialogOpen && engine.mission.introDialog && (
-          <DialogOverlay onReply={reply => { engine.applyDialogAffinity(reply); onAffinityChange?.(); }} tree={engine.mission.introDialog} onClose={() => setIntroDialogOpen(false)} />
+          <DialogOverlay characters={engine.units} onReply={reply => { engine.applyDialogAffinity(reply); onAffinityChange?.(); }} tree={engine.mission.introDialog} onClose={() => setIntroDialogOpen(false)} />
         )}
-        {hud.pendingDialog && <DialogOverlay onReply={reply => { engine.applyDialogAffinity(reply); onAffinityChange?.(); }} tree={hud.pendingDialog} onClose={() => engine.acknowledgeDialog()} onAction={onDialogAction} />}
-        {outroDialogOpen && engine.mission.outroDialog && <DialogOverlay onReply={reply => { engine.applyDialogAffinity(reply); onAffinityChange?.(); }} tree={engine.mission.outroDialog} onClose={onCloseOutroDialog} />}
+        {hud.pendingDialog && <DialogOverlay characters={engine.units} onReply={reply => { engine.applyDialogAffinity(reply); onAffinityChange?.(); }} tree={hud.pendingDialog} onClose={() => engine.acknowledgeDialog()} onAction={onDialogAction} />}
+        {outroDialogOpen && engine.mission.outroDialog && <DialogOverlay characters={engine.units} onReply={reply => { engine.applyDialogAffinity(reply); onAffinityChange?.(); }} tree={engine.mission.outroDialog} onClose={onCloseOutroDialog} />}
       </div>
 
       {engine.mission.id === "vau" && !playtest && !firstBattleHintDismissed && (
@@ -9199,8 +9231,7 @@ function BattleScreen({
                 );
                 const extraSpells = classSpells(actor.classId, actor.level, actor.name)
                   .filter((spell) => !assigned.has(spell))
-                  .map((spell) => ({ kind: "spell" as const, spell }))
-                  .filter((action) => slotCount(action, actor) > 0);
+                  .map((spell) => ({ kind: "spell" as const, spell }));
                 if (extraSpells.length === 0) return null;
                 const menuDisabled = !showAct || hud.busy || actor.acted || hud.mode === "awaitSpell";
                 return (
@@ -9230,6 +9261,7 @@ function BattleScreen({
                                 key={action.spell}
                                 type="button"
                                 role="menuitem"
+                                disabled={slotDisabled(action)}
                                 onClick={() => {
                                   setSpellMenuOpen(false);
                                   runSlot(action);
@@ -9971,8 +10003,12 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                       {unit.level >= PROVOKE.unlockLevel && spellStatusRow("provoke", `${PROVOKE.name} ${provokeFormula(unit.level)}`)}
                     </>
                   )}
+                  {unit.side === "player" && !unit.summoned && (
+                    <p className="text-xs text-muted">Healing: {(unit.healingSkill ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}/100 · +{(unit.healingSkill ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% healing</p>
+                  )}
                   {mage && (
                     <>
+                      {unit.level >= FROST.unlockLevel && spellStatusRow("frost", `${FROST.name} · ${frostPower(unit.level).dice}D${FROST.faces} · linha de ${frostPower(unit.level).length} hexes`)}
                       {unit.level >= POISON_BREATH.unlockLevel && spellStatusRow("poisonBreath", `${POISON_BREATH.name} · ${poisonBreathFormula(unit.level, unit.mag)} · raio ${poisonBreathPower(unit.level).radius} · Veneno Menor 1D4/turno`)}
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
                         <img src={slotIcon({ kind: "spell", spell: "magicMissile" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />

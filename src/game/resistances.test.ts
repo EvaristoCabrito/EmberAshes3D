@@ -54,3 +54,15 @@ test("each resistance trains independently in tenths and persists through skill 
   assert.equal(values.holy, 100);
   assert.equal(values.ice, 0);
 });
+
+test("Healing keeps fractional percentages and persists independently of resistances", async () => {
+  const { healingAmount, skillValue } = await import("./skills.ts");
+  assert.equal(healingAmount(1000, 11.4), 1114);
+  assert.equal(healingAmount(9, 11.4), 10);
+  assert.equal(healingAmount(9, 0), 9);
+  assert.equal(healingAmount(9, 100), 18);
+  const saved = cleanHeroSkills({ Kael: { healing: 11.4, arcaneResistance: 2.3 } }, ["Kael"]);
+  assert.equal(skillValue(saved, "Kael", "healing"), 11.4);
+  assert.equal(skillValue(saved, "Neera", "healing"), 0);
+  assert.equal(saved.Kael.arcaneResistance, 2.3);
+});

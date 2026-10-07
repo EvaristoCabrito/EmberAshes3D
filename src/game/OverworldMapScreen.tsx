@@ -41,7 +41,7 @@ const ZOOM_STOPS = [70, 90, 110, 130];
  * per frame so every leader has the same visible height and feet line. */
 const LEADER_MARKER: Record<AffinityHero, { dir: string; idle: number; bust: string }> = {
   Kael: { dir: "Kael_Final/kael-final-002", idle: 36, bust: "?v=kael-final-002" },
-  Neera: { dir: "neera", idle: 36, bust: "" },
+  Neera: { dir: "neera/neera-v2-001/idle-", idle: 36, bust: "?v=neera-v2-003" },
   Voss: { dir: "voss", idle: 12, bust: "" },
   Salazar: { dir: "salazar", idle: 12, bust: "" },
   Aldric: { dir: "aldric", idle: 36, bust: "?v=aldric-final-001" },
@@ -67,13 +67,23 @@ function LeaderMarker({ hero, facingLeft }: { hero: AffinityHero; facingLeft: bo
     return () => window.clearInterval(id);
   }, [hero, sheet.idle]);
   const frameIndex = frame % frames.length;
-  const [left, top, width, height, canvasWidth, canvasHeight] = LEADER_FRAME_BOUNDS[hero][frameIndex];
+  const sampledBounds = LEADER_FRAME_BOUNDS[hero];
+  // Neera's current sheet already has consistent body scale and a shared ground line.
+  // Use one crop for the whole animation so changing poses cannot resize or recenter her.
+  const bounds = hero === "Neera" ? (() => {
+    const left = Math.min(...sampledBounds.map(b => b[0]));
+    const top = Math.min(...sampledBounds.map(b => b[1]));
+    const right = Math.max(...sampledBounds.map(b => b[0] + b[2]));
+    const bottom = Math.max(...sampledBounds.map(b => b[1] + b[3]));
+    return [left, top, right - left, bottom - top, sampledBounds[0][4], sampledBounds[0][5]];
+  })() : sampledBounds[frameIndex];
+  const [left, top, width, height, canvasWidth, canvasHeight] = bounds;
   const scale = 48 / height;
   return (
     <span className="flex h-12 w-16 items-end justify-center select-none drop-shadow-[0_2px_3px_rgba(0,0,0,0.6)]" style={{ transform: facingLeft ? "scaleX(-1)" : undefined }}>
       <span className="relative block shrink-0 overflow-hidden" style={{ width: width * scale, height: 48 }}>
     <img
-      src={`/game/sprites/${sheet.dir}/${frames[frame % frames.length]}.png${sheet.bust}`}
+      src={`/game/sprites/${sheet.dir}${hero === "Neera" ? "" : "/"}${frames[frame % frames.length]}.png${sheet.bust}`}
       alt=""
       draggable={false}
       className="absolute max-w-none"
@@ -819,8 +829,6 @@ export function OverworldMapScreen({
                         {(() => {
                           const training = save.travelTraining?.[hero];
                           if (!training) return <p className="mb-2 text-xs text-muted">Treino na estrada: nenhum — toque em “Treinar” numa skill.</p>;
-                          // Player-facing it's always "+0,1 every 12 h" (weapon skills bank those 0,1s
-                          // internally — see travelTrainingStep), so count down to the next 12 h mark.
                           const banked = (save.travelTrainingHours?.[hero] ?? 0) % TRAVEL_TRAINING_HOURS;
                           const left = Math.max(1, Math.ceil(TRAVEL_TRAINING_HOURS - banked));
                           return <p className="mb-2 text-xs text-accent">Treino na estrada: {SKILLS[training].name} · próximo +{SKILL_GAIN.toLocaleString("pt-BR")} em {left}h de viagem</p>;
@@ -829,7 +837,7 @@ export function OverworldMapScreen({
                           const points = skillValue(save.heroSkills, hero, id);
                           const training = save.travelTraining?.[hero] === id;
                           return <div key={id} className="mb-3 last:mb-0" title={SKILLS[id].description}>
-                            <div className="flex items-center justify-between gap-2 text-sm"><span>{SKILLS[id].name}</span>
+                            <div className="flex items-center justify-between gap-2 text-sm"><span>{SKILLS[id].name}{id === "healing" ? ` · +${points.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% healing` : ""}</span>
                               <button type="button" disabled={!onSetTravelTraining} aria-pressed={training} aria-label={`${training ? "Parar de treinar" : "Treinar"} ${SKILLS[id].name} de ${hero} na estrada`} onClick={() => onSetTravelTraining?.(hero, training ? null : id)}
                                 className={`ml-auto ember-btn ember-btn-sm ${training ? "ember-btn-primary" : "ember-btn-ghost"}`}>{training ? "Treinando" : "Treinar"}</button>
                               <span className="text-muted tabular-nums">{points.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}/{SKILL_CAP}</span></div>
@@ -842,7 +850,8 @@ export function OverworldMapScreen({
                       </article>
                     ))}
                   </div>
-                  <p className="mt-2 text-xs text-muted">Perícias de arma podem ganhar +1 por tentativa contra inimigos, inclusive erros; cada ponto dá +1 ponto percentual de precisão e +1% aos dados da arma. Resistências podem ganhar +{SKILL_GAIN.toLocaleString("pt-BR")} ao usar o elemento ou ser atingido por ele. Magias dos familiares também treinam a resistência do conjurador ao elemento usado. Em magias de área, cada inimigo atingido permite uma tentativa de ganho para o conjurador. Quanto maior a perícia, menor a chance de ganho. Cada ponto de resistência vale 1%.</p>
+                  <p className="mt-2 text-xs text-muted">Perícias de arma podem ganhar +{SKILL_GAIN.toLocaleString("pt-BR")} por tentativa contra inimigos, inclusive erros; cada ponto dá +1 ponto percentual de precisão e +1% aos dados da arma. Resistências podem ganhar +{SKILL_GAIN.toLocaleString("pt-BR")} ao usar o elemento ou ser atingido por ele. Magias dos familiares também treinam a resistência do conjurador ao elemento usado. Em magias de área, cada inimigo atingido permite uma tentativa de ganho para o conjurador. Quanto maior a perícia, menor a chance de ganho. Cada ponto de resistência vale 1%.</p>
+                  <p className="mt-1 text-xs text-muted">Healing pode ganhar +{SKILL_GAIN.toLocaleString("pt-BR")} ao recuperar HP com magias ou poções e ao curar doenças. Cada ponto dá +1% ao total de HP recuperado, usando a perícia do conjurador ou de quem entrega a poção. Exemplo: Healing 11,4 dá +11,4%; o resultado final é arredondado para baixo. Curar doenças treina Healing, mas não recebe bônus no efeito. Bless e poções de mana não são afetados.</p>
                   <p className="mt-1 text-xs text-muted">Treino na estrada: cada personagem pode treinar uma skill por vez enquanto o grupo viaja — +{SKILL_GAIN.toLocaleString("pt-BR")} a cada {TRAVEL_TRAINING_HOURS}h de viagem. Trocar de skill recomeça a contagem.</p>
                 </section>
               ) : (

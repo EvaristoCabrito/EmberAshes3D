@@ -2985,8 +2985,7 @@ export function spellIcon(id: string): string {
   if (id === "ice-storm") return "/game/icons/ice-storm.jpg";
   if (id === "divine-bolt") return "/game/icons/divine-bolt.jpg";
   if (id === "bloody-shot") return "/game/icons/bloody-shot.jpg";
-  // No art yet: drop public/game/icons/provoke.png in and the slot picks it up.
-  if (id === "provoke") return "/game/icons/provoke.png";
+  if (id === "provoke") return "/game/icons/provoke.jpg";
   if (id === "summon-familiar2") return "/game/icons/summon-familiar2.png";
   if (id === "summon-familiar3") return "/game/icons/summon-familiar3.png";
   if (id === "summon-familiar4") return "/game/icons/summon-familiar4.png";
@@ -4591,8 +4590,8 @@ export function spellFormula(mag: number, mul: number, dice: number, faces: numb
  * direction (see startBurningHands's wrathRay use) — the cone's own footprint is governed
  * by `wide` (see coneWedge in pathfinding.ts): false = the 3-hex front rank only, true =
  * that rank plus a second, wider rank further out (the "5-hex cone" tiers). */
-export const POISON_BREATH = { name: "Poison Breath", unlockLevel: 2 };
-/** Tier 1 cone: scaling starts at level 2, with damage delayed two progression levels. */
+export const POISON_BREATH = { name: "Poison Breath", unlockLevel: 3 };
+/** Tier 1 cone: scaling starts at level 3, with damage delayed two progression levels. */
 export function poisonBreathPower(level: number) {
   const progressionLevel = Math.max(1, level - POISON_BREATH.unlockLevel + 1);
   const power = burningHandsPower(Math.max(1, progressionLevel - 2));

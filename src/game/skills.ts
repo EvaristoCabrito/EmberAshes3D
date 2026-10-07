@@ -4,11 +4,12 @@ import type { Resistances, ResistanceElement, WeaponType } from "./types";
 /** Per-hero skills (party menu "Skills" tab). Each one climbs slowly with use, Ultima Online
  * style: every check rolls a chance to gain SKILL_GAIN points, and that chance shrinks the
  * closer the skill is to SKILL_CAP, so the last points are the hardest to earn. */
-export type SkillId = `${ResistanceElement}Resistance` | `${WeaponType}Weapon`;
+export type SkillId = `${ResistanceElement}Resistance` | `${WeaponType}Weapon` | "healing";
 export type HeroSkillValues = Partial<Record<SkillId, number>>;
 export type HeroSkills = Record<string, HeroSkillValues>;
 
 export const SKILLS: Record<SkillId, { name: string; description: string }> = {
+  healing: { name: "Healing", description: "Each skill point adds 1% to the total healing effect. Improves through effective healing." },
   ...Object.fromEntries(WEAPON_TYPES.map(type => [`${type}Weapon`, { name: WEAPON_TYPE_LABELS[type], description: "Improves weapon accuracy and damage through combat use." }])) as Record<`${WeaponType}Weapon`, { name: string; description: string }>,
   fireResistance: { name: "Fire Resistance", description: "Reduces fire damage. Improves by using or being hit by fire magic." },
   lightningResistance: { name: "Lightning Resistance", description: "Reduces lightning and its delayed damage. Improves by using or being hit by lightning magic." },
@@ -32,6 +33,12 @@ export function skillValue(skills: HeroSkills | undefined, hero: string, id: Ski
   return skills?.[hero]?.[id] ?? 0;
 }
 
+/** Retain the exact skill percentage; only the final HP result is rounded down. */
+export function healingAmount(base: number, skill: number): number {
+  const points = Number.isFinite(skill) ? Math.max(0, Math.min(SKILL_CAP, skill)) : 0;
+  return Math.floor(Math.max(0, base) * (1 + points / 100) + 1e-9);
+}
+
 /** Chance (0–1) that one use of the skill raises it: 100% at 0, 50% at 50, none at the cap. */
 export function skillGainChance(value: number): number {
   return Math.max(0, Math.min(1, (SKILL_CAP - value) / SKILL_CAP));
@@ -49,11 +56,9 @@ export const TRAVEL_TRAINING_HOURS = 12;
 /** save.flags entry set once the player has seen (or acted on) the travel-training hint. */
 export const TRAVEL_TRAINING_HINT_FLAG = "hint:travel-training";
 
-/** Road hours per travel-training payout, and how much it pays. Weapon skills are stored as
- * whole points (cleanWeaponSkill), so they bank ten 0.1 steps and pay +1 every 120 h — the
- * same 0.1-per-12-h rate, without a fraction the save would round away. */
-export function travelTrainingStep(id: SkillId): { hours: number; gain: number } {
-  return id.endsWith("Weapon") ? { hours: TRAVEL_TRAINING_HOURS * 10, gain: 1 } : { hours: TRAVEL_TRAINING_HOURS, gain: SKILL_GAIN };
+/** All skills preserve fractional gains and earn 0.1 per 12 hours of travel. */
+export function travelTrainingStep(_id: SkillId): { hours: number; gain: number } {
+  return { hours: TRAVEL_TRAINING_HOURS, gain: SKILL_GAIN };
 }
 
 /** Banks `hours` of road time for every listed hero with a chosen skill and pays out its
@@ -109,8 +114,8 @@ export function cleanHeroSkills(raw: unknown, heroes: readonly string[], allowed
   return out;
 }
 
-/** Weapon proficiency keeps fractional combat gains when a lower-level enemy is attacked. */
-export function rollWeaponSkillGain(value: number, rng: () => number, amount = 1): number | null {
+/** Weapon proficiency gains tenths, retaining smaller gains against lower-level enemies. */
+export function rollWeaponSkillGain(value: number, rng: () => number, amount = SKILL_GAIN): number | null {
   const current = cleanWeaponSkill(value);
   if (current >= SKILL_CAP || rng() >= skillGainChance(current)) return null;
   return Math.min(SKILL_CAP, Math.round((current + amount) * 100) / 100);

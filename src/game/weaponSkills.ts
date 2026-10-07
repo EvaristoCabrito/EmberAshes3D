@@ -27,6 +27,7 @@ export function equippedWeaponType(unit: Pick<Unit, "classId" | "weaponId" | "of
 }
 
 export function weaponModifiers(unit: Pick<Unit, "side" | "summoned" | "classId" | "weaponSkills" | "blessedHitBonusPct" | "dex">, type: WeaponType | undefined): { accuracy: number; damage: number } {
+  if (unit.side === "enemy") return { accuracy: 90 + (unit.dex ?? 0) + (unit.blessedHitBonusPct ?? 0) * 100, damage: 1 };
   if (!type || !weaponTypesForClass(unit.classId).includes(type)) return { accuracy: 100, damage: 1 };
   const value = unit.weaponSkills?.[type] ?? 0;
   return { accuracy: weaponSkillAccuracy(value) + (unit.blessedHitBonusPct ?? 0) * 100, damage: weaponSkillDamageMultiplier(value) };

@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';import {chromium} from 'playwright';
+const browser=await chromium.launch({channel:'msedge',headless:true});try{const page=await browser.newPage();await page.goto('http://127.0.0.1:8080/provoke-preview.html');const results=await page.evaluate(async()=>{
+const {BattleEngine}=await import('/src/game/engine.ts');const {rollDamageCustom}=await import('/src/game/combat.ts');const {EQUIPMENT}=await import('/src/game/data.ts');
+const art=new Proxy({decorations:{}},{get:(t,k)=>t[k]??{}});const mission={id:'offhand-qa',index:0,title:'QA',place:'',briefing:'',objective:'',win:'rout',cols:10,rows:6,layout:['    ...   ','  ......  ',' ........ ','......... ',' .......  ','  .....   '],decorations:[],playerSpawns:[{name:'Kael',classId:'swordsman',x:3,y:3,level:6}],enemySpawns:[{name:'Enemy',classId:'soldier',x:4,y:3,level:6}]};
+const e=new BattleEngine(mission,art,{hp:{},levels:{}},1);const actor=e.units.find(u=>u.side==='player'),target=e.units.find(u=>u.side==='enemy');actor.offHandId='punhal-curvo';actor.classId='archer';actor.weaponId='arco-composto';actor.weaponSkills={bow:80,dagger:10.2};actor.blessedHitBonusPct=.05;actor.acted=false;target.dex=20;e.selectedId=actor.id;e.inspectedId=target.id;e.mode='awaitOffHand';
+const aiming=e.getHud().forecast.hitOut;e.stageAttack(target,true);const staged=e.getHud().forecast.hitOut;
+// A staged choice remains authoritative even when the targeting mode changes.
+e.mode='selected';const stagedSelected=e.getHud().forecast.hitOut;const dagger=EQUIPMENT[actor.offHandId];const actual=rollDamageCustom(actor,target,'plains','plains',dagger.dice??1,dagger.faces??4,dagger.bonus??0,()=>.9).hitChance;
+e.stageAttack(target,false);const main=e.getHud().forecast.hitOut;
+actor.offHandId='broquel';e.stageAttack(target,true);const shield=e.getHud().forecast.hitOut;
+return{aiming,staged,stagedSelected,actual,main,shield};});assert.equal(results.aiming,70.2);assert.equal(results.staged,results.actual);assert.equal(results.stagedSelected,results.actual);assert.equal(results.main,100);assert.equal(results.shield,100);console.log(results);console.log('PASS: off-hand HUD percentage matches actual roll, preserves decimal proficiency and Bless, staged weapon choice and shields');}finally{await browser.close()}

@@ -4,10 +4,70 @@ import { WEAPONS, EQUIPMENT } from "./data.ts";
 import { equippedWeaponType, trainedWeaponSkills, weaponModifiers, weaponTypesForClass, isWeaponAbility } from "./weaponSkills.ts";
 import { cleanHeroSkills, skillResistances, rollWeaponSkillGain, rollSkillGain } from "./skills.ts";
 import { weaponSkillAccuracy, weaponSkillDamageMultiplier } from "./weaponTypes.ts";
-import { makeForecast, previewDamage, rollDamage, rollDamageCustom } from "./combat.ts";
+import { isRearAttack, makeForecast, previewDamage, rollDamage, rollDamageCustom } from "./combat.ts";
+import { hexNeighbors } from "./pathfinding.ts";
 import type { Unit } from "./types.ts";
 
 const unit = (values: Partial<Unit> = {}): Unit => ({ side: "player", classId: "swordsman", atk: 40, mag: 0, def: 0, dex: 0, weaponId: "espada-larga", weaponEnh: 0, summoned: false, weaponSkills: { sword: 0 }, ...values } as Unit);
+
+test("enemies start at 90 accuracy, rear attacks at 100, and defender DEX still applies", () => {
+  const enemy = unit({ side: "enemy", classId: "soldier", weaponId: null, x: 3, y: 4 });
+  const defender = unit({ x: 3, y: 3, faceDx: 0, faceDy: 1 });
+  for (const dex of [0, 5, 20]) {
+    const front = { ...defender, dex };
+    const rear = { ...front, faceDy: -1 };
+    assert.equal(isRearAttack(enemy, front), false);
+    assert.equal(isRearAttack(enemy, rear), true);
+    assert.equal(rollDamage(enemy, front, "plains", "plains", () => .95).hitChance, 90 - dex);
+    assert.equal(rollDamage(enemy, front, "plains", "plains", () => .95).landed, false);
+    assert.equal(previewDamage(enemy, rear, "plains", "plains").hitChance, 100 - dex);
+    assert.equal(rollDamageCustom(enemy, rear, "plains", "plains", 1, 4, 0, () => .5).hitChance, 100 - dex);
+  }
+  assert.equal(rollDamage(enemy, { ...defender, faceDy: -1 }, "plains", "plains", () => .99).landed, true);
+  assert.equal(rollDamage(enemy, { ...defender, dex: 20 }, "plains", "plains", () => .99, false).hitChance, 100);
+  assert.equal(weaponModifiers(unit(), "sword").accuracy, 75);
+});
+
+test("enemy DEX adds accuracy before rear bonuses, defender DEX and the final cap", () => {
+  const enemy = unit({ side: "enemy", classId: "soldier", weaponId: null, x: 3, y: 4, dex: 7 });
+  const defender = unit({ x: 3, y: 3, faceDx: 0, faceDy: 1, dex: 12 });
+  assert.equal(previewDamage(enemy, defender, "plains", "plains").hitChance, 85);
+  assert.equal(rollDamage(enemy, defender, "plains", "plains", () => .9).landed, false);
+  const rear = { ...defender, faceDy: -1 };
+  assert.equal(rollDamage(enemy, rear, "plains", "plains", () => .9).hitChance, 95);
+  assert.equal(rollDamageCustom(enemy, rear, "plains", "plains", 1, 4, 0, () => .9).landed, true);
+  assert.equal(previewDamage({ ...enemy, dex: 30 }, defender, "plains", "plains").hitChance, 100);
+  assert.equal(previewDamage({ ...enemy, dex: 2.5 }, { ...defender, dex: 5.2 }, "plains", "plains").hitChance, 87.3);
+  assert.equal(weaponModifiers(unit({ dex: 50 }), "sword").accuracy, 75);
+});
+
+test("exactly two rear hexes grant ten accuracy points and ten percent weapon damage", () => {
+  for (const y of [2, 3]) {
+    const defender = unit({ x: 3, y, faceDx: 0, faceDy: -1, dex: 30 });
+    const neighbors = hexNeighbors(3, y);
+    const rear = neighbors.filter(p => isRearAttack(unit(p), defender));
+    assert.equal(rear.length, 2);
+    assert.ok(rear.every(p => p.y === y + 1));
+    const frontDefender = { ...defender, faceDy: 1 };
+    for (const position of rear) {
+      const attacker = unit({ ...position, atk: 100 });
+      const front = rollDamage(attacker, frontDefender, "plains", "plains", () => .5);
+      const back = rollDamage(attacker, defender, "plains", "plains", () => .5);
+      assert.equal(back.hitChance, front.hitChance + 10);
+      assert.equal(back.preCritDmg, Math.floor(front.preCritDmg * 1.1));
+      assert.equal(previewDamage(attacker, defender, "plains", "plains").hitChance, back.hitChance);
+      const offhand = { ...attacker, classId: "archer" as const, offHandId: "punhal-curvo", weaponSkills: { dagger: 20 } };
+      const customFront = rollDamageCustom(offhand, frontDefender, "plains", "plains", 1, 4, 0, () => .5);
+      const customBack = rollDamageCustom(offhand, defender, "plains", "plains", 1, 4, 0, () => .5);
+      assert.equal(customBack.hitChance, customFront.hitChance + 10);
+      assert.ok(customBack.preCritDmg > customFront.preCritDmg);
+      assert.equal(previewDamage(offhand, defender, "plains", "plains", true).hitChance, customBack.hitChance);
+    }
+    assert.equal(isRearAttack(unit({ x: 3, y: y + 2 }), defender), false);
+    assert.equal(previewDamage(unit(rear[0]), { ...defender, dex: 0 }, "plains", "plains").hitChance, 85);
+    assert.equal(previewDamage(unit({ ...rear[0], weaponSkills: { sword: 100 } }), defender, "plains", "plains").hitChance, 100);
+  }
+});
 
 test("each character's pool follows main-hand and off-hand equipment permissions", () => {
   assert.deepEqual(weaponTypesForClass("swordsman"), ["sword", "axe", "mace", "hammer"]);
@@ -50,7 +110,7 @@ test("forecast matches damage and accuracy; untrained attacks can miss, mastered
   assert.equal(hit.hitChance, 100);
   assert.ok(hit.dmg > miss.dmg);
   assert.equal(previewDamage(master, defender, "plains", "plains").hitChance, hit.hitChance);
-  assert.deepEqual(weaponModifiers(unit({ side: "enemy" }), "sword"), { accuracy: 75, damage: 1 });
+  assert.deepEqual(weaponModifiers(unit({ side: "enemy" }), "sword"), { accuracy: 90, damage: 1 });
   assert.equal(weaponModifiers(unit({ blessedHitBonusPct: 0.1 }), "sword").accuracy, 85);
 });
 
@@ -77,9 +137,13 @@ test("saved weapon skills remain within the class pool and never become resistan
   assert.equal(isWeaponAbility("shieldBash"), false);
 });
 
-test("weapon progression gains whole points while resistance progression retains tenths", () => {
-  assert.equal(rollWeaponSkillGain(20, () => 0), 21);
-  assert.equal(rollWeaponSkillGain(99, () => 0), 100);
+test("weapon and resistance progression gain tenths and preserve smaller weapon gains", () => {
+  assert.equal(rollWeaponSkillGain(20, () => 0), 20.1);
+  assert.equal(rollWeaponSkillGain(99, () => 0), 99.1);
+  assert.equal(rollWeaponSkillGain(20, () => 0, 0.05), 20.05);
+  assert.equal(rollWeaponSkillGain(99.95, () => 0), 100);
+  const clean = cleanHeroSkills({ Kael: { swordWeapon: 20.1 } }, ["Kael"]);
+  assert.equal(trainedWeaponSkills(clean, "Kael", "swordsman").sword, 20.1);
   assert.equal(rollWeaponSkillGain(99, () => 0.5), null);
   assert.equal(rollWeaponSkillGain(100, () => 0), null);
   assert.equal(rollSkillGain(20, () => 0), 20.1);

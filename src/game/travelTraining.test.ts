@@ -28,11 +28,13 @@ test("heroes not travelling (fallen) don't bank hours", () => {
   assert.equal(r.travelTrainingHours.Voss, undefined);
 });
 
-test("weapon skills pay whole points: +1 per 120 road hours", () => {
-  let r = advanceTravelTraining({ Kael: { swordWeapon: 3 } }, { Kael: "swordWeapon" }, {}, 119, ["Kael"]);
+test("weapon and Healing skills gain tenths every 12 road hours", () => {
+  let r = advanceTravelTraining({ Kael: { swordWeapon: 3 }, Voss: { healing: 11.4 } }, { Kael: "swordWeapon", Voss: "healing" }, {}, 11, ["Kael", "Voss"]);
   assert.equal(r.heroSkills.Kael?.swordWeapon, 3);
-  r = advanceTravelTraining(r.heroSkills, { Kael: "swordWeapon" }, r.travelTrainingHours, 1, ["Kael"]);
-  assert.equal(r.heroSkills.Kael?.swordWeapon, 4);
+  assert.equal(r.heroSkills.Voss?.healing, 11.4);
+  r = advanceTravelTraining(r.heroSkills, { Kael: "swordWeapon", Voss: "healing" }, r.travelTrainingHours, 1, ["Kael", "Voss"]);
+  assert.equal(r.heroSkills.Kael?.swordWeapon, 3.1);
+  assert.equal(r.heroSkills.Voss?.healing, 11.5);
 });
 
 test("training stops at the cap", () => {

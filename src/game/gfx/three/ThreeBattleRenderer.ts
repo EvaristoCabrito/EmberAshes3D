@@ -54,6 +54,7 @@ const OUTER_WALL_TEXTURE = "/game/textures/walls/cave-v2.png?v=outer-wall-0.337.
 const OUTER_WALL_COLOR = 0xb4a28b;
 import { decorationPlacementArt } from "../../data";
 import { ThreeWater } from "./ThreeWater";
+import { groundDepthLayer } from "./groundDepthLayer";
 import { ThreeElevationSteps } from "./ThreeElevationSteps";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
@@ -696,7 +697,8 @@ export class ThreeBattleRenderer {
   private terrainSolidKey = "";
   private water = new ThreeWater();
   private waterKey = "";
-  private elevationSteps = new ThreeElevationSteps();
+  private groundDepthLayerEnabled = { value: 1 };
+  private elevationSteps = new ThreeElevationSteps(this.groundDepthLayerEnabled);
   private elevationStepsKey = "";
   private landscape: LandscapeSurface | null = null;
   private landscapeTexture: THREE.CanvasTexture | null = null;
@@ -955,6 +957,7 @@ export class ThreeBattleRenderer {
     canvas: HTMLCanvasElement,
     private engine: BattleEngine,
   ) {
+    groundDepthLayer(this.fallbackMaterial, this.groundDepthLayerEnabled);
     // An open battle keeps its engine through hot reload. Apply the same enclosure
     // repair here so it receives the wall changes without restarting the battle.
     if (engine.mission.id.startsWith("watchtower-")) {
@@ -1258,6 +1261,7 @@ export class ThreeBattleRenderer {
     tex.offset.set(GROUND_TEXTURE_INSET, GROUND_TEXTURE_INSET);
     const mat = new THREE.MeshLambertMaterial({ map: tex });
     this.groundAO.patch(mat);
+    groundDepthLayer(mat, this.groundDepthLayerEnabled);
     this.materialCache.set(key, mat);
     return mat;
   }
@@ -2862,6 +2866,7 @@ export class ThreeBattleRenderer {
    * exact same camera/visibility bookkeeping renderGround always did (see that method's own
    * comment), just without drawing through the Canvas2D shim afterward. */
   render(cssW: number, cssH: number, paused = false): void {
+    this.groundDepthLayerEnabled.value = this.engine.tacticsCamera ? 0 : 1;
     const tile = this.engine.updateCameraLayout(cssW, cssH);
     this.updateCamera(cssW, cssH, tile);
     this.engine.architectureRenderedInThree = true;

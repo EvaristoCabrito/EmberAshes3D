@@ -1,0 +1,7 @@
+import assert from 'node:assert/strict';import {chromium} from 'playwright';
+const browser=await chromium.launch({channel:'msedge',headless:true});try{
+ const page=await browser.newPage();await page.route('**/src/game/GameApp.tsx?version-qa*',async route=>{const r=await route.fetch();await route.fulfill({response:r,body:(await r.text())+'\nexport { TitleScreen as QaTitleScreen };'})});
+ await page.goto('http://127.0.0.1:8080/provoke-preview.html');
+ await page.evaluate(async()=>{const refresh=await import('/@react-refresh');refresh.default.injectIntoGlobalHook(window);window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>t=>t;window.__vite_plugin_react_preamble_installed__=true;const React=await import('/node_modules/.vite/deps/react.js');const DOM=await import('/node_modules/.vite/deps/react-dom_client.js');const {QaTitleScreen}=await import('/src/game/GameApp.tsx?version-qa=1');await import('/src/styles.css');document.body.innerHTML='<div id="version-qa"></div>';(DOM.createRoot??DOM.default.createRoot)(document.getElementById('version-qa')).render((React.createElement??React.default.createElement)(QaTitleScreen,{ready:true,error:null,hasProgress:false,muted:true,help:false,onMute(){},onHelp(){},onNew(){},onContinue(){},onTest(){}}))});
+ await page.getByText('Version 0.337.7',{exact:true}).waitFor();assert.equal(await page.getByText('Version 0.337.7',{exact:true}).count(),1);console.log('PASS: title screen displays Version 0.337.7');
+}finally{await browser.close()}

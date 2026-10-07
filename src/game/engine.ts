@@ -1,4 +1,5 @@
 import { FROST, frostPower, frostAreaTiles, frostCharges } from "./frost";
+import { drawProvokeVFX, PROVOKE_FX_DURATION } from "./gfx/ProvokeVFX";
 import { dexAccuracy, dexEscapeChance } from "./dexterity";
 import { equippedWeaponType, trainedWeaponSkills, weaponTypesForClass, weaponModifiers, isWeaponAbility } from "./weaponSkills";
 import { elementalDamage, spellElement, sumResistances } from "./resistances";
@@ -16,7 +17,7 @@ import { closeWatchtowerWalls } from "./watchtowerDungeon";
 import { decorationPlacementArt } from "./data";
 import { canCounter, makeForecast, mulberry32, powerOf, protOf, rollDamage, rollDamageCustom } from "./combat";
 import { effectivePoisonResistance, POISON_TIERS, poisonChance, poisonDice, poisonTickDamage, poisonTierOf, strongerPoison } from "./poison";
-import { cleanHeroSkills, rollWeaponSkillGain, rollSkillGain, skillResistances, SKILL_GAIN, SKILLS, type HeroSkills, type SkillId } from "./skills";
+import { cleanHeroSkills, rollWeaponSkillGain, rollSkillGain, skillResistances, SKILL_GAIN, SKILLS, healingAmount, skillValue, type HeroSkills, type SkillId } from "./skills";
 import { addToEntry, ENMITY, enmityFromSnapshot, enmityToSnapshot, enmityTotal, type EnmityEntry, type EnmityTable } from "./enmity";
 import {
   attackableEnemies,
@@ -648,7 +649,7 @@ function pub(u: Unit, restrained: boolean, movLeft: number): UnitPublic {
     def: u.def,
     dex: u.dex,
     resistances: { ...u.resistances },
-    weaponSkills: { ...u.weaponSkills },
+    weaponSkills: { ...u.weaponSkills }, healingSkill: u.healingSkill ?? 0,
     initiative: u.initiative,
     initiativeRoll: u.initiativeRoll,
     mov: u.mov,
@@ -910,7 +911,7 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
     def: Math.round((st.def + point("def") + gearBonus.def) * hungerKeep * diseaseKeep),
     dex: Math.round((st.dex + point("dex") + gearBonus.dex) * hungerKeep * diseaseKeep),
     resistances: sumResistances(st.resistances, gearBonus.resistances, side === "player" ? skillResistances(roster?.heroSkills, spawn.name) : undefined),
-    weaponSkills: side === "player" ? trainedWeaponSkills(roster?.heroSkills, spawn.name, cls.id) : undefined,
+    weaponSkills: side === "player" ? trainedWeaponSkills(roster?.heroSkills, spawn.name, cls.id) : undefined, healingSkill: skillValue(roster?.heroSkills, spawn.name, "healing"),
     initiative: initiativeBonus(cls.id),
     initiativeRoll: 0,
     statPointAllocation,
@@ -1158,6 +1159,12 @@ function easeOut(t: number): number {
 }
 
 export class BattleEngine {
+  /** React preserves a running battle across development updates; refresh its methods too. */
+  static refreshLiveEngine(engine: BattleEngine): void {
+    Object.setPrototypeOf(engine, BattleEngine.prototype);
+    engine.provokeFx ??= [];
+    engine.supportAffinityRecipients ??= new Map();
+  }
   /** Stable sprite overlap order, independent of animation sway and camera depth. */
   readonly unitActionOrder = new Map<string, number>();
   private unitActionSerial = 0;
@@ -1413,6 +1420,7 @@ export class BattleEngine {
   private lightningFxLive = 0;
   private holyFx: HolyFx[] = Array.from({ length: HOLY_FX_CAP }, blankHolyFx);
   private holyFxLive = 0;
+  private provokeFx: { unitId: string; t: number }[] = [];
   private bladeFx: BladeFx[] = Array.from({ length: BLADE_FX_CAP }, blankBladeFx);
   private bladeFxLive = 0;
   private portalFx: PortalFx[] = Array.from({ length: PORTAL_FX_CAP }, blankPortalFx);
@@ -1478,6 +1486,7 @@ export class BattleEngine {
   affinityScores: Record<string, number> = {};
   heroSkills: HeroSkills = {};
   partyLeader = "Kael";
+  private supportAffinityRecipients = new Map<string, Set<string>>();
 
   private adjacentAllies(u: Unit): Unit[] {
     return this.units.filter(ally => ally.id !== u.id && ally.alive && ally.side === "player" && !ally.summoned
@@ -1543,7 +1552,26 @@ export class BattleEngine {
 
   private adjustAffinity(a: Unit, b: Unit, delta: number): void {
     if (a.id === b.id || a.side !== "player" || b.side !== "player" || a.summoned || b.summoned) return;
-    this.adjustHeroAffinity(a.name, b.name, delta > 0 ? 0.1 : delta, false);
+    this.adjustHeroAffinity(a.name, b.name, delta, false);
+  }
+
+  private gainSupportAffinity(actor: Unit, target: Unit): void {
+    if (actor.side !== "player" || target.side !== "player" || actor.summoned || target.summoned) return;
+    const recipients = this.supportAffinityRecipients.get(actor.id) ?? new Set<string>();
+    if (recipients.has(target.id)) return;
+    recipients.add(target.id);
+    this.supportAffinityRecipients.set(actor.id, recipients);
+    this.adjustAffinity(actor, target, 0.2);
+  }
+
+  /** Each completed action builds affinity with heroes fighting beside its actor. */
+  private gainAdjacentAffinity(u: Unit): void {
+    if (u.acted || !u.alive || u.side !== "player" || u.summoned) return;
+    const recipients = this.supportAffinityRecipients.get(u.id);
+    for (const ally of this.adjacentAllies(u)) {
+      if (!recipients?.has(ally.id)) this.adjustAffinity(u, ally, 0.1);
+    }
+    this.supportAffinityRecipients.delete(u.id);
   }
 
   private adjustHeroAffinity(a: string, b: string, delta: number, dialogue = true): void {
@@ -1758,7 +1786,13 @@ export class BattleEngine {
     const foeForForecast = pendingFoe ?? (this.targetable(inspected ?? undefined) ? inspected : null);
     let forecast: Forecast | null = null;
     if (selected && foeForForecast && selected.side === "player") {
-      const from = this.attackFrom.get(foeForForecast.id);
+      const offHandItem = EQUIPMENT[selected.offHandId ?? ""];
+      const offHandAttack = pendingFoe
+        ? this.pendingAttackOffHand
+        : this.mode === "awaitOffHand" || (this.mode !== "awaitSpell" && offHandItem?.kind === "weapon" && this.isArrowAttack(selected) && hexDist(selected, foeForForecast) <= (offHandItem.maxRange ?? 1));
+      // Off-hand actions strike from the current cell; main-hand movement forecasts can
+      // change adjacency bonuses and must not be reused for a dagger or shield strike.
+      const from = offHandAttack ? undefined : this.attackFrom.get(foeForForecast.id);
       const fx = from?.x ?? selected.x;
       const fy = from?.y ?? selected.y;
       const fake = { ...selected, x: fx, y: fy };
@@ -1769,8 +1803,8 @@ export class BattleEngine {
         tileAt(this.tiles, this.cols, foeForForecast.x, foeForForecast.y),
         this.tiles,
         this.cols,
-        EQUIPMENT[fake.offHandId ?? ""]?.kind === "weapon" && (this.mode === "awaitOffHand" || (this.mode !== "awaitSpell" && this.isArrowAttack(fake) && hexDist(fake, foeForForecast) <= (EQUIPMENT[fake.offHandId!]?.maxRange ?? 1))),
-        !(this.mode === "awaitOffHand" && EQUIPMENT[fake.offHandId ?? ""]?.kind === "shield") && (this.mode !== "awaitSpell" || isWeaponAbility(this.spellKind)),
+        offHandAttack && offHandItem?.kind === "weapon",
+        !(offHandAttack && offHandItem?.kind === "shield") && (this.mode !== "awaitSpell" || isWeaponAbility(this.spellKind)),
       );
     }
     const canAttack =
@@ -2002,7 +2036,7 @@ export class BattleEngine {
         def: u.def,
         dex: u.dex,
     resistances: { ...u.resistances },
-    weaponSkills: { ...u.weaponSkills },
+    weaponSkills: { ...u.weaponSkills }, healingSkill: u.healingSkill ?? 0,
         initiative: u.initiative,
         initiativeRoll: u.initiativeRoll,
         statPointAllocation: { ...u.statPointAllocation },
@@ -2135,7 +2169,7 @@ export class BattleEngine {
           }
         }
         this.heroSkills = cleanHeroSkills(this.heroSkills, Object.keys(this.heroSkills));
-        unit.weaponSkills = trainedWeaponSkills(this.heroSkills, unit.name, unit.classId);
+        unit.weaponSkills = trainedWeaponSkills(this.heroSkills, unit.name, unit.classId); unit.healingSkill = skillValue(this.heroSkills, unit.name, "healing");
       }
       if (!saved.resistances && unit.side === "player" && !unit.summoned) {
         unit.resistances = sumResistances(CLASSES[unit.classId]?.resistances, gearStatBonus(Object.values(unit.gear)).resistances, skillResistances(this.heroSkills, unit.name));
@@ -2226,6 +2260,8 @@ export class BattleEngine {
     // bob/breathing, fade) deliberately stays on the unscaled `cap` — slowing those down too
     // would make idle units look like they're moving through syrup for no reason.
     const actionCap = cap * (this.speedMode === "fast" ? 1 : this.speedMode === "slow" ? 0.4 : 0.65);
+    for (const fx of this.provokeFx) fx.t += actionCap;
+    this.provokeFx = this.provokeFx.filter(fx => fx.t < PROVOKE_FX_DURATION);
     if (this.tip !== this.lastTipSeen) {
       this.lastTipSeen = this.tip;
       this.tipSetAt = this.time;
@@ -2431,6 +2467,7 @@ export class BattleEngine {
       this.fireballBurstFxLive > 0 ||
       this.lightningFxLive > 0 ||
       this.holyFxLive > 0 ||
+      this.provokeFx.length > 0 ||
       this.bladeFxLive > 0 ||
       this.portalFxLive > 0;
     this.overlayFade = boardBusy ? 0 : Math.min(1, this.overlayFade + cap / OVERLAY_FADE_IN);
@@ -2495,7 +2532,7 @@ export class BattleEngine {
       if (actor && target) this.faceSpriteToward(actor.id, target.x, target.y);
       for (const id of targets) {
         const recipient = this.units.find(u => u.id === id);
-        if (actor && recipient && actor.side !== recipient.side) this.faceSpriteToward(recipient.id, actor.x, actor.y);
+        if (step.type === "spell" && actor && recipient && actor.side !== recipient.side) this.faceSpriteToward(recipient.id, actor.x, actor.y);
       }
     }
     // Fire authored casting/healing cues when the action begins. Long cast sheets can
@@ -2643,7 +2680,7 @@ export class BattleEngine {
       if (!target || !target.alive) return;
       const attacker = this.units.find((u) => u.id === step.att);
       this.faceSpriteToward(step.att, target.x, target.y);
-      if (attacker) this.faceSpriteToward(step.def, attacker.x, attacker.y);
+      // Keep the defender's heading through the incoming hit so rear attacks retain their bonus.
       // Bring both ends of the attack into view regardless of who's acting — this used to be
       // enemy-only (side !== "player"), which meant the camera dutifully followed every enemy
       // swing but never panned to show the PLAYER's own target when it was off past the turn's
@@ -2976,7 +3013,6 @@ export class BattleEngine {
           : rollDamage(this.affinityUnit(actor), this.affinityUnit(target), attTile, defTile, this.rng, !(a.stage === "hit" && a.spellKind === "shieldBash"));
         if (target.side === "enemy" && !(a.stage === "hit" && a.spellKind === "shieldBash")) this.trainWeapon(actor, equippedWeaponType(actor, !!dice), target.level);
         const usesArcane = arcaneBolt && !this.offHandStrike(a) && (a.stage === "counterHit" || !a.spellKind);
-        if (usesArcane && target.side === "enemy") this.trainElementUse(actor, "arcane", target.level);
         if (!hit.landed) {
           this.spawnMiss(target);
           this.pushLog(`${actor.name} atacou ${target.name}: Missed`);
@@ -3230,7 +3266,7 @@ export class BattleEngine {
             const applied = a.blessAppliedIds ?? (a.blessAppliedIds = []);
             if (applied.includes(event.unitId)) continue;
             const ally = this.units.find((unit) => unit.id === event.unitId && unit.alive && unit.side === att.side);
-            if (ally) this.applyBless(ally, att.level);
+            if (ally) { this.applyBless(ally, att.level); this.gainSupportAffinity(att, ally); }
             applied.push(event.unitId);
           }
         }
@@ -3239,7 +3275,7 @@ export class BattleEngine {
           const applied = a.blessAppliedIds ?? (a.blessAppliedIds = []);
           if (applied.includes(id)) continue;
           const ally = this.units.find((unit) => unit.id === id && unit.alive && unit.side === att.side);
-          if (ally) this.applyBless(ally, att.level);
+          if (ally) { this.applyBless(ally, att.level); this.gainSupportAffinity(att, ally); }
           applied.push(id);
         }
         if (a.t >= 1.5) a.blessComplete = true;
@@ -3359,6 +3395,10 @@ export class BattleEngine {
     if (!a.hit && (syncFireballVfx ? a.fireballImpact === true : syncCausticVenomVfx ? a.causticVenomImpact === true : syncPhantasmalVfx ? a.phantasmalImpact === true : syncMagicMissileV2Vfx ? a.magicMissileV2Impact === true : syncBurningHandsVfx ? a.burningHandsReleased === true : a.t >= hitAt)) {
       a.hit = true;
       const usedElement = spellElement(a.spellKind);
+      if (usedElement && (a.spellKind === "magicMissile" || a.spellKind === "magicMissileV2")) {
+        const enemy = a.ids.map(id => this.units.find(u => u.id === id && u.alive && u.side === "enemy")).find(Boolean);
+        if (enemy) this.trainElementUse(att, usedElement, enemy.level);
+      }
       // Every attack cue (weapon skills included) already played when its animation began, in startSeq.
       // AoE/line spells: the first enemy actually hit grants full XP, every enemy after
       // that in the same cast grants half — hitting a whole group shouldn't out-earn
@@ -3604,10 +3644,10 @@ export class BattleEngine {
     a.t += dt;
     if (!a.applied && a.t >= 0.2) {
       a.applied = true;
-      const heal = rollCure(a.kind, this.affinityUnit(att).mag, this.rng);
+      const heal = this.healingPower(att, rollCure(a.kind, this.affinityUnit(att).mag, this.rng));
       const gained = Math.min(heal, target.maxHp - target.hp);
       target.hp += gained;
-      if (gained > 0) this.adjustAffinity(att, target, 1);
+      if (gained > 0) { this.gainSupportAffinity(att, target); this.trainHealing(att); }
       if (gained > 0) this.noteAwareEnmity(att, gained * ENMITY.heal.ce, gained * ENMITY.heal.ve);
       this.gainExp(att, target.level, gained);
       this.emitParticle({
@@ -3641,7 +3681,8 @@ export class BattleEngine {
     if (!a.applied && a.t >= 0.2) {
       a.applied = true;
       this.curePlayerDisease(target);
-      this.adjustAffinity(att, target, 1);
+      this.gainSupportAffinity(att, target);
+      this.trainHealing(att);
       this.noteAwareEnmity(att, ENMITY.support.ce, ENMITY.support.ve);
       this.emitParticle({
         x: target.drawX,
@@ -3861,6 +3902,7 @@ export class BattleEngine {
    * action was taken from a position a rewind would erase.
    */
   private finishAction(u: Unit): void {
+    this.gainAdjacentAffinity(u);
     this.noteUnitDrawAction(u.id);
     if (u.side === "player" && !u.summoned) u.fullness = drainHunger(u.fullness, ACTION_HUNGER_COST);
     u.acted = true;
@@ -3900,6 +3942,8 @@ export class BattleEngine {
     this.banner = null;
     this.evaluateEnd();
     if (this.result) {
+      this.gainAdjacentAffinity(att);
+      att.acted = true;
       this.selectedId = null;
       this.pendingFoeId = null;
       this.inspectedId = null;
@@ -4149,7 +4193,7 @@ export class BattleEngine {
     if (amount === null) return;
     const id = `${type}Weapon` as const;
     const current = this.heroSkills[unit.name]?.[id] ?? 0;
-    const gained = rollWeaponSkillGain(current, this.rng, amount ?? 1);
+    const gained = rollWeaponSkillGain(current, this.rng, amount ?? SKILL_GAIN);
     if (gained === null) return;
     this.heroSkills[unit.name] = { ...this.heroSkills[unit.name], [id]: gained };
     unit.weaponSkills = { ...unit.weaponSkills, [type]: gained };
@@ -4168,6 +4212,20 @@ export class BattleEngine {
       ? this.units.find(unit => unit.id === caster.summonerId && unit.alive && unit.side === caster.side)
       : caster;
     if (learner) this.trainResistance(learner, element, enemyLevel);
+  }
+
+  private healingPower(actor: Unit, base: number): number {
+    return healingAmount(base, skillValue(this.heroSkills, actor.name, "healing"));
+  }
+
+  private trainHealing(actor: Unit): void {
+    if (actor.side !== "player" || actor.summoned) return;
+    const current = skillValue(this.heroSkills, actor.name, "healing");
+    const next = rollSkillGain(current, this.rng);
+    if (next === null) return;
+    this.heroSkills[actor.name] = { ...this.heroSkills[actor.name], healing: next };
+    actor.healingSkill = next;
+    this.logSkillGain(actor, "healing", current, next);
   }
 
   private trainResistance(unit: Unit, element: import("./types").ResistanceElement, enemyLevel?: number): void {
@@ -5499,6 +5557,7 @@ export class BattleEngine {
     this.spendTier(unit, "provoke");
     for (const foe of foes) {
       this.addEnmity(foe, unit, ENMITY.provoke.ce, ENMITY.provoke.ve);
+      this.provokeFx.push({ unitId: foe.id, t: 0 });
       this.emitParticle({ x: foe.drawX, y: foe.drawY - 0.35, vx: 0, vy: -0.18, life: 0, max: 2, size: 1, color: "#e0603a", text: "Provocado", kind: "text", frame: 0 });
     }
     this.spellKind = null;
@@ -7692,9 +7751,10 @@ export class BattleEngine {
         sfxPlay.ui();
         return;
       }
-      this.adjustAffinity(actor, target, 1);
+      this.gainSupportAffinity(actor, target);
       actor.bag[kind] -= 1;
       this.curePlayerDisease(target);
+      this.trainHealing(actor);
       actor.x = Math.round(actor.drawX);
       actor.y = Math.round(actor.drawY);
       this.tip = `${def.name} · ${target.name} curado(a) da doença.`;
@@ -7721,7 +7781,7 @@ export class BattleEngine {
         sfxPlay.ui();
         return;
       }
-      this.adjustAffinity(actor, target, 1);
+      this.gainSupportAffinity(actor, target);
       actor.bag[kind] -= 1;
       actor.x = Math.round(actor.drawX);
       actor.y = Math.round(actor.drawY);
@@ -7751,10 +7811,10 @@ export class BattleEngine {
       sfxPlay.ui();
       return;
     }
-    const heal = rollPotion(kind, this.rng);
+    const heal = this.healingPower(actor, rollPotion(kind, this.rng));
     const gained = Math.min(heal, target.maxHp - target.hp);
     target.hp += gained;
-    if (gained > 0) this.adjustAffinity(actor, target, 1);
+    if (gained > 0) { this.gainSupportAffinity(actor, target); this.trainHealing(actor); }
     this.gainExp(actor, target.level, gained);
     actor.bag[kind] -= 1;
     actor.x = Math.round(actor.drawX);
@@ -12547,6 +12607,12 @@ export class BattleEngine {
     this.drawChargeFx(ctx, tile);
     this.drawHolyFx(ctx, tile);
     this.drawBladeFx(ctx, tile);
+    for (const fx of this.provokeFx) {
+      const target = this.units.find(u => u.id === fx.unitId && u.alive);
+      if (!target || !this.targetable(target)) continue;
+      const { cx, cy } = this.hexCenter(target.x, target.y);
+      drawProvokeVFX(ctx, cx, cy - tile * 0.15, tile * 1.1, fx.t);
+    }
 
     // Finish the ordinary ground props after the last character row, so nearer characters
     // remain in front while props closer to the camera hide characters behind them.
@@ -13391,4 +13457,11 @@ export class BattleEngine {
       ctx.fill();
     }
   }
+}
+
+// Keep the open campaign's battle state while installing current combat rules after HMR.
+if (import.meta.hot) {
+  const live = (window as Window & { __emberEngine?: BattleEngine }).__emberEngine;
+  if (live) BattleEngine.refreshLiveEngine(live);
+  import.meta.hot.accept();
 }

@@ -714,6 +714,7 @@ export interface Unit {
   /** Elemental resistance percentages, independent of general DEX. Missing values are zero. */
   resistances?: Resistances;
   weaponSkills?: WeaponSkillValues;
+  healingSkill?: number;
   /** Rolled once at battle start: 1d20 + the class initiative modifier. */
   initiative: number;
   initiativeRoll: number;
@@ -888,6 +889,7 @@ export interface UnitPublic {
   /** Elemental resistance percentages, independent of general DEX. Missing values are zero. */
   resistances?: Resistances;
   weaponSkills?: WeaponSkillValues;
+  healingSkill?: number;
   initiative: number;
   initiativeRoll: number;
   mov: number;
@@ -1224,6 +1226,7 @@ export interface BattleUnitSnap {
   /** Elemental resistance percentages, independent of general DEX. Missing values are zero. */
   resistances?: Resistances;
   weaponSkills?: WeaponSkillValues;
+  healingSkill?: number;
   /** Optional for compatibility with saves made before individual initiative existed. */
   initiative?: number;
   initiativeRoll?: number;
@@ -1285,7 +1288,7 @@ export interface BattleUnitSnap {
 }
 
 export interface BattleSnapshot {
-  heroSkills?: Record<string, Partial<Record<`${ResistanceElement}Resistance` | `${WeaponType}Weapon`, number>>>;
+  heroSkills?: Record<string, Partial<Record<`${ResistanceElement}Resistance` | `${WeaponType}Weapon` | "healing", number>>>;
   affinityScores?: Record<string, number>;
   missionId: string;
   /** missionMapKey of the map this fight was played on. A fight saved on an older version
@@ -1439,10 +1442,10 @@ export interface SaveData {
   /** MAG of whoever poisoned each hero, so the road ticks pierce resistance like battle ones. */
   heroPoisonMag?: Record<string, number>;
   /** Per-hero skills (skills.ts) — Resistência a Veneno, … Older saves start every skill at 0. */
-  heroSkills?: Record<string, Partial<Record<`${ResistanceElement}Resistance` | `${WeaponType}Weapon`, number>>>;
+  heroSkills?: Record<string, Partial<Record<`${ResistanceElement}Resistance` | `${WeaponType}Weapon` | "healing", number>>>;
   /** Travel training (party menu Skills tab): the one skill each hero practises on the road.
    * Nothing trains until the player picks one. */
-  travelTraining?: Partial<Record<string, `${ResistanceElement}Resistance` | `${WeaponType}Weapon`>>;
+  travelTraining?: Partial<Record<string, `${ResistanceElement}Resistance` | `${WeaponType}Weapon` | "healing">>;
   /** Road hours banked toward each hero's next travel-training point (see advanceTravelTraining). */
   travelTrainingHours?: Record<string, number>;
   /** Party-wide ration stock. One ration refills one character's fullness to 100%; inn

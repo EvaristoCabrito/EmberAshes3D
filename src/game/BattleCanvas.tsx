@@ -563,7 +563,7 @@ export function BattleCanvas({
       dragged = false;
       lastX = e.clientX;
       lastY = e.clientY;
-      armReadout(p.x, p.y, 420);
+      armReadout(p.x, p.y, 800);
       if (engine.getHud().mode === "awaitSpell") {
         const gp = gamePos(p);
         engine.pointerMove(gp.x, gp.y);
@@ -587,7 +587,7 @@ export function BattleCanvas({
       const spell = engine.getHud().mode === "awaitSpell";
       // Resting the cursor on a tile asks about it. Every movement restarts the clock, so
       // this only fires once the pointer actually stops — no button involved.
-      if (e.pointerType === "mouse" && !mouseDown) armReadout(p.x, p.y, 650);
+      if (e.pointerType === "mouse" && !mouseDown) armReadout(p.x, p.y, 1200);
       if (e.pointerType === "mouse" && mouseDown) {
         if (!dragged && mouseArmed && Math.hypot(e.clientX - mouseStartX, e.clientY - mouseStartY) > 3) {
           dragged = true;

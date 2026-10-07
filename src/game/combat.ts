@@ -1,8 +1,24 @@
 import { dexAccuracy } from "./dexterity.ts";
 import { equippedWeaponType, weaponModifiers } from "./weaponSkills.ts";
 import { EQUIPMENT, isProjectile, rollDice, TERRAIN, WEAPONS } from "./data.ts";
-import { canHitFrom, hexDist } from "./pathfinding.ts";
+import { canHitFrom, hexDist, hexNeighbors } from "./pathfinding.ts";
 import type { Forecast, TerrainId, Unit } from "./types";
+
+/** Two adjacent hexes behind the defender's board heading, independent of camera rotation. */
+export function isRearAttack(attacker: Unit, defender: Unit): boolean {
+  if (!Number.isFinite(attacker.x) || !Number.isFinite(defender.x) || hexDist(attacker, defender) !== 1) return false;
+  const dx = defender.faceDx ?? defender.facing ?? 1;
+  const dy = defender.faceDy ?? 0;
+  if (Math.hypot(dx, dy) < 1e-6) return false;
+  const rear = Math.atan2(-dy, -dx);
+  const originX = defender.x + (defender.y & 1) * .5;
+  const sectors = hexNeighbors(defender.x, defender.y).map(cell => {
+    const angle = Math.atan2((cell.y - defender.y) * Math.sqrt(3) / 2, cell.x + (cell.y & 1) * .5 - originX);
+    const distance = Math.abs(Math.atan2(Math.sin(angle - rear), Math.cos(angle - rear)));
+    return { cell, distance };
+  }).sort((a, b) => Math.round((a.distance - b.distance) * 1e9) || a.cell.y - b.cell.y || a.cell.x - b.cell.x);
+  return sectors.slice(0, 2).some(({ cell }) => cell.x === attacker.x && cell.y === attacker.y);
+}
 
 /** What a unit's own stat contributes to a hit: half of ATK, or half of MAG for a caster.
  *
@@ -51,12 +67,13 @@ export function rollDamage(
   useWeaponSkill = true,
 ): { dmg: number; crit: boolean; landed: boolean; hitChance: number; preCritDmg: number } {
   const b = terrainBonus(attacker, defender, attTile, defTile);
+  const rear = useWeaponSkill && isRearAttack(attacker, defender);
   const mastery = useWeaponSkill ? weaponModifiers(attacker, equippedWeaponType(attacker)) : { accuracy: 100, damage: 1 };
   const definition = attacker.weaponId ? WEAPONS[attacker.weaponId] : undefined;
   const weapon = definition ? rollDice(definition.dice, definition.faces, 0, rng) * mastery.damage + definition.bonus + attacker.weaponEnh : 0;
-  const hitChance = useWeaponSkill ? dexAccuracy(mastery.accuracy, defender.dex ?? 0) : 100;
+  const hitChance = useWeaponSkill ? dexAccuracy(mastery.accuracy + (rear ? 10 : 0), defender.dex ?? 0) : 100;
   const raw = powerOf(attacker) + weapon + b.atk - protOf(attacker, defender) - b.def;
-  const preCritDmg = Math.max(1, Math.floor(Math.max(1, raw) * weaponClassBonusMul(attacker)));
+  const preCritDmg = Math.max(1, Math.floor(Math.max(1, raw) * weaponClassBonusMul(attacker) * (rear ? 1.1 : 1)));
   let dmg = preCritDmg;
   const crit = rng() < 0.08;
   if (crit) dmg = Math.max(1, Math.floor(dmg * 1.5));
@@ -78,11 +95,12 @@ export function rollDamageCustom(
   useWeaponSkill = true,
 ): { dmg: number; crit: boolean; landed: boolean; hitChance: number; preCritDmg: number } {
   const b = terrainBonus(attacker, defender, attTile, defTile);
+  const rear = useWeaponSkill && isRearAttack(attacker, defender);
   const mastery = useWeaponSkill ? weaponModifiers(attacker, equippedWeaponType(attacker, true)) : { accuracy: 100, damage: 1 };
   const weapon = rollDice(dice, faces, 0, rng) * mastery.damage + bonus;
-  const hitChance = useWeaponSkill ? dexAccuracy(mastery.accuracy, defender.dex ?? 0) : 100;
+  const hitChance = useWeaponSkill ? dexAccuracy(mastery.accuracy + (rear ? 10 : 0), defender.dex ?? 0) : 100;
   const raw = powerOf(attacker) + weapon + b.atk - protOf(attacker, defender) - b.def;
-  const preCritDmg = Math.max(1, Math.floor(raw));
+  const preCritDmg = Math.max(1, Math.floor(Math.max(1, raw) * (rear ? 1.1 : 1)));
   let dmg = preCritDmg;
   const crit = rng() < 0.08;
   if (crit) dmg = Math.max(1, Math.floor(dmg * 1.5));
@@ -98,15 +116,16 @@ export function previewDamage(
   useWeaponSkill = true,
 ): { dmg: number; hitChance: number } {
   const b = terrainBonus(attacker, defender, attTile, defTile);
+  const rear = useWeaponSkill && isRearAttack(attacker, defender);
   const item = offHand && attacker.offHandId ? EQUIPMENT[attacker.offHandId] : undefined;
   const mastery = useWeaponSkill ? weaponModifiers(attacker, equippedWeaponType(attacker, offHand)) : { accuracy: 100, damage: 1 };
   const definition = attacker.weaponId ? WEAPONS[attacker.weaponId] : undefined;
   const weapon = offHand
     ? item?.kind === "weapon" ? (item.dice ?? 1) * ((item.faces ?? 4) + 1) / 2 * mastery.damage + (item.bonus ?? 0) : 0
     : definition ? definition.dice * (definition.faces + 1) / 2 * mastery.damage + definition.bonus + attacker.weaponEnh : 0;
-  const hitChance = useWeaponSkill ? dexAccuracy(mastery.accuracy, defender.dex ?? 0) : 100;
+  const hitChance = useWeaponSkill ? dexAccuracy(mastery.accuracy + (rear ? 10 : 0), defender.dex ?? 0) : 100;
   const raw = powerOf(attacker) + weapon + b.atk - protOf(attacker, defender) - b.def;
-  const dmg = Math.max(1, Math.floor(Math.max(1, raw) * (offHand ? 1 : weaponClassBonusMul(attacker))));
+  const dmg = Math.max(1, Math.floor(Math.max(1, raw) * (offHand ? 1 : weaponClassBonusMul(attacker)) * (rear ? 1.1 : 1)));
   return { dmg, hitChance };
 }
 
@@ -140,7 +159,8 @@ export function makeForecast(
   const counter = canCounter(attacker, defender, { x: attacker.x, y: attacker.y }, tiles, cols);
   const counterWeapon = defender.offHandId ? EQUIPMENT[defender.offHandId] : undefined;
   const daggerCounter = counterWeapon?.kind === "weapon" && hexDist(defender, attacker) <= (counterWeapon.maxRange ?? 1);
-  const back = counter ? previewDamage(defender, attacker, defTile, attTile, daggerCounter) : null;
+  const facingAttacker = { ...attacker, faceDx: defender.x + (defender.y & 1) * .5 - attacker.x - (attacker.y & 1) * .5, faceDy: (defender.y - attacker.y) * Math.sqrt(3) / 2 };
+  const back = counter ? previewDamage(defender, facingAttacker, defTile, attTile, daggerCounter) : null;
   return {
     attacker: attacker.id,
     defender: defender.id,

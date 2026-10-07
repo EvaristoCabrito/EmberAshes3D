@@ -2,7 +2,22 @@ import { useGamePreferences, translatedText, uiText } from "./gamePreferences";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { portraitFor } from "./assets";
-import type { DialogAction, DialogReply, DialogTree } from "./types";
+import type { DialogAction, DialogLine, DialogReply, DialogTree, SpriteId } from "./types";
+
+const speakerKey = (name: string) => name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+const speakerPortraits: Record<string, SpriteId> = {
+  kael: "kaelFinal", neera: "neera", voss: "voss", salazar: "salazar", aldric: "aldric", malrec: "malrec",
+  brue: "brue", "o mudo": "mudinho", "a hospede": "crazyLady", "mercador itinerante": "travelingMerchant",
+};
+
+export function dialoguePortraitFor(line: DialogLine, tree: DialogTree, characters: { name: string; sprite: SpriteId }[] = []) {
+  const speaker = speakerKey(line.speaker);
+  const character = characters.find(c => speakerKey(c.name) === speaker)
+    ?? characters.find(c => speakerKey(c.name).split(",")[0] === speaker.split(",")[0]);
+  const sameSpeaker = tree.lines.find(l => l.portrait && speakerKey(l.speaker) === speaker);
+  const sprite = speakerPortraits[speaker] ?? line.portrait ?? character?.sprite ?? sameSpeaker?.portrait;
+  return speaker === "vargan" ? { src: "/game/portraits/vargan.png", framed: true } : sprite ? portraitFor(sprite) : null;
+}
 
 /** The Battle Dialog System's runtime popup — shared by the mission intro/outro and every
  * NPC conversation. Always starts at `tree.startId`; a plain line advances via its own
@@ -10,7 +25,7 @@ import type { DialogAction, DialogReply, DialogTree } from "./types";
  * `next`. Either ends the tree (closes the popup) when the line/reply it followed has no
  * `next`. No click-outside-to-dismiss — same as the chest-loot/promotion popups, a
  * conversation only advances when the player deliberately presses a button. */
-export function DialogOverlay({ tree, onClose, onAction, onReply }: { tree: DialogTree; onClose: () => void; onAction?: (action: DialogAction) => void; onReply?: (reply: DialogReply) => void }) {
+export function DialogOverlay({ tree, onClose, onAction, onReply, characters = [] }: { tree: DialogTree; onClose: () => void; onAction?: (action: DialogAction) => void; onReply?: (reply: DialogReply) => void; characters?: { name: string; sprite: SpriteId }[] }) {
   const prefs = useGamePreferences();
   const [lineId, setLineId] = useState(tree.startId);
   const line = tree.lines.find((l) => l.id === lineId);
@@ -26,14 +41,14 @@ export function DialogOverlay({ tree, onClose, onAction, onReply }: { tree: Dial
     }
     setLineId(next);
   };
-  const portrait = line.portrait ? portraitFor(line.portrait) : null;
+  const portrait = dialoguePortraitFor(line, tree, characters);
   return (
     <div className="absolute inset-0 z-50 ember-veil flex items-end sm:items-center justify-center p-4">
       <div className="relative w-full max-w-xl max-h-[90dvh] overflow-y-auto ember-panel p-5 flex gap-4">
         {portrait && (
           <img
             src={portrait.src}
-            alt=""
+            alt={line.speaker}
             style={{ objectPosition: portrait.position }}
             className={portrait.framed ? "h-20 w-14 sm:h-24 sm:w-20 object-cover rounded-lg border border-border shrink-0" : "h-16 w-14 sm:h-20 sm:w-20 object-contain shrink-0"}
           />
