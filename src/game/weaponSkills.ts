@@ -34,5 +34,5 @@ export function weaponModifiers(unit: Pick<Unit, "side" | "summoned" | "classId"
 
 /** Weapon abilities share mastery; ordinary magic, shield bashes and body attacks do not. */
 export function isWeaponAbility(kind: string | null): boolean {
-  return ["longShot", "multiShot", "piercing", "piercingThrust", "cleave", "doubleStrike", "sweep", "trip", "bullRush", "executionerStrike"].includes(kind ?? "");
+  return ["longShot", "bloodyShot", "multiShot", "piercing", "piercingThrust", "cleave", "doubleStrike", "sweep", "trip", "bullRush", "executionerStrike"].includes(kind ?? "");
 }

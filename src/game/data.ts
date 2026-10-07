@@ -2982,6 +2982,7 @@ export function weaponIcon(id: string): string {
  * combat surface uses one cohesive visual family. */
 export function spellIcon(id: string): string {
   if (id === "divine-bolt") return "/game/icons/divine-bolt.jpg";
+  if (id === "bloody-shot") return "/game/icons/bloody-shot.jpg";
   if (id === "summon-familiar2") return "/game/icons/summon-familiar2.png";
   if (id === "summon-familiar3") return "/game/icons/summon-familiar3.png";
   if (id === "summon-familiar4") return "/game/icons/summon-familiar4.png";
@@ -3777,6 +3778,33 @@ export const LONG_SHOT = {
   name: "Tiro Longo",
   range: 7,
 };
+
+export const BLOODY_SHOT = {
+  name: "Bloody Shot",
+  unlockLevel: 5,
+  range: LONG_SHOT.range,
+};
+
+/** Bloody Shot's direct hit follows the existing Tier 2 weapon-skill progression. */
+export function bloodyShotMul(level: number): number {
+  if (level >= 13) return 2.5;
+  if (level >= 10) return 2.25;
+  if (level >= 6) return 2;
+  return 1.5;
+}
+
+/** Bleed duration breakpoints: 1D6 at unlock, then 1D8, 2D4, and 2D6. */
+export function bloodyShotBleed(level: number): { dice: number; faces: number } {
+  if (level >= 15) return { dice: 2, faces: 6 };
+  if (level >= 12) return { dice: 2, faces: 4 };
+  if (level >= 8) return { dice: 1, faces: 8 };
+  return { dice: 1, faces: 6 };
+}
+
+export function bloodyShotFormula(level: number): string {
+  const bleed = bloodyShotBleed(level);
+  return `${Math.round(bloodyShotMul(level) * 100)}% dano de arma + sangramento por ${diceFormula(bleed.dice, bleed.faces, 0)} rodadas`;
+}
 
 /** Long Shot's bonus die, always added on top of plain weapon damage (never in place of
  * it) — grows in explicit level breakpoints, same shape as Lightning/Fireball, rather than a
@@ -4798,6 +4826,7 @@ export const SPELL_TIER: Partial<Record<SpellKind, SpellTier>> = {
   bless: 1,
   magicMissile: 1,
   longShot: 1,
+  bloodyShot: 2,
   cureMinor: 1,
   doubleStrike: 1,
   piercingThrust: 1,

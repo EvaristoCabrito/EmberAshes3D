@@ -10,7 +10,7 @@ import { OptionsButton } from "./OptionsMenu";
 import { CUTSCENE_SUBTITLES, syncSubtitles } from "./cutsceneSubtitles";
 import { uiText, useGamePreferences, type Translations } from "./gamePreferences";
 import { GraphicsQualityControl } from "./GraphicsQualityControl";
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { cloneElement, Fragment, isValidElement, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Dices, Grip, ListOrdered, Lock, Pencil, RotateCcw, Shuffle, SlidersHorizontal, Swords, Volume2, VolumeX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { artProgress, ensureDecorationArt, ensureTerrainArt, ensureSpriteArt, loadGameArt, portraitFor, releaseSpriteArt, subscribeArtProgress, TILE_VARIANT_COUNT, tileVariantName, tileVariantSrc } from "./assets";
@@ -37,7 +37,7 @@ import { resolveCompanionReply } from "./companionDialogues";
 import { AFFINITY_HEROES } from "./affinity";
 import { LIGHT_DEFS } from "./lighting";
 import { DialogEditor } from "./DialogEditor";
-import { BLESS, BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, SOLID_ROCK_DECOR_IDS, CAUSTIC_VENOM, DIVINE_BOLT, MINOR_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, FOREST_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, expToLevel, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, placedBlockingFootprint, decorationImage, decorationImageWebp, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, heroRecruited, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, POISON_BREATH, poisonBreathPower, poisonBreathFormula, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
+import { BLESS, BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, SOLID_ROCK_DECOR_IDS, CAUSTIC_VENOM, DIVINE_BOLT, MINOR_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, FOREST_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, expToLevel, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, BLOODY_SHOT, bloodyShotMul, bloodyShotBleed, bloodyShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, placedBlockingFootprint, decorationImage, decorationImageWebp, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, heroRecruited, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, POISON_BREATH, poisonBreathPower, poisonBreathFormula, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
 import { QUESTS, activePickupsFor, questById, questProgress, questStatus, questsFor } from "./quests";
 import { advanceProgression, evaluate, isGatedMission, missionAccess, type MissionAccess, type ProgressExtras } from "./progression";
 import { BattleEngine, heroSpriteFor } from "./engine";
@@ -509,7 +509,7 @@ function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY, heroNam
         // Cão Zumbi's own hotbar: Veneno Menor, twice per battle (FAMILIAR_SPELL charges).
         return ["minorVenom"];
       case "archer":
-        return ["longShot", "piercing", "multiShot"];
+        return ["longShot", "piercing", "bloodyShot", "multiShot"];
       case "healer":
         return ["cureMinor", "bless", "cureWounds", "burningHands", "cureDisease", "createFoodAndWater"];
       case "lancer":
@@ -524,7 +524,8 @@ function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY, heroNam
     (spell !== "bullRush" || level >= BULL_RUSH_UNLOCK_LEVEL) &&
     (spell !== "bless" || level >= BLESS.unlockLevel) &&
     (spell !== "poisonBreath" || level >= POISON_BREATH.unlockLevel) &&
-    (spell !== "burningHands" || level >= 5),
+    (spell !== "burningHands" || level >= 5) &&
+    (spell !== "bloodyShot" || level >= BLOODY_SHOT.unlockLevel),
   );
   return spells;
 }
@@ -587,6 +588,8 @@ function slotIcon(action: SlotAction): string {
       return spellIcon("magic-missile");
     case "longShot":
       return spellIcon("long-shot");
+    case "bloodyShot":
+      return spellIcon("bloody-shot");
     case "piercing":
       return spellIcon("piercing");
     case "cureMinor":
@@ -683,6 +686,8 @@ function slotLabel(action: SlotAction): string {
       return MAGIC_MISSILE.name;
     case "longShot":
       return LONG_SHOT.name;
+    case "bloodyShot":
+      return BLOODY_SHOT.name;
     case "piercing":
       return PIERCING.name;
     case "cureMinor":
@@ -3294,6 +3299,7 @@ const SKILL_CLASS: Partial<Record<SpellKind, ClassId>> = {
   summonZombieDog: "conjurer",
   webOfDreams: "conjurer",
   longShot: "archer",
+  bloodyShot: "archer",
   piercing: "archer",
   cureMinor: "healer",
   bless: "healer",
@@ -3322,6 +3328,14 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     formula: (level: number) => longShotFormula(level),
     param: "level" as const,
     note: `Alcance 7. Dado sobe em níveis 2,3,5,7,9,12,14.`,
+  },
+  {
+    name: BLOODY_SHOT.name,
+    cls: SKILL_CLASS.bloodyShot!,
+    tier: spellTier("bloodyShot")!,
+    formula: (level: number) => bloodyShotFormula(level),
+    param: "level" as const,
+    note: "Aprendido no nível 5. Sangramento causa 1D8 por ação; a duração aumenta nos níveis 8, 12 e 15.",
   },
   { name: CURES.cureMinor.name, cls: SKILL_CLASS.cureMinor!, tier: spellTier("cureMinor")!, formula: (mag: number) => `${healFormula(mag, "cureMinor")} (cura)`, note: "—" },
   {
@@ -3473,6 +3487,7 @@ const SKILL_DAMAGE_NOTES_EN: Record<string, string> = {
   [BLESS.name]: `Healer, level ${BLESS.unlockLevel}. Radius ${BLESS.radius}; +1% hit chance per level, up to +10% at level 13. Duration: 3 turns at level 3; 4 at 5; 5 at 7; 6 at 9; 7 at 12; 8 at 15.`,
   [MAGIC_MISSILE.name]: "Never misses. 1 missile, 2 at level 3, 3 at level 6 — each targets one unit.",
   [LONG_SHOT.name]: "Range 7. Damage die increases at levels 2, 3, 5, 7, 9, 12, and 14.",
+  [BLOODY_SHOT.name]: "Archer Tier 2, learned at level 5. Deals weapon damage with a level-based multiplier and causes 1D8 bleeding damage per action for 1D6 rounds (1D8 at level 8, 2D4 at level 12, 2D6 at level 15).",
   [CURES.cureMinor.name]: "—",
   [DOUBLE_STRIKE.name]: "Attacks twice; each hit rolls its own bonus (bonuses do not stack).",
   [PIERCING_THRUST.name]: "Hits in a line; the second target takes half damage.",
@@ -7979,6 +7994,8 @@ function BattleScreen({
   const [showStatus, setShowStatus] = useState(false);
   const [showCombatGuide, setShowCombatGuide] = useState(false);
   const [showLog, setShowLog] = useState(false);
+  // "Magias" menu (spells outside the hotbar), drawn like the status window.
+  const [spellMenuOpen, setSpellMenuOpen] = useState(false);
   const [audioSettingsOpen, setAudioSettingsOpen] = useState(false);
   const [audioLevels, setAudioLevels] = useState(() => getAudioVolumes());
   /** Editor playtests deliberately do not write their character progression into the campaign
@@ -8235,6 +8252,9 @@ function BattleScreen({
         break;
       case "longShot":
         engine.startLongShot();
+        break;
+      case "bloodyShot":
+        engine.startBloodyShot();
         break;
       case "piercing":
         engine.startPiercing();
@@ -8855,26 +8875,50 @@ function BattleScreen({
                   .map((spell) => ({ kind: "spell" as const, spell }))
                   .filter((action) => slotCount(action, actor) > 0);
                 if (extraSpells.length === 0) return null;
+                const menuDisabled = !showAct || hud.busy || actor.acted || hud.mode === "awaitSpell";
                 return (
-                  <select
-                    aria-label={uiText("Magias fora da barra", { en: "Spells outside the hotbar" })}
-                    title={uiText("Usar uma magia fora da barra", { en: "Cast a spell outside the hotbar" })}
-                    disabled={!showAct || hud.busy || actor.acted || hud.mode === "awaitSpell"}
-                    value=""
-                    onChange={(event) => {
-                      const spell = event.currentTarget.value as SpellKind | "";
-                      event.currentTarget.value = "";
-                      if (spell) runSlot({ kind: "spell", spell });
-                    }}
-                    className="h-9 max-w-[9rem] rounded border border-border bg-surface px-2 text-xs text-fg disabled:opacity-40"
-                  >
-                    <option value="">{uiText("Magias", { en: "Spells" })}</option>
-                    {extraSpells.map((action) => (
-                      <option key={action.spell} value={action.spell}>
-                        {slotLabel(action)} · ×{slotCount(action, actor)}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <Button
+                      size="sm"
+                      variant="quiet"
+                      className="ember-btn ember-btn-sm ember-btn-ghost"
+                      aria-label={uiText("Magias fora da barra", { en: "Spells outside the hotbar" })}
+                      title={uiText("Usar uma magia fora da barra", { en: "Cast a spell outside the hotbar" })}
+                      aria-haspopup="menu"
+                      aria-expanded={spellMenuOpen && !menuDisabled}
+                      disabled={menuDisabled}
+                      onClick={() => setSpellMenuOpen((v) => !v)}
+                    >
+                      {uiText("Magias", { en: "Spells" })}
+                    </Button>
+                    {spellMenuOpen && !menuDisabled && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setSpellMenuOpen(false)} />
+                        {/* Same window, header and tile rows as the status sheet's spell list. */}
+                        <div role="menu" className="status-panel ember-window absolute bottom-full left-0 z-50 mb-2 w-80 rounded-xl p-4">
+                          <p className="text-xs ember-kicker mb-2">{uiText("Magias fora da barra", { en: "Spells outside the hotbar" })}</p>
+                          <div className="grid grid-cols-1 gap-1.5">
+                            {extraSpells.map((action) => (
+                              <button
+                                key={action.spell}
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setSpellMenuOpen(false);
+                                  runSlot(action);
+                                }}
+                                className="flex w-full items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5 text-left hover:border-accent focus-visible:outline-none focus-visible:border-accent"
+                              >
+                                <img src={slotIcon(action)} alt="" className="size-5 rounded-sm object-cover shrink-0" />
+                                <span className="text-xs truncate min-w-0">{slotLabel(action)}</span>
+                                <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier(action.spell)} · ×{slotCount(action, actor)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 );
               })()}
             </div>
@@ -9225,6 +9269,31 @@ function SlotPicker({
   );
 }
 
+function flattenSkillRows(children: ReactNode): ReactElement<{ children?: ReactNode }>[] {
+  if (Array.isArray(children)) return children.flatMap(flattenSkillRows);
+  if (!isValidElement<{ children?: ReactNode }>(children)) return [];
+  if (children.type === Fragment) return flattenSkillRows(children.props.children);
+  return [children as ReactElement<{ children?: ReactNode }>];
+}
+
+function skillRowTier(node: ReactNode): number {
+  const text = (child: ReactNode): string => {
+    if (typeof child === "string" || typeof child === "number") return String(child);
+    if (Array.isArray(child)) return child.map(text).join("");
+    if (isValidElement<{ children?: ReactNode }>(child)) return text(child.props.children);
+    return "";
+  };
+  const match = text(node).match(/Tier\s+(\d+)/i);
+  return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+}
+
+function sortSkillRowsByTier(children: ReactNode): ReactElement[] {
+  return flattenSkillRows(children)
+    .map((element, index) => ({ element, index, tier: skillRowTier(element.props.children) }))
+    .sort((a, b) => a.tier - b.tier || a.index - b.index)
+    .map(({ element, index }) => cloneElement(element, { key: element.key ?? `skill-tier-row-${index}` }));
+}
+
 type CharacterCondition = {
   title: string;
   detail: string;
@@ -9252,7 +9321,7 @@ function characterCondition(unit: UnitPublic): CharacterCondition {
   if (unit.bleeding) {
     return {
       title: "Sangrando",
-      detail: "Sangramento · sofre 1D8 de dano a cada ação: atacar, lançar magia, usar item, e ao se mover (uma vez por turno).",
+      detail: `Sangramento · sofre 1D8 de dano a cada ação: atacar, lançar magia, usar item, e ao se mover (uma vez por turno).${unit.bleedRoundsLeft != null ? ` Restam ${unit.bleedRoundsLeft} rodadas.` : ""}`,
       icon: "bleeding",
       tone: "danger",
     };
@@ -9353,7 +9422,9 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
     { label: "MOV", value: unit.movLeft < unit.mov ? `${unit.movLeft}/${unit.mov}` : unit.mov, gear: gearStat("mov") },
     { label: "Alcance", value: rangeLabel(unit.minRange, unit.maxRange) },
   ];
-  const base = PROMOTED_BASE[unit.classId] ?? unit.classId;
+  // rulesClass also maps the heroes' own classes (voss, salazar, neera, kaelFinal) to their
+  // job — PROMOTED_BASE alone left Voss, Salazar, Neera and Kael with no spell list.
+  const base = rulesClass(unit.classId);
   const mage = base === "mage";
   const conjurer = base === "conjurer";
   const healer = base === "healer";
@@ -9369,9 +9440,9 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
   const spellStatusRow = (spell: SpellKind, label: string) => (
     <div key={spell} className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
       <img src={slotIcon({ kind: "spell", spell })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
-      <p className="text-xs truncate">
-        {uiText(label)} <span className="tabular-nums text-muted">Tier {spellTier(spell)} · ×{unit.spells[tierKey(spellTier(spell)!)] ?? 0}</span>
-      </p>
+      <p className="text-xs truncate min-w-0">{uiText(label)}</p>
+      {/* Tier and uses sit outside the truncated label so a long label never hides them. */}
+      <span className="ml-auto shrink-0 text-xs tabular-nums text-muted">Tier {spellTier(spell)} · ×{unit.spells[tierKey(spellTier(spell)!)] ?? 0}</span>
     </div>
   );
   const condition = characterCondition(unit);
@@ -9549,6 +9620,8 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
           <>
             <p className="text-xs ember-kicker mb-2">Magias e habilidades</p>
             <div className="grid grid-cols-1 gap-1.5">
+              {sortSkillRowsByTier(
+                <>
                   {swordsman && (
                     <>
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">
@@ -9665,7 +9738,7 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                       <img src={spellIcon("magic-missile")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                       <p className="text-xs leading-snug">
                         {uiText(MAGIC_MISSILE.name)} {damageFormula(unit.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)}{" "}
-                        <span className="tabular-nums text-muted">×{unit.spellCharges ?? 0}</span>
+                        <span className="tabular-nums text-muted">Tier {spellTier("magicMissile")} · ×{unit.spellCharges ?? 0}</span>
                       </p>
                     </div>
                   )}
@@ -9674,7 +9747,7 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                       <img src={slotIcon({ kind: "spell", spell: "shock" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                       <p className="text-xs leading-snug">
                         {uiText(SHOCK.name)} {damageFormula(unit.mag, SHOCK.mul, SHOCK.dice, SHOCK.faces, SHOCK.bonus)}{" "}
-                        <span className="tabular-nums text-muted">×{unit.spellCharges ?? 0}</span>
+                        <span className="tabular-nums text-muted">Tier {spellTier("shock")} · ×{unit.spellCharges ?? 0}</span>
                       </p>
                     </div>
                   )}
@@ -9683,7 +9756,7 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                       <img src={slotIcon({ kind: "spell", spell: "lifeDrain" })} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                       <p className="text-xs leading-snug">
                         {uiText(LIFE_DRAIN.name)} {lifeDrainFormula(unit.level, unit.mag)} · cura {Math.round(lifeDrainHealMul(unit.level) * 100)}% do dano{" "}
-                        <span className="tabular-nums text-muted">×{unit.lifeDrainCharges ?? 0}</span>
+                        <span className="tabular-nums text-muted">Tier {spellTier("lifeDrain")} · ×{unit.lifeDrainCharges ?? 0}</span>
                       </p>
                     </div>
                   )}
@@ -9692,7 +9765,7 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                       <img src={spellIcon("fireball")} alt="" className="size-5 rounded-sm object-cover shrink-0" />
                       <p className="text-xs leading-snug">
                         Fogo {damageFormula(unit.mag, FIREBALL.mul, FIREBALL.dice, FIREBALL.faces, FIREBALL.bonus)}{" "}
-                        <span className="tabular-nums text-muted">×{unit.spellCharges ?? 0}</span>
+                        <span className="tabular-nums text-muted">Tier {spellTier("fireball")} · ×{unit.spellCharges ?? 0}</span>
                       </p>
                     </div>
                   )}
@@ -9782,7 +9855,9 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                       {spellStatusRow("stampede", STAMPEDE.name)}
                     </>
                   )}
-                </div>
+                </>,
+              )}
+            </div>
           </>
         )}
 

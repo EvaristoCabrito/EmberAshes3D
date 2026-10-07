@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { BookOpen, Check, ChevronLeft, Clock, Lock, MapPin, Save, SlidersHorizontal, Volume2, VolumeX, X, ZoomIn, ZoomOut } from "lucide-react";
 import { isCrossingDungeon, missionsForLocation } from "./mapstore";
 import type { EquipSlot, Mission, PotionId, SaveData, WeaponType, WorldLocation } from "./types";
-import { PartyInventoryOverlay } from "./InventoryScreens";
+import { PartyInventoryOverlay, preloadPartyInventoryAssets } from "./InventoryScreens";
 import { CREATE_FOOD_AND_WATER, POTIONS, createFoodAndWaterFormula, createFoodAndWaterPower, gearStatBonus, heroRecruited, rulesClass, statsFor, tierUses } from "./data";
 import { fullness, travelHungerCost } from "./hunger";
 import { GoldAmount } from "./GoldAmount";
@@ -233,6 +233,22 @@ export function OverworldMapScreen({
   }, []);
   const [artOk, setArtOk] = useState(true);
   const mapLoading = useMapLoading("/game/assets/world-map.jpg");
+  useEffect(() => {
+    if (mapLoading.visible) return;
+    let idleId: number | null = null;
+    let timerId: number | null = null;
+    const idleWindow = window as unknown as {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    const warm = () => preloadPartyInventoryAssets(save);
+    if (idleWindow.requestIdleCallback) idleId = idleWindow.requestIdleCallback(warm, { timeout: 1500 });
+    else timerId = window.setTimeout(warm, 250);
+    return () => {
+      if (idleId != null) idleWindow.cancelIdleCallback?.(idleId);
+      if (timerId != null) window.clearTimeout(timerId);
+    };
+  }, [mapLoading.visible, save.weapons, save.equipment, save.looseEquipment]);
   useEffect(() => {
     if (mapLoading.failed) setArtOk(false);
   }, [mapLoading.failed]);

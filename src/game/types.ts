@@ -179,6 +179,7 @@ export type SpellKind =
   | "bless"
   | HealId
   | "longShot"
+  | "bloodyShot"
   | "piercing"
   | "lightning"
   | "lightningTier3"
@@ -809,6 +810,10 @@ export interface Unit {
   poisonResist?: number;
   /** Rasteira wound: suffers 1D8 whenever acting; movement only once each own turn. */
   bleeding: boolean;
+  /** Timed bleed rounds left for Bloody Shot; undefined means an indefinite Trip bleed. */
+  bleedRoundsLeft?: number;
+  /** Round when the timed bleed was last applied or decremented; used to expire after full rounds. */
+  bleedRoundMarker?: number;
   bleedMovedThisTurn: boolean;
   /** Shield Bash victim: loses their entire next turn, then clears automatically. */
   stunned: boolean;
@@ -903,6 +908,7 @@ export interface UnitPublic {
   poisonTier?: PoisonTier;
   poisonMag?: number;
   bleeding: boolean;
+  bleedRoundsLeft?: number;
   blessedHitBonusPct?: number;
   blessedRoundsLeft?: number;
   /** Delayed lightning echo that resolves at the start of this unit's turn. */
@@ -1242,6 +1248,8 @@ export interface BattleUnitSnap {
   poisonMag?: number;
   poisonResist?: number;
   bleeding?: boolean;
+  bleedRoundsLeft?: number;
+  bleedRoundMarker?: number;
   stunned: boolean;
   stunTurns: number;
   crippled: boolean;

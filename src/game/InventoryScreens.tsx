@@ -8,6 +8,38 @@ import { HungerBar } from "./HungerBar";
 
 const POTIONS: PotionId[] = ["weak", "mid", "potent", "disease", "manaSmall", "manaMid", "manaLarge"];
 const BAG_ICON = "/game/icons/refresh-001/packs/small-pouch.png";
+const inventoryImageCache = new Map<string, HTMLImageElement>();
+
+/** Warm the images used by Mochila/Equipar while the world map is idle. These screens are
+ * already in the main bundle; their first-open hitch came from decoding the doll art and
+ * the party's item icons all at once. */
+export function preloadPartyInventoryAssets(save: SaveData): void {
+  const sources = new Set([
+    "/game/ui/equipment-male.jpg?v=3",
+    "/game/ui/equipment-female.jpg?v=3",
+    BAG_ICON,
+    RATIONS_ICON,
+    "/game/icons/lockpick.png",
+    ...POTIONS.map((kind) => `/game/icons/potion-${kind}.png?v=ds2`),
+    ...Object.keys(save.weapons).filter((id) => id in WEAPONS).map(weaponIcon),
+    ...Object.keys(save.looseEquipment).filter((id) => id in EQUIPMENT).map(equipmentIcon),
+    ...Object.values(save.equipment).flatMap((slots) => Object.values(slots)
+      .filter((id): id is string => typeof id === "string" && id in EQUIPMENT)
+      .map(equipmentIcon)),
+  ]);
+
+  for (const src of sources) {
+    if (inventoryImageCache.has(src)) continue;
+    const image = new Image();
+    inventoryImageCache.set(src, image);
+    image.decoding = "async";
+    image.addEventListener("error", () => {
+      if (inventoryImageCache.get(src) === image) inventoryImageCache.delete(src);
+    }, { once: true });
+    image.src = src;
+    void image.decode?.().catch(() => {});
+  }
+}
 
 /** Disease potions have no persistent effect outside of battle — diseased/poisoned is
  * battle-only Unit state (see engine.ts's applyPotion), nothing survives between fights to

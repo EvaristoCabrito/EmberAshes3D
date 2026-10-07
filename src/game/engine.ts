@@ -6,7 +6,7 @@ import { tacticalGridStyleQuiet as tacticalGridStyle, GRID_MOVE, GRID_ROUTE, GRI
 import { isHexGroundVariant, requestSpriteArt } from "./assets";
 import { drawGroundTexture, drawHexGround } from "./hexGround";
 import { vauBackdropBounds } from "./vauBackdrop";
-import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, DIVINE_BOLT, MINOR_VENOM, DECOR_ART_SCALE, HOUSE_ART_SCALE, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expToLevel, expForHit, FIREBALL, FANTOM_FORCE, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, decorationImageRetryWebp, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashPower, POISON_BREATH, poisonBreathFormula, poisonBreathPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower, BLESS, rulesClass } from "./data";
+import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, DIVINE_BOLT, MINOR_VENOM, DECOR_ART_SCALE, HOUSE_ART_SCALE, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expToLevel, expForHit, FIREBALL, FANTOM_FORCE, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, BLOODY_SHOT, bloodyShotMul, bloodyShotBleed, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, decorationImageRetryWebp, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashPower, POISON_BREATH, poisonBreathFormula, poisonBreathPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower, BLESS, rulesClass } from "./data";
 import type { SpellTier } from "./data";
 import { weightedWeaponPick, shieldBashFormula, fantomForceChargesFor, fantomForceDice } from "./data";
 import { clearRockColumnTiles, placedBlockingFootprint, THREE_D_DOOR_VARIANTS } from "./data";
@@ -253,6 +253,7 @@ interface MissileFx {
   travel: number;
   max: number;
   hue: number;
+  neeraArrow: boolean;
   kind: "magicMissile" | "phantasmalForce" | "fantomForce" | "fireball" | "causticVenom" | "minorVenom" | "longShot" | "arcaneBolt" | "webOfDreams";
   seed: number;
 }
@@ -275,7 +276,7 @@ function blankFireballBurstFx(): FireballBurstFx {
 }
 
 function blankMissileFx(): MissileFx {
-  return { live: false, fromX: 0, fromY: 0, toX: 0, toY: 0, t: 0, max: MISSILE_TRAVEL + MISSILE_AFTERGLOW, travel: MISSILE_TRAVEL, hue: 268, kind: "magicMissile", seed: 0 };
+  return { live: false, fromX: 0, fromY: 0, toX: 0, toY: 0, t: 0, max: MISSILE_TRAVEL + MISSILE_AFTERGLOW, travel: MISSILE_TRAVEL, hue: 268, neeraArrow: false, kind: "magicMissile", seed: 0 };
 }
 
 /** How long the Lightning strike's flash lasts, start to fully faded — short and sudden on
@@ -668,6 +669,7 @@ function pub(u: Unit, restrained: boolean, movLeft: number): UnitPublic {
     poisonTier: u.poisonTier,
     poisonMag: u.poisonMag,
     bleeding: u.bleeding,
+    bleedRoundsLeft: u.bleedRoundsLeft,
     blessedHitBonusPct: u.blessedHitBonusPct,
     blessedRoundsLeft: u.blessedRoundsLeft,
     shock: u.shock ? { ...u.shock } : null,
@@ -1013,6 +1015,8 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
     poisonMag: poisoned ? roster?.heroPoisonMag?.[spawn.name] ?? 0 : undefined,
     poisonResist: side === "player" ? skillResistances(roster?.heroSkills, spawn.name).poison ?? 0 : 0,
     bleeding: false,
+    bleedRoundsLeft: undefined,
+    bleedRoundMarker: undefined,
     bleedMovedThisTurn: false,
     stunned: false,
     stunTurns: 0,
@@ -1101,6 +1105,8 @@ function unitFromSnap(snap: BattleUnitSnap): Unit {
     poisonMag: snap.poisonMag ?? 0,
     poisonResist: snap.poisonResist ?? 0,
     bleeding: snap.bleeding ?? false,
+    bleedRoundsLeft: snap.bleedRoundsLeft,
+    bleedRoundMarker: snap.bleedRoundMarker,
     bleedMovedThisTurn: false,
     stunned: snap.stunned,
     stunTurns: snap.stunTurns,
@@ -1939,6 +1945,8 @@ export class BattleEngine {
         poisonMag: u.poisonMag,
         poisonResist: u.poisonResist,
         bleeding: u.bleeding,
+        bleedRoundsLeft: u.bleedRoundsLeft,
+        bleedRoundMarker: u.bleedRoundMarker,
         stunned: u.stunned,
         stunTurns: u.stunTurns,
         crippled: u.crippled,
@@ -2396,7 +2404,7 @@ export class BattleEngine {
     if (!this.woundUp.has(step)) {
       if (step.type === "spell") {
         const caster = this.units.find((u) => u.id === step.att);
-        const arrowSpell = step.spellKind === "longShot" || step.spellKind === "multiShot" || step.spellKind === "piercing";
+        const arrowSpell = step.spellKind === "longShot" || step.spellKind === "bloodyShot" || step.spellKind === "multiShot" || step.spellKind === "piercing";
         const meleeSkill = step.spellKind === "cleave" || step.spellKind === "sweep" || step.spellKind === "shoulderSmash" || step.spellKind === "stampede" || step.spellKind === "piercingThrust" || step.spellKind === "trip" || step.spellKind === "doubleStrike";
         if (arrowSpell) sfxPlay.arrowAttack(caster?.sprite === "neera");
         else if (step.spellKind === "tendrilSwipe") sfxPlay.carnivorousPlantAttack();
@@ -2453,7 +2461,7 @@ export class BattleEngine {
         step.type === "spell" &&
         (step.spellKind === "doubleStrike" || step.spellKind === "cleave" || step.spellKind === "piercingThrust" || step.spellKind === "sweep" || step.spellKind === "trip" || step.spellKind === "shoulderSmash" || step.spellKind === "stampede" || step.spellKind === "tendrilSwipe");
       const ranged = !meleeSkill && (step.type !== "combat" || (!!actor && !step.customDice && (this.isArrowAttack(actor) || this.isArcaneCaster(actor))));
-      const arrowSkill = step.type === "spell" && (step.spellKind === "longShot" || step.spellKind === "multiShot" || step.spellKind === "piercing");
+      const arrowSkill = step.type === "spell" && (step.spellKind === "longShot" || step.spellKind === "bloodyShot" || step.spellKind === "multiShot" || step.spellKind === "piercing");
       const neeraArrowSkill = !!actor && actor.sprite === "neera" && arrowSkill;
       const pose = neeraArrowSkill ? "specialAttack" : step.type === "combat" ? "attack" : "cast";
       const frames = actor
@@ -2644,7 +2652,7 @@ export class BattleEngine {
         const target = step.projectileTo ?? null;
         if (caster && target) this.emitMissileFx(caster.x, caster.y, target.x, target.y, "minorVenom");
       }
-      if (step.spellKind === "longShot") {
+      if (step.spellKind === "longShot" || step.spellKind === "bloodyShot") {
         const caster = this.units.find((u) => u.id === step.att);
         const target = step.tiles[0];
         if (caster && target) this.emitMissileFx(caster.x, caster.y, target.x, target.y, "longShot");
@@ -2971,6 +2979,8 @@ export class BattleEngine {
             if (a.stage === "hit" && a.spellKind === "trip") {
               // Rasteira causes Bleeding, not stun (per direct instruction).
               target.bleeding = true;
+              target.bleedRoundsLeft = undefined;
+              target.bleedRoundMarker = undefined;
               if (!target.crippled) {
                 target.crippled = true;
                 const keep = 1 - TRIP.statPenalty;
@@ -3238,7 +3248,7 @@ export class BattleEngine {
       if (!a.magicMissileV2Impact && a.t >= 2.5) a.magicMissileV2Impact = true;
       if (!a.magicMissileV2Complete && a.t >= 3.2) a.magicMissileV2Complete = true;
     }
-    const arrowSpell = a.spellKind === "longShot" || a.spellKind === "multiShot" || a.spellKind === "piercing";
+    const arrowSpell = a.spellKind === "longShot" || a.spellKind === "bloodyShot" || a.spellKind === "multiShot" || a.spellKind === "piercing";
     const hitAt = arrowSpell ? ARROW_TRAVEL : a.spellKind === "fantomForce" ? FANTOM_FORCE_TRAVEL : a.spellKind === "phantasmalForce" ? PHANTASMAL_FORCE_TRAVEL : a.spellKind === "magicMissile" || a.spellKind === "magicMissileV2" || a.spellKind === "fireball" || a.spellKind === "causticVenom" || a.spellKind === "minorVenom" ? SPELL_TRAVEL : 0.18;
     if (syncMagicMissileV2Vfx && a.magicMissileV2VfxId === "") {
       if (a.t >= hitAt) a.magicMissileV2Impact = true;
@@ -3407,7 +3417,7 @@ export class BattleEngine {
             a.spellKind === "stampede" ||
             a.spellKind === "burningHands" || a.spellKind === "poisonBreath" || a.spellKind === "tendrilSwipe";
           const xpMul =
-            foe.hp <= 0 && !isAoeSpell && (att.classId === "mage" || att.classId === "voss" || att.classId === "conjurer" || a.spellKind === "longShot")
+            foe.hp <= 0 && !isAoeSpell && (att.classId === "mage" || att.classId === "voss" || att.classId === "conjurer" || a.spellKind === "longShot" || a.spellKind === "bloodyShot")
               ? 2
               : isAoeSpell && !firstAoeEnemyHit
                 ? 0.5
@@ -3429,6 +3439,13 @@ export class BattleEngine {
         } else {
           sfxPlay.hit();
           if (a.echo) foe.shock = { ...a.echo, mag: this.affinityUnit(att).mag };
+          if (a.spellKind === "bloodyShot" && (!foe.bleeding || foe.bleedRoundsLeft != null)) {
+            const duration = bloodyShotBleed(att.level);
+            foe.bleeding = true;
+            foe.bleedRoundsLeft = rollDice(duration.dice, duration.faces, 0, this.rng);
+            foe.bleedRoundMarker = this.turn;
+            this.pushLog(`${foe.name} sangra por ${foe.bleedRoundsLeft} rodadas (1D8 por ação).`);
+          }
           if (a.spellKind === "sweep") this.knockBack(att, foe);
           if (a.spellKind === "shoulderSmash") {
             for (let i = 0; i < SHOULDER_SMASH.knockback; i++) this.knockBack(att, foe);
@@ -4309,6 +4326,7 @@ export class BattleEngine {
     slot.max = slot.travel + MISSILE_AFTERGLOW;
     // Phantom System uses the original purple 2D bolt; only Phantasmal Force is a blue apparition.
     slot.hue = kind === "fireball" ? 22 : kind === "causticVenom" || kind === "minorVenom" ? 104 : kind === "longShot" ? 205 : kind === "arcaneBolt" ? 2 : kind === "webOfDreams" ? 276 : kind === "phantasmalForce" ? 202 : 268;
+    slot.neeraArrow = kind === "longShot" && this.units.some((u) => u.alive && u.sprite === "neera" && u.x === Math.round(fromX) && u.y === Math.round(fromY));
     slot.kind = kind;
     slot.seed = this.rng() * Math.PI * 2;
   }
@@ -4991,6 +5009,19 @@ export class BattleEngine {
     this.spellAim = null;
     this.hover = null;
     this.tip = `${LONG_SHOT.name}: alcance ${u.minRange}–${this.longMax(u)}, ${longShotFormula(u.level)} − DF. Toque no inimigo.`;
+    sfxPlay.ui();
+  }
+
+  startBloodyShot(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    if (!u || u.acted || u.level < BLOODY_SHOT.unlockLevel || this.tierRemaining(u, "bloodyShot") <= 0) return;
+    const bleed = bloodyShotBleed(u.level);
+    this.mode = "awaitSpell";
+    this.spellKind = "bloodyShot";
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.hover = null;
+    this.tip = `${BLOODY_SHOT.name}: ${Math.round(bloodyShotMul(u.level) * 100)}% do dano de arma, alcance ${u.minRange}–${BLOODY_SHOT.range}; sangramento 1D8 por ação durante ${diceFormula(bleed.dice, bleed.faces, 0)} rodadas. Toque no inimigo.`;
     sfxPlay.ui();
   }
 
@@ -5712,6 +5743,10 @@ export class BattleEngine {
       this.confirmMinorVenom();
       return;
     }
+    if (this.spellKind === "bloodyShot") {
+      this.castBloodyShot(u, cell);
+      return;
+    }
     if (this.spellKind === "longShot") {
       this.castLongShot(u, cell);
       return;
@@ -6069,7 +6104,7 @@ export class BattleEngine {
     }
 
     const target = this.occ().get(key(cell.x, cell.y));
-    const targetRequired = ["longShot", "lightning", "lightningTier3", "shock", "phantasmalForce", "multiShot", "doubleStrike", "trip", "lifeDrain", "executionerStrike", "shieldBash"].includes(kind);
+    const targetRequired = ["longShot", "bloodyShot", "lightning", "lightningTier3", "shock", "phantasmalForce", "multiShot", "doubleStrike", "trip", "lifeDrain", "executionerStrike", "shieldBash"].includes(kind);
     if (targetRequired) {
       if (!target) return "Não há unidade na casa selecionada.";
       if (this.unitHidden(target)) return "Escolha um inimigo visível.";
@@ -6078,8 +6113,8 @@ export class BattleEngine {
     }
 
     const distance = manhattan(caster, cell);
-    if (kind === "longShot" || kind === "multiShot") {
-      const max = kind === "longShot" ? this.longMax(caster) : MULTI_SHOT.range;
+    if (kind === "longShot" || kind === "bloodyShot" || kind === "multiShot") {
+      const max = kind === "longShot" ? this.longMax(caster) : kind === "bloodyShot" ? BLOODY_SHOT.range : MULTI_SHOT.range;
       if (distance < caster.minRange) return `Alvo perto demais (alcance mínimo ${caster.minRange} hexes).`;
       if (distance > max) return `Alvo fora de alcance (máximo ${max} hexes).`;
       if (!clearShot(caster, cell, this.tiles, this.cols, "arrow", this.decorOverlay)) return this.shotBlockedTip(caster, cell, "arrow");
@@ -6336,6 +6371,12 @@ export class BattleEngine {
       const d = manhattan(caster, cell);
       const here = this.occ().get(key(cell.x, cell.y));
       if (!this.targetable(here) || d < caster.minRange || d > this.longMax(caster)) return false;
+      return clearShot(caster, cell, this.tiles, this.cols, "arrow", this.decorOverlay);
+    }
+    if (this.spellKind === "bloodyShot") {
+      const d = manhattan(caster, cell);
+      const here = this.occ().get(key(cell.x, cell.y));
+      if (!this.targetable(here) || d < caster.minRange || d > BLOODY_SHOT.range) return false;
       return clearShot(caster, cell, this.tiles, this.cols, "arrow", this.decorOverlay);
     }
     if (this.spellKind === "piercing") return this.piercingRay(caster, cell) !== null;
@@ -6624,6 +6665,34 @@ export class BattleEngine {
       weaponBonusFaces: power.faces,
       weaponBonusBonus: 0,
       spellKind: "longShot",
+    });
+  }
+
+  private castBloodyShot(unit: Unit, cell: Point): void {
+    if (!this.spellAimValid(unit, cell)) {
+      this.tip = this.spellAimError(unit, cell);
+      sfxPlay.ui();
+      return;
+    }
+    const foe = this.occ().get(key(cell.x, cell.y));
+    if (!foe) {
+      this.tip = "Não há unidade na casa selecionada.";
+      sfxPlay.ui();
+      return;
+    }
+    this.spendTier(unit, "bloodyShot");
+    this.spellKind = null;
+    this.missileTargets = [];
+    this.tip = null;
+    this.mode = "locked";
+    this.queue.push({
+      type: "spell",
+      att: unit.id,
+      tiles: [cell],
+      ids: [foe.id],
+      label: BLOODY_SHOT.name,
+      dmgMul: bloodyShotMul(unit.level),
+      spellKind: "bloodyShot",
     });
   }
 
@@ -7933,6 +8002,14 @@ export class BattleEngine {
     for (const u of this.units) {
       u.moved = false;
       u.acted = false;
+      if (u.bleedRoundsLeft != null && u.bleedRoundMarker != null && u.bleedRoundMarker < this.turn) {
+        u.bleedRoundsLeft = Math.max(0, u.bleedRoundsLeft - 1);
+        u.bleedRoundMarker = this.turn;
+        if (u.bleedRoundsLeft === 0) {
+          u.bleeding = false;
+          u.bleedRoundMarker = undefined;
+        }
+      }
       if ((u.blessedRoundsLeft ?? 0) > 0) {
         u.blessedRoundsLeft = Math.max(0, u.blessedRoundsLeft! - 1);
         if (u.blessedRoundsLeft === 0) u.blessedHitBonusPct = 0;
@@ -9958,7 +10035,7 @@ export class BattleEngine {
     // existed. Checked first so a caster with both never mixes an index meant for one pool's
     // frame count into the other.
     if ((a.type === "spell" || a.type === "heal") && a.att === u.id) {
-      const neeraArrowSkill = u.sprite === "neera" && a.type === "spell" && (a.spellKind === "longShot" || a.spellKind === "multiShot" || a.spellKind === "piercing");
+      const neeraArrowSkill = u.sprite === "neera" && a.type === "spell" && (a.spellKind === "longShot" || a.spellKind === "bloodyShot" || a.spellKind === "multiShot" || a.spellKind === "piercing");
       // The Carnivorous Plant's tendril swipe is her ATT, not a cast: it plays her attack sheet.
       const castFrames = neeraArrowSkill ? (this.art.attacks2[u.sprite] ?? this.art.attacks[u.sprite]) : a.type === "spell" && a.spellKind === "tendrilSwipe" ? this.art.attacks[u.sprite] : this.art.casts[u.sprite] ?? this.art.attacks[u.sprite];
       if (!castFrames || castFrames.length < 3) return null;
@@ -10114,7 +10191,7 @@ export class BattleEngine {
     // attackPool) — mirrored here so the frame actually drawn comes from the same array.
     const oxRush = u.classId === "bigBlueCalf" && this.active?.type === "combat" && this.active.spellKind === "bullRush" && this.active.att === u.id && !this.active.stage.startsWith("counter");
     const neeraArrowSkill = u.sprite === "neera" && (
-      (this.active?.type === "spell" && this.active.att === u.id && (this.active.spellKind === "longShot" || this.active.spellKind === "multiShot" || this.active.spellKind === "piercing")) ||
+      (this.active?.type === "spell" && this.active.att === u.id && (this.active.spellKind === "longShot" || this.active.spellKind === "bloodyShot" || this.active.spellKind === "multiShot" || this.active.spellKind === "piercing")) ||
       (this.active?.type === "windup" && this.active.id === u.id && this.active.pose === "specialAttack")
     );
     const atkBase = neeraArrowSkill
@@ -11666,20 +11743,54 @@ export class BattleEngine {
         const afterglow = Math.max(0, (m.t - m.travel) / MISSILE_AFTERGLOW);
         const physicalArrow = m.kind === "longShot";
         if (physicalArrow) {
-          // arrow-002: original supplied arrow art, straight travel, with a restrained air-pressure wake.
+          // All of Neera's arrow attacks share a restrained blood-red wake and a brief
+          // impact sparkle; the arrow itself keeps the approved projectile art.
           const head = { x: from.cx + dxT * kHead, y: from.cy - tile * 0.3 + dyT * kHead };
           const flightAngle = Math.atan2(dyT, dxT);
           ctx.save();
           ctx.globalCompositeOperation = "lighter";
-          ctx.globalAlpha = (1 - afterglow) * 0.24;
-          ctx.strokeStyle = "rgba(215,222,226,0.74)";
-          ctx.lineWidth = Math.max(1, tile * 0.012);
+          ctx.globalAlpha = (1 - afterglow) * (m.neeraArrow ? 0.42 : 0.24);
+          ctx.strokeStyle = m.neeraArrow ? "rgba(220,38,54,0.82)" : "rgba(215,222,226,0.74)";
+          ctx.lineWidth = Math.max(1, tile * (m.neeraArrow ? 0.018 : 0.012));
           for (let ring = 1; ring <= 2; ring += 1) {
             const bk = Math.max(0, kHead - ring * 0.1);
             const back = { x: from.cx + dxT * bk, y: from.cy - tile * 0.3 + dyT * bk };
-            ctx.beginPath();
-            ctx.ellipse(back.x, back.y, tile * (0.09 + ring * 0.035), tile * (0.024 + ring * 0.01), flightAngle, 0, Math.PI * 2);
-            ctx.stroke();
+            if (m.neeraArrow) {
+              ctx.beginPath();
+              ctx.ellipse(back.x, back.y, tile * (0.10 + ring * 0.035), tile * (0.027 + ring * 0.01), flightAngle, 0, Math.PI * 2);
+              ctx.stroke();
+            } else {
+              ctx.beginPath();
+              ctx.ellipse(back.x, back.y, tile * (0.09 + ring * 0.035), tile * (0.024 + ring * 0.01), flightAngle, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+          }
+          if (m.neeraArrow && afterglow < 1) {
+            // A few ember-red motes follow the arrow during flight and flare outward on impact.
+            for (let spark = 0; spark < 5; spark += 1) {
+              const trail = spark * 0.055;
+              const k = Math.max(0, kHead - trail);
+              const x = from.cx + dxT * k;
+              const y = from.cy - tile * 0.3 + dyT * k;
+              const phase = m.seed + spark * 2.4 + this.time * 5;
+              const spread = tile * (0.025 + spark * 0.012);
+              ctx.fillStyle = `rgba(255,${58 + spark * 14},${48 + spark * 8},${(1 - afterglow) * (0.85 - spark * 0.11)})`;
+              ctx.beginPath();
+              ctx.arc(x + Math.cos(phase) * spread, y + Math.sin(phase) * spread, tile * (0.018 + (spark % 2) * 0.008), 0, Math.PI * 2);
+              ctx.fill();
+            }
+            if (kHead >= 1) {
+              ctx.globalAlpha = (1 - afterglow) * 0.8;
+              ctx.strokeStyle = "rgba(255,75,62,0.9)";
+              ctx.lineWidth = Math.max(1, tile * 0.016);
+              for (let ray = 0; ray < 7; ray += 1) {
+                const a = m.seed + ray * (Math.PI * 2 / 7);
+                ctx.beginPath();
+                ctx.moveTo(head.x + Math.cos(a) * tile * 0.035, head.y + Math.sin(a) * tile * 0.035);
+                ctx.lineTo(head.x + Math.cos(a) * tile * (0.12 + afterglow * 0.12), head.y + Math.sin(a) * tile * (0.12 + afterglow * 0.12));
+                ctx.stroke();
+              }
+            }
           }
           ctx.restore();
           ctx.save();
