@@ -2867,21 +2867,21 @@ export const WEAPONS: Record<string, WeaponDef> = {
   "espada-da-lealdade": wpn("sword", "espada-da-lealdade", "Espada da Lealdade", WARRIOR_TRIO, 4),
   "espadao-pesado": wpn("sword", "espadao-pesado", "Espadão Pesado", WARRIOR_TRIO, 5),
   "lamina-sagrada": wpn("sword", "lamina-sagrada", "Lâmina Sagrada", WARRIOR_TRIO, 6),
-  "martelo-de-guerra": wpn("hammer", "martelo-de-guerra", "Martelo de Guerra", [...WARRIOR_TRIO, "cleric"], 1),
-  "martelo-da-justica": wpn("hammer", "martelo-da-justica", "Martelo da Justiça", [...WARRIOR_TRIO, "cleric"], 2),
+  "martelo-de-guerra": wpn("hammer", "martelo-de-guerra", "Martelo de Guerra", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 1),
+  "martelo-da-justica": wpn("hammer", "martelo-da-justica", "Martelo da Justiça", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 2),
   "machado-barbaro": wpn("axe", "machado-barbaro", "Machado Bárbaro", WARRIOR_TRIO, 7),
-  "maca-de-espinhos": wpn("mace", "maca-de-espinhos", "Maça de Espinhos", [...WARRIOR_TRIO, "cleric"], 1, MELEE, undefined, 3),
-  "maca-flangeada-negra": wpn("mace", "maca-flangeada-negra", "Maça Flangeada Negra", [...WARRIOR_TRIO, "cleric"], 2, MELEE, undefined, 3),
-  "maca-diamantada-de-ferro": wpn("mace", "maca-diamantada-de-ferro", "Maça Diamantada de Ferro", [...WARRIOR_TRIO, "cleric"], 3, MELEE, undefined, 3),
-  "maca-da-cruz-ferrea": wpn("mace", "maca-da-cruz-ferrea", "Maça da Cruz Férrea", [...WARRIOR_TRIO, "cleric"], 4, MELEE, undefined, 3),
-  "maca-espinhada-dourada": wpn("mace", "maca-espinhada-dourada", "Maça Espinhada Dourada", [...WARRIOR_TRIO, "cleric"], 5, MELEE, undefined, 3),
-  "maca-alada-negra": wpn("mace", "maca-alada-negra", "Maça Alada Negra", [...WARRIOR_TRIO, "cleric"], 6, MELEE, undefined, 3),
-  "maca-do-leao-cruzado": wpn("mace", "maca-do-leao-cruzado", "Maça do Leão Cruzado", [...WARRIOR_TRIO, "cleric"], 7, MELEE, undefined, 2),
-  "maca-rubi-sombria": wpn("mace", "maca-rubi-sombria", "Maça Rubi Sombria", [...WARRIOR_TRIO, "cleric"], 7, MELEE, undefined, 3),
-  "maca-do-leao-duplo": wpn("mace", "maca-do-leao-duplo", "Maça do Leão Duplo", [...WARRIOR_TRIO, "cleric"], 8, MELEE, undefined, 2),
-  "maca-do-cranio-flamejante": wpn("mace", "maca-do-cranio-flamejante", "Maça do Crânio Flamejante", [...WARRIOR_TRIO, "cleric"], 8, MELEE, undefined, 3),
-  "maca-do-sol-sagrado": wpn("mace", "maca-do-sol-sagrado", "Maça do Sol Sagrado", [...WARRIOR_TRIO, "cleric"], 9, MELEE, undefined, 2),
-  "maca-do-nucleo-azul": wpn("mace", "maca-do-nucleo-azul", "Maça do Núcleo Azul", [...WARRIOR_TRIO, "cleric"], 9, MELEE, undefined, 3),
+  "maca-de-espinhos": wpn("mace", "maca-de-espinhos", "Maça de Espinhos", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 1, MELEE, undefined, 3),
+  "maca-flangeada-negra": wpn("mace", "maca-flangeada-negra", "Maça Flangeada Negra", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 2, MELEE, undefined, 3),
+  "maca-diamantada-de-ferro": wpn("mace", "maca-diamantada-de-ferro", "Maça Diamantada de Ferro", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 3, MELEE, undefined, 3),
+  "maca-da-cruz-ferrea": wpn("mace", "maca-da-cruz-ferrea", "Maça da Cruz Férrea", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 4, MELEE, undefined, 3),
+  "maca-espinhada-dourada": wpn("mace", "maca-espinhada-dourada", "Maça Espinhada Dourada", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 5, MELEE, undefined, 3),
+  "maca-alada-negra": wpn("mace", "maca-alada-negra", "Maça Alada Negra", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 6, MELEE, undefined, 3),
+  "maca-do-leao-cruzado": wpn("mace", "maca-do-leao-cruzado", "Maça do Leão Cruzado", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 7, MELEE, undefined, 2),
+  "maca-rubi-sombria": wpn("mace", "maca-rubi-sombria", "Maça Rubi Sombria", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 7, MELEE, undefined, 3),
+  "maca-do-leao-duplo": wpn("mace", "maca-do-leao-duplo", "Maça do Leão Duplo", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 8, MELEE, undefined, 2),
+  "maca-do-cranio-flamejante": wpn("mace", "maca-do-cranio-flamejante", "Maça do Crânio Flamejante", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 8, MELEE, undefined, 3),
+  "maca-do-sol-sagrado": wpn("mace", "maca-do-sol-sagrado", "Maça do Sol Sagrado", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 9, MELEE, undefined, 2),
+  "maca-do-nucleo-azul": wpn("mace", "maca-do-nucleo-azul", "Maça do Núcleo Azul", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 9, MELEE, undefined, 3),
 
   // Arqueira / Patrulheiro / Assassina — arco/besta/adaga, pool compartilhado.
   // Único desvio deliberado do D&D real (onde adaga < arco): aqui toda arma corpo a corpo
@@ -2925,8 +2925,8 @@ export const WEAPONS: Record<string, WeaponDef> = {
   "arco-elfico-de-cinzas": wpn("bow", "arco-elfico-de-cinzas", "Arco Élfico de Cinzas", ARCHER_TRIO, 7, RANGED),
   "arco-longo-de-teixo": wpn("bow", "arco-longo-de-teixo", "Arco Longo de Teixo", ARCHER_TRIO, 8, RANGED_MASTERWORK),
   // Adaga Viperina / Misericórdia Sombria / Punhal do Salteador / Katar Sepulcral: same, see OFFHAND_DAGGERS.
-  "martelo-belico": wpn("hammer", "martelo-belico", "Martelo Bélico", [...WARRIOR_TRIO, "cleric"], 3),
-  "malho-do-juizo": wpn("hammer", "malho-do-juizo", "Malho do Juízo", [...WARRIOR_TRIO, "cleric"], 4),
+  "martelo-belico": wpn("hammer", "martelo-belico", "Martelo Bélico", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 3),
+  "malho-do-juizo": wpn("hammer", "malho-do-juizo", "Malho do Juízo", [...WARRIOR_TRIO, "cleric", "healer", "salazar", "bishop"], 4),
   "lamina-consagrada": wpn("sword", "lamina-consagrada", "Lâmina Consagrada", WARRIOR_TRIO, 3, MELEE, undefined, 1),
 
   // Bows1 (base line) and StrongBows (higher-tier line for higher-level characters).
@@ -3009,7 +3009,9 @@ export function weaponPower(w: WeaponDef): number {
 
 /** Cheapest/weakest weapon a class can use — auto-equipped for free until the player picks another. */
 export function starterWeaponFor(classId: ClassId): string | null {
-  const list = weaponsForClass(classId);
+  // Salazar's classes also wield maces and hammers now, but his free starter stays a staff.
+  const staffStarter = classId === "healer" || classId === "salazar" || classId === "bishop";
+  const list = weaponsForClass(classId).filter((w) => !staffStarter || w.weaponType === "staff");
   if (list.length === 0) return null;
   return list.reduce((a, b) => (weaponPower(a) <= weaponPower(b) ? a : b)).id;
 }

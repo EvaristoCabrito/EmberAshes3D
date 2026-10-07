@@ -13,7 +13,9 @@ test("each character's pool follows main-hand and off-hand equipment permissions
   assert.deepEqual(weaponTypesForClass("swordsman"), ["sword", "axe", "mace", "hammer"]);
   assert.deepEqual(weaponTypesForClass("archer"), ["bow", "crossbow", "dagger"]);
   assert.deepEqual(weaponTypesForClass("mage"), ["staff"]);
-  assert.deepEqual(weaponTypesForClass("healer"), ["staff"]);
+  // Salazar (healer/salazar classes) fights with maces and hammers as well as staves.
+  assert.deepEqual(weaponTypesForClass("healer"), ["mace", "hammer", "staff"]);
+  assert.deepEqual(weaponTypesForClass("salazar"), ["mace", "hammer", "staff"]);
   assert.deepEqual(weaponTypesForClass("aldric"), ["spear"]);
   assert.deepEqual(weaponTypesForClass("conjurer"), ["staff"]);
   assert.deepEqual(weaponTypesForClass("cleric"), ["mace", "hammer", "staff"]);
@@ -63,7 +65,7 @@ test("off-hand dagger uses dagger mastery instead of the bow's mastery", () => {
 });
 
 test("saved weapon skills remain within the class pool and never become resistances", () => {
-  const clean = cleanHeroSkills({ Kael: { swordWeapon: 25.4, bowWeapon: 90, fireResistance: 30 } }, ["Kael"], (_, type) => weaponTypesForClass("swordsman").includes(type));
+  const clean = cleanHeroSkills({ Kael: { swordWeapon: 25.4, bowWeapon: 90, fireResistance: 30 } }, ["Kael"], (_, type) => weaponTypesForClass("swordsman").includes(type), true);
   assert.equal(clean.Kael.swordWeapon, 26);
   assert.equal(clean.Kael.bowWeapon, undefined);
   assert.equal(trainedWeaponSkills(clean, "Kael", "swordsman").sword, 26);
