@@ -663,6 +663,7 @@ export class ThreeBattleRenderer {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private readonly spellVfxScene = new THREE.Group();
+  private readonly blizzardLightPulses: { light: THREE.PointLight; age:number }[] = [];
   private fireballVfx: FireballVFX | null = null;
   private causticVenomVfx: CausticVenomVFX | null = null;
   private phantasmalForceVfx: PhantasmalForceVFX | null = null;
@@ -1061,6 +1062,11 @@ export class ThreeBattleRenderer {
     this.scene.add(this.healingSpellLight);
     this.scene.add(this.atmosphere.group);
     this.scene.add(this.spellVfxScene);
+    for(let i=0;i<3;i++){
+      const light=new THREE.PointLight(0xb6e7ff,0,1,1.8);light.layers.enable(SPELL_VFX_LAYER);
+      if(i===0){light.castShadow=true;light.shadow.mapSize.set(512,512);light.shadow.bias=-.001;}
+      this.scene.add(light);this.blizzardLightPulses.push({light,age:10});
+    }
     // Construct synchronously: every live Fireball impact particle is procedural, so no image
     // request can leave the spell without its flight or explosion when cast immediately.
     this.fireballVfx = new FireballVFX(this.spellVfxScene, this.camera, this.tavernFireball);
@@ -2879,6 +2885,7 @@ export class ThreeBattleRenderer {
     this.syncTacticsScenery(tile);
     this.syncSky();
     this.applyDevGfx();
+    for(const pulse of this.blizzardLightPulses){pulse.age+=dt;pulse.light.intensity*=Math.exp(-dt*6);if(pulse.age>1)pulse.light.intensity=0;}
     this.syncFireballVfx(dt, cssW, cssH, tile);
     this.syncCausticVenomVfx(dt, tile);
     this.syncPhantasmalForceVfx(dt, tile);
@@ -3360,6 +3367,16 @@ export class ThreeBattleRenderer {
     }
   }
 
+  /** Real surface illumination for the 2D Blizzard sprite pass; no Three.js spell art. */
+  pulseBlizzardLight(col:number,row:number,dx:number,dy:number,strength:number):void {
+    if(!this.blizzardLightPulses.length)return;
+    const pulse=this.blizzardLightPulses.reduce((old,p)=>p.age>old.age?p:old);
+    const a=this.engine.effectAnchor(col,row);const tile=a.tile;
+    const lift=this.engine.hexElevated(col,row)?tile*.18:0;
+    pulse.light.position.set(a.worldX+dx*tile,-a.worldY-dy*tile+lift,spriteDepthZ(a.worldY,tile)+tile*.5);
+    pulse.light.distance=tile*3.2;pulse.light.intensity=tile*tile*.012*strength;
+    pulse.light.shadow.camera.near=.1;pulse.light.shadow.camera.far=tile*4;pulse.age=0;
+  }
   private syncFireballVfx(dt: number, cssW: number, cssH: number, tile: number): void {
     const system = this.fireballVfx;
     if (!system) return;
@@ -4209,6 +4226,8 @@ export class ThreeBattleRenderer {
   }
 
   dispose(): void {
+    for(const pulse of this.blizzardLightPulses){pulse.light.removeFromParent();pulse.light.dispose();}
+    this.blizzardLightPulses.length=0;
     this.water.dispose();
     this.elevationSteps.dispose();
     this.disposed = true;

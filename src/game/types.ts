@@ -176,6 +176,7 @@ export type SpriteId = "defaultWarrior" | "neera" | "voss" | "salazar" | "aldric
 export type HealId = "cureMinor" | "cureWounds" | "cureLight";
 export type SpellKind =
   | "fireball"
+  | "iceStorm"
   | "bless"
   | HealId
   | "longShot"
@@ -1043,11 +1044,12 @@ export interface TerrainHover {
   /** A persistent spell zone covering this tile. When present, inspection presents the
    * zone instead of the underlying terrain rules. */
   spellZone?: {
-    kind: "webOfDreams";
+    kind: "webOfDreams" | "iceStorm";
     roundsLeft: number;
-    movementCap: number;
-    sleepChance: number;
-    sleepDice: string;
+    movementCap?: number;
+    sleepChance?: number;
+    sleepDice?: string;
+    damageFormula?: string;
   };
 }
 
@@ -1298,6 +1300,8 @@ export interface BattleSnapshot {
    * (see BattleCanvas), same graceful-degradation approach as every other optional field
    * here. */
   webZones: { cells: string[]; roundsLeft: number; center?: Point; radius?: number; sleepChance?: number }[];
+  /** Lingering Ice Storm patches. Optional so battles saved before Ice Storm remain loadable. */
+  iceStormZones?: { cells: string[]; roundsLeft: number; createdAt: number; center: Point; radius: number; damageDice: number; damageFaces: number; damageMul: number; casterMag: number; casterLevel: number; casterId: string; side: Side }[];
   auraZones: { cells: string[]; roundsLeft: number; kind: "protection" | "intimidation"; side: Side; pct: number }[];
   log: string[];
   winAvailable: boolean;

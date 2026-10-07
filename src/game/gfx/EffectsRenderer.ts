@@ -1,3 +1,4 @@
+import { Blizzard2D, type Blizzard2DConfig } from "./Blizzard2D";
 /** The WebGL2 elemental FX pipeline: SceneFBO (the existing Canvas2D battle frame, uploaded as
  * a texture) x LightMapFBO (multiplicative), plus an additive bloom pass, composited on top of
  * whatever BattleCanvas already draws.
@@ -153,6 +154,7 @@ export class EffectsRenderer {
 
   private effects = new Map<number, EffectInstance>();
   private particleEmitters = new Map<number, ParticleEmitter>();
+  private readonly blizzards = new Map<number, Blizzard2D>();
   private nextId = 1;
   private time = 0;
 
@@ -247,6 +249,10 @@ export class EffectsRenderer {
     resizeFbo(gl, this.blurFboB, bw, bh);
   }
 
+  spawnBlizzard(config: Blizzard2DConfig): number {
+    const id=this.nextId++;this.blizzards.set(id,new Blizzard2D(this.gl,config));return id;
+  }
+  removeBlizzard(id: number): void { this.blizzards.get(id)?.dispose();this.blizzards.delete(id); }
   spawnEffect(kind: ElementKind, col: number, row: number, opts: SpawnOptions = {}): number {
     const id = this.nextId++;
     this.effects.set(id, {
@@ -285,7 +291,7 @@ export class EffectsRenderer {
   }
 
   hasEffects(): boolean {
-    return this.effects.size > 0;
+    return this.effects.size > 0 || this.blizzards.size > 0;
   }
 
   private hasLightElements(): boolean {
@@ -510,6 +516,15 @@ export class EffectsRenderer {
       }
     }
 
+    for (const [id, blizzard] of this.blizzards) {
+      blizzard.draw(dt, this.effectsFbo.w, this.effectsFbo.h, cell => {
+        const a=getAnchor(cell.x,cell.y);
+        const scale=this.dpr*this.effectsFbo.w/this.fullW;
+        return { x:a.x*scale,y:a.y*scale,tile:a.tile*scale };
+      });
+      if(blizzard.finished)this.removeBlizzard(id);
+    }
+
     // 4. Bright-pass + separable blur, all at reduced resolution.
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.brightFbo.fbo);
     gl.viewport(0, 0, this.brightFbo.w, this.brightFbo.h);
@@ -583,6 +598,8 @@ export class EffectsRenderer {
   }
 
   dispose(): void {
+    for (const blizzard of this.blizzards.values()) blizzard.dispose();
+    this.blizzards.clear();
     const gl = this.gl;
     deleteFbo(gl, this.lightFbo);
     deleteFbo(gl, this.effectsFbo);

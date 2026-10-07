@@ -6,7 +6,7 @@ import { tacticalGridStyleQuiet as tacticalGridStyle, GRID_MOVE, GRID_ROUTE, GRI
 import { isHexGroundVariant, requestSpriteArt } from "./assets";
 import { drawGroundTexture, drawHexGround } from "./hexGround";
 import { vauBackdropBounds } from "./vauBackdrop";
-import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, DIVINE_BOLT, MINOR_VENOM, DECOR_ART_SCALE, HOUSE_ART_SCALE, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expToLevel, expForHit, FIREBALL, FANTOM_FORCE, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, BLOODY_SHOT, bloodyShotMul, bloodyShotBleed, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, decorationImageRetryWebp, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashPower, POISON_BREATH, poisonBreathFormula, poisonBreathPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower, BLESS, rulesClass } from "./data";
+import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, DIVINE_BOLT, MINOR_VENOM, DECOR_ART_SCALE, HOUSE_ART_SCALE, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expToLevel, expForHit, FIREBALL, ICE_STORM, iceStormPower, iceStormAreaTiles, iceStormFormula, FANTOM_FORCE, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, BLOODY_SHOT, bloodyShotMul, bloodyShotBleed, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, decorationImageRetryWebp, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashPower, POISON_BREATH, poisonBreathFormula, poisonBreathPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower, BLESS, rulesClass } from "./data";
 import type { SpellTier } from "./data";
 import { weightedWeaponPick, shieldBashFormula, fantomForceChargesFor, fantomForceDice } from "./data";
 import { clearRockColumnTiles, placedBlockingFootprint, THREE_D_DOOR_VARIANTS } from "./data";
@@ -1194,6 +1194,8 @@ export class BattleEngine {
    * per-hex stamping used to be the only option and is what used to clash into a snowflake
    * cluster on anything bigger than a single hex. */
   webZones: { cells: Set<string>; roundsLeft: number; createdAt?: number; center?: Point; radius?: number; sleepChance?: number }[] = [];
+  /** Active Ice Storm damage fields, fixed to the cells covered when cast. */
+  iceStormZones: { cells: Set<string>; roundsLeft: number; createdAt: number; center: Point; radius: number; damageDice: number; damageFaces: number; damageMul: number; casterMag: number; casterLevel: number; casterId: string; side: Unit["side"] }[] = [];
   /** One-shot WebGL elemental FX spawn requests queued by a landed spell hit (see
    * SPELL_ELEMENT_FX/queueElementalFx) — BattleCanvas's render loop drains this every frame
    * and calls EffectsRenderer.spawnEffect for each, since `fx` itself only exists over there.
@@ -1688,6 +1690,11 @@ export class BattleEngine {
           .filter((zone) => zone.cells.has(key(hoverCell.x, hoverCell.y)))
           .reduce<(typeof this.webZones)[number] | null>((best, zone) => !best || zone.roundsLeft > best.roundsLeft ? zone : best, null)
       : null;
+    const hoveredIceStorm = hoverCell
+      ? this.iceStormZones
+          .filter((zone) => zone.cells.has(key(hoverCell.x, hoverCell.y)))
+          .reduce<(typeof this.iceStormZones)[number] | null>((best, zone) => !best || zone.roundsLeft > best.roundsLeft ? zone : best, null)
+      : null;
     const inspected = this.units.find((u) => u.id === this.inspectedId) ?? null;
     const pendingFoe = this.units.find((u) => u.id === this.pendingFoeId) ?? null;
     // A foe out of sight gets no damage forecast either — the HUD must not leak what
@@ -1742,7 +1749,13 @@ export class BattleEngine {
                   sleepChance: hoveredWeb.sleepChance ?? WEB_OF_DREAMS.sleepChance,
                   sleepDice: diceFormula(WEB_OF_DREAMS.sleepDice, WEB_OF_DREAMS.sleepFaces, 0),
                 }
-              : undefined,
+              : hoveredIceStorm
+                ? {
+                    kind: "iceStorm" as const,
+                    roundsLeft: hoveredIceStorm.roundsLeft,
+                    damageFormula: iceStormFormula(hoveredIceStorm.casterLevel, hoveredIceStorm.casterMag),
+                  }
+                : undefined,
           }
         : null,
       mode: this.mode,
@@ -1999,6 +2012,7 @@ export class BattleEngine {
       lootEquipment: [...this.lootEquipment],
       ownedWeapons: [...this.ownedWeapons],
       webZones: this.webZones.map((z) => ({ cells: [...z.cells], roundsLeft: z.roundsLeft, center: z.center, radius: z.radius, sleepChance: z.sleepChance })),
+      iceStormZones: this.iceStormZones.map((z) => ({ ...z, cells: [...z.cells], center: { ...z.center } })),
       auraZones: this.auraZones.map((z) => ({
         cells: [...z.cells],
         roundsLeft: z.roundsLeft,
@@ -2070,6 +2084,7 @@ export class BattleEngine {
     this.lootEquipment = [...snap.lootEquipment];
     this.ownedWeapons = new Set(snap.ownedWeapons);
     this.webZones = snap.webZones.map((z) => ({ cells: new Set(z.cells), roundsLeft: z.roundsLeft, center: z.center, radius: z.radius, sleepChance: z.sleepChance }));
+    this.iceStormZones = (snap.iceStormZones ?? []).map((z) => ({ ...z, cells: new Set(z.cells), center: { ...z.center } }));
     this.auraZones = snap.auraZones.map((z) => ({
       cells: new Set(z.cells),
       roundsLeft: z.roundsLeft,
@@ -3981,6 +3996,29 @@ export class BattleEngine {
         this.markDead(u);
       }
     }
+    if (u.alive) {
+      for (const zone of this.iceStormZones) {
+        const isStandingInZone = [...zone.cells].some((cell) => {
+          const comma = cell.indexOf(",");
+          return occupies(u, Number(cell.slice(0, comma)), Number(cell.slice(comma + 1)));
+        });
+        if (!u.alive || !isStandingInZone) continue;
+        const base = Math.floor(Math.floor(zone.casterMag / 2) * zone.damageMul) + rollDice(zone.damageDice, zone.damageFaces, 0, this.rng);
+        const dmg = Math.floor(elementalDamage(base, u.resistances?.ice ?? 0, zone.casterMag));
+        u.hp = Math.max(0, u.hp - dmg);
+        u.flash = 1;
+        u.hitAt = this.time;
+        if (dmg > 0) this.spawnHit(u, dmg, false);
+        this.tip = `${ICE_STORM.name} · ${diceFormula(zone.damageDice, zone.damageFaces, 0)}`;
+        this.pushLog(`${ICE_STORM.name} atinge ${u.name}: ${dmg} dano`);
+        this.queueElementalFx("ice", [{ x: u.x, y: u.y }], 0.8);
+        this.trainResistance(u, "ice", zone.casterLevel);
+        const caster = this.units.find((candidate) => candidate.id === zone.casterId);
+        if (caster && caster.side === "player") this.trainElementUse(caster, "ice", u.level);
+        if (u.hp <= 0) this.markDead(u);
+        else sfxPlay.hit();
+      }
+    }
     // Second Wind (Paladin tier 3): passive, never a hotbar cast — the first time this
     // paladin's own turn opens at or below the "badly wounded" line with a tier-3 use still
     // banked, it heals itself and spends the use. classId-gated explicitly, since tierUses
@@ -4968,6 +5006,19 @@ export class BattleEngine {
     sfxPlay.ui();
   }
 
+  startIceStorm(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    if (!u || u.acted || u.level < ICE_STORM.unlockLevel || this.tierRemaining(u, "iceStorm") <= 0) return;
+    const power = iceStormPower(u.level);
+    this.mode = "awaitSpell";
+    this.spellKind = "iceStorm";
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.hover = null;
+    this.tip = `${ICE_STORM.name}: alcance ${power.range}, área de ${power.areaHexes} hexes, ${power.durationRounds} rodadas, ${iceStormFormula(u.level, u.mag)} de dano de gelo por turno na área. Afeta aliados e inimigos que permanecerem no campo.`;
+    sfxPlay.ui();
+  }
+
   startCausticVenom(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || u.acted || this.familiarSpellRemaining(u, "causticVenom") <= 0) return;
@@ -5735,6 +5786,10 @@ export class BattleEngine {
       this.confirmFireball();
       return;
     }
+    if (this.spellKind === "iceStorm") {
+      this.castIceStorm(u, cell);
+      return;
+    }
     if (this.spellKind === "causticVenom") {
       this.confirmCausticVenom();
       return;
@@ -6133,6 +6188,11 @@ export class BattleEngine {
       if (distance > range) return `Casa fora de alcance (máximo ${range} hexes).`;
       if (!clearShot(caster, fireballOrigin(cell, this.cols, this.rows), this.tiles, this.cols, "bolt", this.decorOverlay)) return this.shotBlockedTip(caster, fireballOrigin(cell, this.cols, this.rows), "bolt");
     }
+    if (kind === "iceStorm") {
+      const range = iceStormPower(caster.level).range;
+      if (distance > range) return `Casa fora de alcance (máximo ${range} hexes).`;
+      if (!clearShot(caster, fireballOrigin(cell, this.cols, this.rows), this.tiles, this.cols, "bolt", this.decorOverlay)) return this.shotBlockedTip(caster, fireballOrigin(cell, this.cols, this.rows), "bolt");
+    }
     if (kind === "cleave" || kind === "shoulderSmash") return "Escolha um hex vizinho ao personagem.";
     if (kind === "sweep") return `Escolha uma casa dentro do raio ${SWEEP.radius}.`;
     if (kind === "piercing" || kind === "piercingThrust" || kind === "burningHands" || kind === "poisonBreath" || kind === "divineWrath" || kind === "stampede") {
@@ -6357,6 +6417,10 @@ export class BattleEngine {
     if (!this.spellKind) return false;
     if (this.spellKind === "fireball") {
       if (manhattan(caster, cell) > FIREBALL.range) return false;
+      return clearShot(caster, fireballOrigin(cell, this.cols, this.rows), this.tiles, this.cols, "bolt", this.decorOverlay);
+    }
+    if (this.spellKind === "iceStorm") {
+      if (manhattan(caster, cell) > iceStormPower(caster.level).range) return false;
       return clearShot(caster, fireballOrigin(cell, this.cols, this.rows), this.tiles, this.cols, "bolt", this.decorOverlay);
     }
     if (this.spellKind === "causticVenom") {
@@ -8021,6 +8085,8 @@ export class BattleEngine {
     }
     for (const z of this.webZones) z.roundsLeft -= 1;
     this.webZones = this.webZones.filter((z) => z.roundsLeft > 0);
+    for (const z of this.iceStormZones) z.roundsLeft -= 1;
+    this.iceStormZones = this.iceStormZones.filter((z) => z.roundsLeft > 0);
     for (const z of this.auraZones) z.roundsLeft -= 1;
     this.auraZones = this.auraZones.filter((z) => z.roundsLeft > 0);
     // Neutrals are left out, so they never get a turn and the AI never runs for them. One
@@ -8843,6 +8909,38 @@ export class BattleEngine {
         customDice: { dice: item.dice ?? 1, faces: item.faces ?? 4, bonus: item.bonus ?? 0 },
       });
     }
+  }
+
+  private castIceStorm(unit: Unit, click: Point): void {
+    if (!this.spellAimValid(unit, click)) {
+      this.tip = this.spellAimError(unit, click);
+      sfxPlay.ui();
+      return;
+    }
+    const power = iceStormPower(unit.level);
+    const cells = iceStormAreaTiles(click, unit.level, this.cols, this.rows);
+    const cellKeys = new Set(cells.map((p) => key(p.x, p.y)));
+    this.iceStormZones.push({
+      cells: cellKeys,
+      roundsLeft: power.durationRounds,
+      createdAt: this.time,
+      center: { ...click },
+      radius: power.size,
+      damageDice: power.dice,
+      damageFaces: power.faces,
+      damageMul: power.mul,
+      casterMag: unit.mag,
+      casterLevel: unit.level,
+      casterId: unit.id,
+      side: unit.side,
+    });
+    this.spendTier(unit, "iceStorm");
+    this.spellKind = null;
+    this.missileTargets = [];
+    this.mode = "locked";
+    this.tip = `${unit.name} conjura ${ICE_STORM.name}: área de ${power.areaHexes} hexes, ${power.durationRounds} rodadas.`;
+    this.pushLog(`${unit.name} conjura ${ICE_STORM.name}.`);
+    this.queue.push({ type: "spell", att: unit.id, tiles: [click], ids: [], label: ICE_STORM.name, spellKind: "iceStorm" });
   }
 
   private castFireball(unit: Unit, click: Point): void {
@@ -10884,6 +10982,14 @@ export class BattleEngine {
       push(cells, zone.kind === "protection" ? "rgba(150,210,255,0.3)" : "rgba(220,90,70,0.3)");
     }
 
+    for (const zone of this.iceStormZones) {
+      const cells = [...zone.cells].map((cell) => {
+        const [x, y] = cell.split(",").map(Number);
+        return { x: x!, y: y! };
+      });
+      push(cells, "rgba(135,205,255,0.28)", false);
+    }
+
     if (this.mode === "idle" && this.threat.length) push(this.threat, "rgba(220,120,90,0.5)");
 
     if (this.mode === "awaitPotion") {
@@ -11065,6 +11171,14 @@ export class BattleEngine {
         const ray = cell ? this.wrathRay(selected, cell, power.range) : null;
         const dir = ray && ray[0] ? axisDir(selected, ray[0]) : null;
         if (dir) push(coneSector(selected, dir, power.radius, this.cols, this.rows), this.spellKind === "poisonBreath" ? "rgba(100,200,60,0.55)" : "rgba(235,140,70,0.55)");
+      }
+      if (selected && this.spellKind === "iceStorm") {
+        const power = iceStormPower(selected.level);
+        push(this.healRangeTiles(selected, power.range), "rgba(125,195,245,0.38)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && manhattan(selected, cell) <= power.range) {
+          push(iceStormAreaTiles(cell, selected.level, this.cols, this.rows), "rgba(150,220,255,0.5)");
+        }
       }
     }
 

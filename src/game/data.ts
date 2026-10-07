@@ -3765,6 +3765,54 @@ export const CAUSTIC_VENOM = {
   splashBonus: 0,
 };
 
+/** Mage Tier 4 sustained area spell. It damages every unit at the start of that unit's turn
+ * while they occupy the ice field; the field's footprint, reach, duration, and per-tick
+ * power grow at four-level intervals. Area is three cells at level 8 and seven from level 12. */
+export const ICE_STORM = {
+  name: "Ice Storm",
+  unlockLevel: 8,
+  range: 5,
+  size: 1,
+  durationRounds: 2,
+  dice: 1,
+  faces: 6,
+  mul: 0.65,
+};
+
+export function iceStormPower(level: number): { range: number; size: number; areaHexes: number; durationRounds: number; dice: number; faces: number; mul: number } {
+  const step = Math.max(0, Math.min(5, Math.floor((level - ICE_STORM.unlockLevel) / 4)));
+  const diceByStep = [1, 1, 2, 2, 3, 3] as const;
+  const facesByStep = [6, 8, 6, 8, 6, 8] as const;
+  return {
+    range: ICE_STORM.range + step,
+    size: ICE_STORM.size,
+    areaHexes: level < 12 ? 3 : 7,
+    durationRounds: ICE_STORM.durationRounds + step,
+    dice: diceByStep[step]!,
+    faces: facesByStep[step]!,
+    mul: ICE_STORM.mul + step * 0.05,
+  };
+}
+
+/** Three adjoining cells at levels 8–11; the seven-cell ring from level 12 onward.
+ * Both targeting and damage use this exact footprint, clipped at board edges. */
+export function iceStormAreaTiles(origin: { x: number; y: number }, level: number, cols: number, rows: number): { x: number; y: number }[] {
+  const ring = hexAreaTiles(origin, 1, cols, rows);
+  if (iceStormPower(level).areaHexes === 7) return ring;
+  const neighbors = ring.filter(cell => cell.x !== origin.x || cell.y !== origin.y);
+  for (const first of neighbors) {
+    const adjoining = hexAreaTiles(first, 1, cols, rows);
+    const second = neighbors.find(cell => cell !== first && adjoining.some(other => other.x === cell.x && other.y === cell.y));
+    if (second) return [{ ...origin }, first, second];
+  }
+  return ring.slice(0, 3);
+}
+
+export function iceStormFormula(level: number, mag: number): string {
+  const power = iceStormPower(level);
+  return spellFormula(mag, power.mul, power.dice, power.faces, 0);
+}
+
 /** Veneno Menor — the mobs' venom (Undead Ox, Zombie Dog; the Birolhos keep the full Veneno
  * Cáustico): same range, dice and poison as Caustic Venom on a radius-2 splash, drawn with the
  * original effect (green bolt, burst and acid patch) instead of the 3D V2 smoke. */
@@ -4844,9 +4892,10 @@ export const SPELL_TIER: Partial<Record<SpellKind, SpellTier>> = {
   summonZombieDog: 5,
   webOfDreams: 2,
   fireball: 3,
+  iceStorm: 4,
   lightningTier3: 5,
   cureDisease: 3,
-  causticVenom: 4,
+  causticVenom: 5,
   divineBolt: 4,
   minorVenom: 4,
   multiShot: 3,

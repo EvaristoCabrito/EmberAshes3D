@@ -141,6 +141,7 @@ export function BattleCanvas({
     // authored placements list — see the sync inside loop() below. The zone's own persistent
     // floor patch is a real alpha-photo image stamped per-hex in BattleEngine.renderGround now
     // (GameArt.webfloor), not a WebGL effect this canvas owns.
+    const blizzardIds = new Map<number, number>();
     let webShotId: number | null = null;
 
     let raf = 0;
@@ -331,6 +332,16 @@ export function BattleCanvas({
       }
       const spellEffects = spellFx ?? fx;
       if (spellEffects) {
+        {
+          const live=new Set(engine.iceStormZones.map(zone=>zone.createdAt));
+          for(const[key,id]of blizzardIds)if(!live.has(key)){spellEffects.removeBlizzard(id);blizzardIds.delete(key);}
+          for(const zone of engine.iceStormZones)if(!blizzardIds.has(zone.createdAt)){
+            const cells=[...zone.cells].map(key=>{const[x,y]=key.split(",").map(Number);return{x,y};}).filter(cell=>!engine.fogged||engine.visible(cell.x,cell.y));
+            if(!cells.length)continue;
+            const id=spellEffects.spawnBlizzard({cells,duration:9,seed:Math.floor(zone.createdAt*1000),particleDensity:1.3,groundScaleY:Math.cos(engine.cameraTilt*Math.PI/180),onImpact:(cell,dx,dy,strength)=>rendererThree?.pulseBlizzardLight(cell.x,cell.y,dx,dy,strength)});
+            blizzardIds.set(zone.createdAt,id);
+          }
+        }
         // Dreaming Web's shot: one "webShot" beam, repositioned every frame via updateOverride
         // to follow the travelling missile's own timing (see BattleEngine.webShotBeam) — it
         // can't use the fixed getAnchor(col,row) model every other effect here relies on.

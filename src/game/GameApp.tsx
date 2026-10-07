@@ -52,6 +52,7 @@ import { POISON_TIERS, poisonDice, poisonTierOf } from "./poison";
 import { hungerPenaltyFor, partyIsFed, stepOverworld, teleportOverworld, type OverworldEvent } from "./overworld";
 import { GoldAmount } from "./GoldAmount";
 import { DISPLAY_VERSION } from "./version";
+import { ICE_STORM, iceStormPower } from "./data";
 import {
   ALL_LOCATIONS,
   ALL_MISSIONS,
@@ -482,7 +483,7 @@ function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY, heroNam
       case "swordsman":
         return ["doubleStrike", "bullRush", "cleave", "shieldBash", "executionerStrike"];
       case "mage":
-        return ["magicMissile", "poisonBreath", "lightning", "fireball", "causticVenom"];
+        return ["magicMissile", "poisonBreath", "lightning", "fireball", "iceStorm", "causticVenom"];
       case "conjurer":
         // Summon Swarm (tiers 3-4) joins this list as it's built — see SPELL_TIER for the
         // intended tier assignment. Phantasmal Force is tier 1's own second spell (see
@@ -573,6 +574,8 @@ function slotIcon(action: SlotAction): string {
       return spellIcon("cleave");
     case "fireball":
       return spellIcon("fireball");
+    case "iceStorm":
+      return spellIcon("ice-storm");
     case "causticVenom":
     case "minorVenom":
       return spellIcon("caustic-venom");
@@ -670,6 +673,8 @@ function slotLabel(action: SlotAction): string {
       return CLEAVE.name;
     case "fireball":
       return FIREBALL.name;
+    case "iceStorm":
+      return ICE_STORM.name;
     case "causticVenom":
       return CAUSTIC_VENOM.name;
     case "divineBolt":
@@ -3298,6 +3303,7 @@ const SKILL_CLASS: Partial<Record<SpellKind, ClassId>> = {
   lightning: "mage",
   lightningTier3: "elementalist",
   fireball: "mage",
+  iceStorm: "mage",
   causticVenom: "mage",
   divineBolt: "healer",
   poisonBreath: "mage",
@@ -3327,7 +3333,7 @@ const SKILL_CLASS: Partial<Record<SpellKind, ClassId>> = {
   stampede: "heavyKnight",
 };
 
-const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula: string | ((x: number) => string); param?: "level"; note: string }[] = [
+const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula: string | ((x: number) => string); param?: "level"; progression?: { levels: string; range: number; size: number; duration: number; damage: string }[]; note: string }[] = [
   { name: BLESS.name, cls: "healer" as const, tier: spellTier("bless")!, formula: "—", note: `Healer nível ${BLESS.unlockLevel}. Raio ${BLESS.radius}; +1% de acerto por nível até +10% no nível 13. Duração: 3 turnos no nível 3; 4 no 5; 5 no 7; 6 no 9; 7 no 12; 8 no 15.` },
   { name: MAGIC_MISSILE.name, cls: SKILL_CLASS.magicMissile!, tier: spellTier("magicMissile")!, formula: (mag: number) => spellFormula(mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus), note: "Nunca erra. 1 míssil, 2 no nível 3, 3 no nível 6 — um alvo cada." },
   {
@@ -3409,6 +3415,17 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
   },
   { name: POISON_BREATH.name, cls: SKILL_CLASS.poisonBreath!, tier: spellTier("poisonBreath")!, formula: (mag: number) => poisonBreathFormula(POISON_BREATH.unlockLevel, mag), note: "Aprendido no nível 2; progressão começa no nível 2. Cone de raio 1–5. Progressão de dano de Mãos Flamejantes atrasada em 2 níveis. Veneno Menor: 1D4 por turno; atinge aliados também." },
   { name: CURE_DISEASE.name, cls: SKILL_CLASS.cureDisease!, tier: spellTier("cureDisease")!, formula: "—", note: "Clériga T3. Cura doença e veneno. Luz teal." },
+  {
+    name: ICE_STORM.name,
+    cls: SKILL_CLASS.iceStorm!,
+    tier: spellTier("iceStorm")!,
+    formula: "Veja a progressão completa ao lado.",
+    progression: [8, 12, 16, 20, 24, 28].map((level) => {
+      const power = iceStormPower(level);
+      return { levels: `${level}–${Math.min(level + 3, 30)}`, range: power.range, size: power.areaHexes, duration: power.durationRounds, damage: `⌊⌊MAG / 2⌋ × ${power.mul}⌋ + ${power.dice}D${power.faces}` };
+    }),
+    note: "A cada turno da unidade dentro da área, causa dano de Ice, reduzido pela resistência a Ice. Atinge aliados também. A área fica no campo pelo número de rodadas indicado.",
+  },
   {
     name: CAUSTIC_VENOM.name,
     cls: SKILL_CLASS.causticVenom!,
@@ -3629,7 +3646,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
                 <span className="text-accent">{uiText("Magia")}</span> = {uiText("a mesma conta, com a sua metade de MAG multiplicada pelo peso da magia e os dados dela no lugar da arma. Todo peso é maior que 1, e o resultado nunca fica abaixo de um ataque normal — conjurar sempre vale mais que bater.")}
               </p>
               <p className="text-xs text-muted leading-relaxed">
-                {uiText("Por isso a tabela abaixo mostra a fórmula por MAG, não por nível: uma magia cresce junto com quem conjura, não numa tabela própria.")}
+                {uiText("As fórmulas mostram o dano pelo MAG do conjurador. Ice Storm ocupa 3 hexes nos níveis 8–11 e 7 hexes a partir do nível 12, sem novos aumentos de área. Alcance, duração e dano continuam a progredir; os valores aparecem em cada faixa de nível.")}
               </p>
             </div>
             <div className="overflow-x-auto">
@@ -3650,7 +3667,15 @@ function HelpModal({ onClose }: { onClose: () => void }) {
                       <td className="text-left px-1.5 py-1 text-muted whitespace-nowrap">{uiText(CLASSES[row.cls].name)}</td>
                       <td className="text-center px-1.5 py-1 text-muted">T{row.tier}</td>
                       <td className="text-left px-1.5 py-1 tabular-nums">
-                        {typeof row.formula === "string" ? (
+                        {row.progression ? (
+                          <div className="space-y-1">
+                            {row.progression.map((step) => (
+                              <div key={step.levels}>
+                                {uiText(`Níveis ${step.levels}`)}: {uiText(`alcance ${step.range}`)}, {uiText(`área de ${step.size} hexes`)}, {uiText(`duração ${step.duration} rodadas`)}, {uiText(`dano ${step.damage}`)}
+                              </div>
+                            ))}
+                          </div>
+                        ) : typeof row.formula === "string" ? (
                           helpFormulaText(row.formula)
                         ) : row.param === "level" ? (
                           <span className="space-x-1.5">
@@ -8235,6 +8260,9 @@ function BattleScreen({
       case "fireball":
         engine.startFireball();
         break;
+      case "iceStorm":
+        engine.startIceStorm();
+        break;
       case "causticVenom":
         engine.startCausticVenom();
         break;
@@ -8445,13 +8473,17 @@ function BattleScreen({
             <div className="ember-plate px-3 py-2 max-w-sm">
               {hud.terrain.spellZone ? (
                 <>
-                  <p className="font-display text-base leading-tight">{uiText(WEB_OF_DREAMS.name)}</p>
+                  <p className="font-display text-base leading-tight">{uiText(hud.terrain.spellZone.kind === "iceStorm" ? ICE_STORM.name : WEB_OF_DREAMS.name)}</p>
                   <p className="text-xs text-muted tabular-nums mt-0.5">
-                    {hud.terrain.spellZone.roundsLeft} {hud.terrain.spellZone.roundsLeft === 1 ? "rodada restante" : "rodadas restantes"} · movimento limitado a {hud.terrain.spellZone.movementCap} hex
+                    {hud.terrain.spellZone.roundsLeft} {hud.terrain.spellZone.roundsLeft === 1 ? "rodada restante" : "rodadas restantes"}
                   </p>
-                  <p className="text-xs text-accent mt-1">
-                    {Math.round(hud.terrain.spellZone.sleepChance * 100)}% de chance de adormecer por {hud.terrain.spellZone.sleepDice} a cada turno dentro da teia; duração cumulativa.
-                  </p>
+                  {hud.terrain.spellZone.kind === "iceStorm" ? (
+                    <p className="text-xs text-accent mt-1">{uiText(`Dano de gelo por turno: ${hud.terrain.spellZone.damageFormula}. Quem sair da área deixa de receber dano.`)}</p>
+                  ) : (
+                    <p className="text-xs text-accent mt-1">
+                      movimento limitado a {hud.terrain.spellZone.movementCap} hex · {Math.round((hud.terrain.spellZone.sleepChance ?? 0) * 100)}% de chance de adormecer por {hud.terrain.spellZone.sleepDice} a cada turno dentro da teia; duração cumulativa.
+                    </p>
+                  )}
                 </>
               ) : (
                 <>

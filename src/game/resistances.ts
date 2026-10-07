@@ -33,7 +33,7 @@ export function cleanResistances(raw: unknown): Resistances | undefined {
 }
 
 const SPELL_ELEMENTS: Partial<Record<SpellKind, ResistanceElement>> = {
-  fireball: "fire", burningHands: "fire",
+  fireball: "fire", iceStorm: "ice", burningHands: "fire",
   lightning: "lightning", lightningTier3: "lightning", shock: "lightning",
   magicMissile: "arcane", magicMissileV2: "arcane", phantasmalForce: "arcane", fantomForce: "arcane",
   lifeDrain: "darkness", divineWrath: "holy", divineBolt: "holy",
