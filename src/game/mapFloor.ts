@@ -3,6 +3,17 @@ import type { DecorationPlacement, TerrainId } from "./types";
 
 export interface FloorRect { minX: number; minY: number; maxX: number; maxY: number; parts?: FloorRect[] }
 
+/** Only a filled rectangular board gets an orthogonal perimeter. */
+export function hasSquareMapBorder(tiles: TerrainId[], cols: number, rows: number): boolean {
+  let minX = cols, minY = rows, maxX = -1, maxY = -1, count = 0;
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+    if (!tiles[y * cols + x] || tiles[y * cols + x] === "void") continue;
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y); count++;
+  }
+  return count > 0 && count === (maxX - minX + 1) * (maxY - minY + 1);
+}
+
 export const floorRectParts = (rect: FloorRect): FloorRect[] => rect.parts ?? [rect];
 export const floorRectContains = (rect: FloorRect, x: number, y: number): boolean => floorRectParts(rect).some(r => x >= r.minX && x <= r.maxX && y >= r.minY && y <= r.maxY);
 

@@ -6,6 +6,57 @@ export interface LandscapeSurface {
   heightAt(x: number, y: number): number;
 }
 
+/** Joined hex ground with exact six-sided perimeter and skirts only on exposed edges. */
+export function buildHexLandscape(
+  bounds: { minX: number; minY: number; maxX: number; maxY: number },
+  centers: { x: number; y: number }[], radius: number, baseDepth: number,
+  elevation: (x: number, y: number) => number,
+): LandscapeSurface {
+  const vertices: number[] = [], uv: number[] = [], indices: number[] = [];
+  const shared = new Map<string, number>();
+  const edges = new Map<string, { a: number; b: number; count: number }>();
+  const vertex = (x: number, y: number) => {
+    const key = `${Math.round(x * 1e6)},${Math.round(y * 1e6)}`;
+    const existing = shared.get(key);
+    if (existing !== undefined) return existing;
+    const index = vertices.length / 3;
+    vertices.push(x, y, elevation(x, y));
+    uv.push((x - bounds.minX) / (bounds.maxX - bounds.minX), (y - bounds.minY) / (bounds.maxY - bounds.minY));
+    shared.set(key, index); return index;
+  };
+  for (const center of centers) {
+    const middle = vertex(center.x, center.y);
+    const ring = Array.from({ length: 6 }, (_, i) => {
+      const angle = (60 * i - 30) * Math.PI / 180;
+      return vertex(center.x + Math.cos(angle) * radius, center.y + Math.sin(angle) * radius);
+    });
+    for (let i = 0; i < 6; i++) {
+      const a = ring[i], b = ring[(i + 1) % 6];
+      indices.push(middle, a, b);
+      const key = `${Math.min(a, b)}:${Math.max(a, b)}`;
+      const edge = edges.get(key);
+      if (edge) edge.count++; else edges.set(key, { a, b, count: 1 });
+    }
+  }
+  const topCount = indices.length;
+  for (const { a, b, count } of edges.values()) {
+    if (count !== 1) continue;
+    const i = vertices.length / 3;
+    vertices.push(...vertices.slice(a * 3, a * 3 + 3), ...vertices.slice(b * 3, b * 3 + 3),
+      vertices[a * 3], vertices[a * 3 + 1], -baseDepth, vertices[b * 3], vertices[b * 3 + 1], -baseDepth);
+    uv.push(0, 1, 1, 1, 0, 0, 1, 0);
+    indices.push(i, i + 2, i + 1, i + 1, i + 2, i + 3);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  geometry.setIndex(indices);
+  geometry.addGroup(0, topCount, 0);
+  geometry.addGroup(topCount, indices.length - topCount, 1);
+  geometry.computeVertexNormals(); geometry.computeBoundingSphere();
+  return { geometry, heightAt: elevation, ...bounds };
+}
+
 /** Continuous triangular landscape; gameplay hexes supply heights, never mesh topology. */
 export function buildLandscape(
   bounds: { minX: number; minY: number; maxX: number; maxY: number },

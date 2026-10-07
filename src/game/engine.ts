@@ -7,7 +7,7 @@ import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, MINOR_VENOM, DECOR_ART_SCALE, HOUSE
 import type { SpellTier } from "./data";
 import { weightedWeaponPick, shieldBashFormula, fantomForceChargesFor, fantomForceDice } from "./data";
 import { clearRockColumnTiles, placedBlockingFootprint, THREE_D_DOOR_VARIANTS } from "./data";
-import { mapFloorRects, floorRectParts } from "./mapFloor";
+import { mapFloorRects, floorRectParts, hasSquareMapBorder } from "./mapFloor";
 import { closeWatchtowerWalls } from "./watchtowerDungeon";
 import { decorationPlacementArt } from "./data";
 import { canCounter, makeForecast, mulberry32, powerOf, protOf, rollDamage, rollDamageCustom } from "./combat";
@@ -10373,10 +10373,11 @@ export class BattleEngine {
     }
 
     const floorRects = mapFloorRects(this.tiles, this.cols, this.rows, this.decorations);
+    const squareBorder = hasSquareMapBorder(this.tiles, this.cols, this.rows);
     const floorOrigin = this.hexCenter(0, 0);
     for (let y = 0; y < this.rows; y++) {
       for (let x = 0; x < this.cols; x++) {
-        const cx = floorOrigin.cx + x * Math.sqrt(3) * tile;
+        const cx = floorOrigin.cx + (x + (squareBorder ? 0 : (y & 1) * 0.5)) * Math.sqrt(3) * tile;
         const cy = floorOrigin.cy + y * 1.5 * tile;
         if (cx < -tile * 2 || cy < -tile * 2 || cx > cssW + tile * 2 || cy > cssH + tile * 2) continue;
         // Never seen: draw nothing at all. Cheaper than the clipped path below, which is
@@ -10390,7 +10391,8 @@ export class BattleEngine {
         const floorRect = floorRects.get(y * this.cols + x);
         if (!floorRect) { ctx.restore(); continue; }
         ctx.beginPath();
-        for (const part of floorRectParts(floorRect)) ctx.rect(floorOrigin.cx - Math.sqrt(3) * tile / 2 + part.minX * tile,
+        if (!squareBorder) this.hexPath(ctx, cx, cy, tile);
+        else for (const part of floorRectParts(floorRect)) ctx.rect(floorOrigin.cx - Math.sqrt(3) * tile / 2 + part.minX * tile,
           floorOrigin.cy - 0.75 * tile + part.minY * tile,
           (part.maxX - part.minX) * tile, (part.maxY - part.minY) * tile);
         ctx.clip();

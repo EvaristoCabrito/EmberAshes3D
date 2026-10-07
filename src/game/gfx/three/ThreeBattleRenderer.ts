@@ -47,8 +47,8 @@ import { isHexGroundVariant } from "../../assets";
 import { drawGroundTexture, drawHexGround, GROUND_TEXTURE_INSET, GROUND_TEXTURE_SPAN } from "../../hexGround";
 import { configureWallDepth, createWallGeometry } from "./ThreeWalls";
 import { lightTacticsMaterial, tacticsProp } from "./ThreeTacticsGeometry";
-import { buildLandscape, type LandscapeSurface } from "./ThreeLandscape";
-import { mapFloorRects, floorRectContains, floorRectParts } from "../../mapFloor";
+import { buildLandscape, buildHexLandscape, type LandscapeSurface } from "./ThreeLandscape";
+import { mapFloorRects, floorRectContains, floorRectParts, hasSquareMapBorder } from "../../mapFloor";
 import { closeWatchtowerWalls } from "../../watchtowerDungeon";
 const OUTER_WALL_TEXTURE = "/game/textures/walls/cave-v2.png?v=outer-wall-0.337.3";
 const OUTER_WALL_COLOR = 0xb4a28b;
@@ -1367,6 +1367,7 @@ export class ThreeBattleRenderer {
   }
 
   private syncTerrainHeight(tile: number): void {
+    const squareBorder = hasSquareMapBorder(this.engine.tiles, this.engine.cols, this.engine.rows);
     const floorRects = mapFloorRects(this.engine.tiles, this.engine.cols, this.engine.rows, this.engine.decorations);
     const cells: { x: number; y: number; height: number; col: number; row: number; entry: TileMeshEntry }[] = [];
     for (const [key, entry] of this.tileMeshes) {
@@ -1382,14 +1383,14 @@ export class ThreeBattleRenderer {
             tileAt(this.engine.tiles, this.engine.cols, col + dx, row + dy) === "void")));
       // The continuous floor supplies the straight perimeter; a hex decal at its
       // boundary would otherwise protrude beyond it and restore scalloped edges.
-      entry.mesh.visible = !this.engine.tacticsCamera && entry.id !== "void" && !mapEdge;
+      entry.mesh.visible = !this.engine.tacticsCamera && entry.id !== "void" && (!squareBorder || !mapEdge);
       entry.mesh.userData.cell = { col, row };
       if (entry.id !== "void") cells.push({ x: entry.mesh.position.x, y: entry.mesh.position.y,
         height: (this.engine.mission.terrainElevations?.[key] ?? TERRAIN[entry.id].height ?? 0) * tile * 0.65, col, row, entry });
     }
     // Both cameras use the continuous ground fill around the outer hexes. In 2D it
     // sits beneath the original tiles, preserving their authored elevation steps.
-    const stamp = `continuous-atlas-v6:closed-edges:${JSON.stringify([...floorRects])}:${this.engine.tacticsCamera}:${this.engine.cols}:${this.engine.rows}:${tile}:` + cells.map(c =>
+    const stamp = `continuous-atlas-v7:${squareBorder ? "square" : "hex"}:${JSON.stringify([...floorRects])}:${this.engine.tacticsCamera}:${this.engine.cols}:${this.engine.rows}:${tile}:` + cells.map(c =>
       `${c.col},${c.row},${c.height},${c.entry.id},${c.entry.variant},${c.entry.rot}`).join(";");
     if (stamp !== this.terrainSolidKey && cells.length) {
       if (!this.cliffMaterial) {
@@ -1404,9 +1405,9 @@ export class ThreeBattleRenderer {
       // Floor cells share the walls' aligned columns on every map. Subdivide those exact
       // rectangles so triangle-centroid clipping cannot leave diagonal edge gaps.
       const bounds = { minX: 0,
-        minY: -tile * (BOARD_PAD_MUL + 0.25 + this.engine.rows * 1.5),
-        maxX: tile * SQRT3 * this.engine.cols, maxY: -tile * (BOARD_PAD_MUL + 0.25) };
-      const surface = buildLandscape(bounds, { x: tile * SQRT3 / 4, y: tile * 1.5 / 4 }, tile * 0.45, (x, y) => {
+        minY: -tile * (BOARD_PAD_MUL + (squareBorder ? 0.25 : 0.5) + this.engine.rows * 1.5),
+        maxX: tile * SQRT3 * (this.engine.cols + (squareBorder ? 0 : 0.5)), maxY: -tile * (BOARD_PAD_MUL + (squareBorder ? 0.25 : 0)) };
+      const elevation = (x: number, y: number) => {
         if (!this.engine.tacticsCamera) return -0.02;
         // Interpolate nearby terrain elevations into connected slopes. The movement grid
         // supplies placement coordinates but no longer defines the ground's polygon edges.
@@ -1424,7 +1425,8 @@ export class ThreeBattleRenderer {
           }
         }
         return total ? weighted / total : 0;
-      }, (x, y) => {
+      };
+      const surface = squareBorder ? buildLandscape(bounds, { x: tile * SQRT3 / 4, y: tile * 1.5 / 4 }, tile * 0.45, elevation, (x, y) => {
         // Landscape cutouts use square map-cell bounds, not the nearest-hex classifier.
         // The latter puts six-sided scallops back on every outer edge despite the fine mesh.
         const cell = this.cellAtSquareWorld(x / tile, -y / tile);
@@ -1440,7 +1442,7 @@ export class ThreeBattleRenderer {
       }, true, {
         x: [...new Set([...floorRects.values()].flatMap(floorRectParts).flatMap(r => [r.minX * tile, r.maxX * tile]))],
         y: [...new Set([...floorRects.values()].flatMap(floorRectParts).flatMap(r => [-tile * (r.minY + BOARD_PAD_MUL + 0.25), -tile * (r.maxY + BOARD_PAD_MUL + 0.25)]))],
-      });
+      }) : buildHexLandscape(bounds, cells, tile, tile * 0.45, elevation);
       const canvas = document.createElement("canvas");
       const scale = Math.min(1, 4096 / Math.max(bounds.maxX-bounds.minX, bounds.maxY-bounds.minY));
       canvas.width = Math.max(1, Math.ceil((bounds.maxX-bounds.minX)*scale));
