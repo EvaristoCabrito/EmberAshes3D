@@ -2,20 +2,32 @@ import { FORMATION_SLOTS, cleanPartyFormation, partyLeaderOf } from "./partyForm
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { BookOpen, Check, ChevronLeft, Clock, Lock, MapPin, Save, SlidersHorizontal, Volume2, VolumeX, X, ZoomIn, ZoomOut } from "lucide-react";
 import { isCrossingDungeon, missionsForLocation } from "./mapstore";
-import type { EquipSlot, Mission, PotionId, SaveData, WorldLocation } from "./types";
+import type { EquipSlot, Mission, PotionId, SaveData, WeaponType, WorldLocation } from "./types";
 import { PartyInventoryOverlay } from "./InventoryScreens";
-import { CREATE_FOOD_AND_WATER, POTIONS, createFoodAndWaterFormula, createFoodAndWaterPower, heroRecruited, rulesClass, tierUses } from "./data";
+import { CREATE_FOOD_AND_WATER, POTIONS, createFoodAndWaterFormula, createFoodAndWaterPower, gearStatBonus, heroRecruited, rulesClass, statsFor, tierUses } from "./data";
 import { fullness, travelHungerCost } from "./hunger";
 import { GoldAmount } from "./GoldAmount";
 import { getAudioVolumes, setCutsceneVolume, setMusicVolume, setSfxVolume, sfxPlay, unlockAudio } from "./audio";
-import { canStepOverworld, wispForestHex, wispForestUncleared, hexToWorld, isOverworldCell, locationExpired, neighborsOf, OVERWORLD_START_HEX, travelHoursForHex, travelTimeLabel, type OverworldEvent, worldToHex } from "./overworld";
-import { HungerBar } from "./HungerBar";
+import { canStepOverworld, hungerPenaltyFor, wispForestHex, wispForestUncleared, hexToWorld, isOverworldCell, locationExpired, neighborsOf, OVERWORLD_START_HEX, travelHoursForHex, travelTimeLabel, type OverworldEvent, worldToHex } from "./overworld";
+import { HungerBar, LifeBar } from "./HungerBar";
+import { poisonTierOf } from "./poison";
+import { SKILL_CAP, SKILL_GAIN, SKILL_IDS, SKILLS, skillValue, TRAVEL_TRAINING_HINT_FLAG, TRAVEL_TRAINING_HOURS, type SkillId } from "./skills";
+import { weaponTypesForClass } from "./weaponSkills";
 import { portraitFor } from "./assets";
+import { LEADER_FRAME_BOUNDS } from "./leaderFrameBounds";
 import { key } from "./pathfinding";
 import { QUESTS, questProgress, questStatus } from "./quests";
 import { MapLoadingOverlay, useMapLoading } from "./MapLoadingOverlay";
 import { campaignHour, campaignTimeOfDay, usesTravelClock } from "./campaignTime";
 import { AFFINITY_HEROES, affinityBonus, affinityGrade, affinityScore, canUseAffinityDuo, canUseAffinityUltimate, type AffinityHero } from "./affinity";
+
+/** Party "Skills" tab order: weapon skills first, then the resistances with Poison Resistance
+ * leading them; otherwise as skills.ts lists them. */
+const PARTY_SKILL_ORDER = [
+  ...SKILL_IDS.filter(id => id.endsWith("Weapon")),
+  "poisonResistance" as const,
+  ...SKILL_IDS.filter(id => !id.endsWith("Weapon") && id !== "poisonResistance"),
+];
 
 export type LocationStatus = "locked" | "available" | "done";
 
@@ -25,16 +37,15 @@ const ZOOM_STOPS = [70, 90, 110, 130];
  * public/game/sprites/Kael_Final/kael-final-002, see assets.ts's "kaelFinal" entry). Only every
  * third frame of a 36-frame idle is used: plenty smooth at the size this renders (a small
  * JRPG-style overworld token), for a third of the image requests. Playback follows the
- * battle idle's forward/backward clock before sampling those frames. Each sheet pads its figure
- * differently, so height/drop (px) are measured per sheet to give every leader Kael's exact
- * on-screen height (48px sheet, figure 98.3% of it) and the same feet line. */
-const LEADER_MARKER: Record<AffinityHero, { dir: string; idle: number; bust: string; height: number; drop: number }> = {
-  Kael: { dir: "Kael_Final/kael-final-002", idle: 36, bust: "?v=kael-final-002", height: 48, drop: 0 },
-  Neera: { dir: "neera", idle: 36, bust: "", height: 47.95, drop: 0.07 },
-  Voss: { dir: "voss", idle: 12, bust: "", height: 47.95, drop: 0.39 },
-  Salazar: { dir: "salazar", idle: 12, bust: "", height: 51.18, drop: 0.44 },
-  Aldric: { dir: "aldric", idle: 36, bust: "?v=aldric-final-001", height: 54.42, drop: 3.21 },
-  Malrec: { dir: "malrec", idle: 36, bust: "", height: 51.01, drop: 1.55 },
+ * battle idle's forward/backward clock before sampling those frames. Crop transparent padding
+ * per frame so every leader has the same visible height and feet line. */
+const LEADER_MARKER: Record<AffinityHero, { dir: string; idle: number; bust: string }> = {
+  Kael: { dir: "Kael_Final/kael-final-002", idle: 36, bust: "?v=kael-final-002" },
+  Neera: { dir: "neera", idle: 36, bust: "" },
+  Voss: { dir: "voss", idle: 12, bust: "" },
+  Salazar: { dir: "salazar", idle: 12, bust: "" },
+  Aldric: { dir: "aldric", idle: 36, bust: "?v=aldric-final-001" },
+  Malrec: { dir: "malrec", idle: 36, bust: "" },
 };
 
 function LeaderMarker({ hero, facingLeft }: { hero: AffinityHero; facingLeft: boolean }) {
@@ -55,14 +66,21 @@ function LeaderMarker({ hero, facingLeft }: { hero: AffinityHero; facingLeft: bo
     }, 1000 / pace);
     return () => window.clearInterval(id);
   }, [hero, sheet.idle]);
+  const frameIndex = frame % frames.length;
+  const [left, top, width, height, canvasWidth, canvasHeight] = LEADER_FRAME_BOUNDS[hero][frameIndex];
+  const scale = 48 / height;
   return (
+    <span className="flex h-12 w-16 items-end justify-center select-none drop-shadow-[0_2px_3px_rgba(0,0,0,0.6)]" style={{ transform: facingLeft ? "scaleX(-1)" : undefined }}>
+      <span className="relative block shrink-0 overflow-hidden" style={{ width: width * scale, height: 48 }}>
     <img
       src={`/game/sprites/${sheet.dir}/${frames[frame % frames.length]}.png${sheet.bust}`}
       alt=""
       draggable={false}
-      className="w-auto object-contain select-none drop-shadow-[0_2px_3px_rgba(0,0,0,0.6)]"
-      style={{ height: sheet.height, transform: `translateY(${sheet.drop}px)${facingLeft ? " scaleX(-1)" : ""}` }}
+      className="absolute max-w-none"
+      style={{ width: canvasWidth * scale, height: canvasHeight * scale, left: -left * scale, top: -top * scale }}
     />
+      </span>
+    </span>
   );
 }
 
@@ -112,6 +130,8 @@ export function OverworldMapScreen({
   onSave,
   onSaveFormation,
   onSaveLeader,
+  onSetTravelTraining,
+  onSeenTravelTrainingHint,
   onPick,
 }: {
   locations: WorldLocation[];
@@ -164,6 +184,10 @@ export function OverworldMapScreen({
   onSaveFormation?: (order: string[]) => { ok: boolean; test: boolean };
   /** Party menu: saves the hero who walks the world map and free-roam maps. */
   onSaveLeader?: (hero: string) => void;
+  /** Party menu Skills tab: picks (or clears, with null) the one skill a hero trains on the road. */
+  onSetTravelTraining?: (hero: string, skill: SkillId | null) => void;
+  /** Marks the one-time travel-training hint as seen. */
+  onSeenTravelTrainingHint?: () => void;
   onPick: (missionId: string) => void;
 }) {
   const [open, setOpen] = useState<WorldLocation | null>(null);
@@ -172,6 +196,7 @@ export function OverworldMapScreen({
   const skyTint = timeOfDay === "darkNight" ? "rgba(8,15,45,0.55)" : timeOfDay === "brightNight" ? "rgba(20,35,75,0.35)" : timeOfDay === "dawn" || timeOfDay === "dusk" ? "rgba(190,90,40,0.18)" : "rgba(0,0,0,0)";
   const [questLogOpen, setQuestLogOpen] = useState(false);
   const [affinityOpen, setAffinityOpen] = useState(false);
+  const [partyTab, setPartyTab] = useState<"group" | "skills">("group");
   const partyHeroes = AFFINITY_HEROES.filter(hero => test || heroRecruited(hero, save.completed, save.flags));
   const leader = partyLeaderOf(save.partyLeader, (hero) => test || heroRecruited(hero, save.completed, save.flags));
   const [formationOrder, setFormationOrder] = useState<string[]>([]);
@@ -758,12 +783,53 @@ export function OverworldMapScreen({
               <div>
                 <p className="text-xs ember-kicker">Grupo · {partyHeroes.length} {partyHeroes.length === 1 ? "membro" : "membros"} · Líder: {leader}</p>
                 <h2 id="party-title" className="mt-1 font-display text-2xl ember-title">Party</h2>
+                <div role="tablist" aria-label="Seções do grupo" className="mt-3 flex gap-2">
+                  {([["group", "Grupo"], ["skills", "Skills"]] as const).map(([id, label]) => (
+                    <button key={id} type="button" role="tab" aria-selected={partyTab === id} onClick={() => setPartyTab(id)} className={`ember-btn ember-btn-sm ${partyTab === id ? "ember-btn-primary" : "ember-btn-ghost"}`}>{label}</button>
+                  ))}
+                </div>
               </div>
               <button type="button" onClick={() => setAffinityOpen(false)} aria-label="Fechar Party" className="grid size-9 place-items-center ember-icon-btn">
                 <X className="size-4" />
               </button>
             </header>
             <div className="overflow-y-auto p-4">
+              {partyTab === "skills" ? (
+                <section aria-label="Skills">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {partyHeroes.map(hero => (
+                      <article key={hero} aria-label={`Skills de ${hero}`} className="ember-slot p-3">
+                        <h4 className="mb-1 font-display text-lg leading-tight ember-title">{hero}</h4>
+                        {(() => {
+                          const training = save.travelTraining?.[hero];
+                          if (!training) return <p className="mb-2 text-xs text-muted">Treino na estrada: nenhum — toque em “Treinar” numa skill.</p>;
+                          // Player-facing it's always "+0,1 every 12 h" (weapon skills bank those 0,1s
+                          // internally — see travelTrainingStep), so count down to the next 12 h mark.
+                          const banked = (save.travelTrainingHours?.[hero] ?? 0) % TRAVEL_TRAINING_HOURS;
+                          const left = Math.max(1, Math.ceil(TRAVEL_TRAINING_HOURS - banked));
+                          return <p className="mb-2 text-xs text-accent">Treino na estrada: {SKILLS[training].name} · próximo +{SKILL_GAIN.toLocaleString("pt-BR")} em {left}h de viagem</p>;
+                        })()}
+                        {PARTY_SKILL_ORDER.filter(id => !id.endsWith("Weapon") || weaponTypesForClass(mapHeroClass(hero, save)).includes(id.slice(0, -"Weapon".length) as WeaponType)).map(id => {
+                          const points = skillValue(save.heroSkills, hero, id);
+                          const training = save.travelTraining?.[hero] === id;
+                          return <div key={id} className="mb-3 last:mb-0" title={SKILLS[id].description}>
+                            <div className="flex items-center justify-between gap-2 text-sm"><span>{SKILLS[id].name}</span>
+                              <button type="button" disabled={!onSetTravelTraining} aria-pressed={training} aria-label={`${training ? "Parar de treinar" : "Treinar"} ${SKILLS[id].name} de ${hero} na estrada`} onClick={() => onSetTravelTraining?.(hero, training ? null : id)}
+                                className={`ml-auto ember-btn ember-btn-sm ${training ? "ember-btn-primary" : "ember-btn-ghost"}`}>{training ? "Treinando" : "Treinar"}</button>
+                              <span className="text-muted tabular-nums">{points.toLocaleString("pt-BR", { minimumFractionDigits: id.endsWith("Weapon") ? 0 : 1, maximumFractionDigits: id.endsWith("Weapon") ? 0 : 1 })}/{SKILL_CAP}</span></div>
+                            {id.endsWith("Weapon") && <p className="text-xs text-muted">Dados da arma: +{points}%. Precisão contra DEX 0: {Math.min(100, 75 + points)}%. A DEX do alvo reduz a precisão.</p>}
+                            <div role="progressbar" aria-label={`${SKILLS[id].name} de ${hero}`} aria-valuemin={0} aria-valuemax={SKILL_CAP} aria-valuenow={points} className="my-1 h-1.5 overflow-hidden rounded-full bg-border">
+                              <div className="h-full bg-accent" style={{ width: `${Math.max(0, Math.min(100, (points / SKILL_CAP) * 100))}%` }} />
+                            </div>
+                          </div>;
+                        })}
+                      </article>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-muted">Perícias de arma podem ganhar +1 por tentativa contra inimigos, inclusive erros; cada ponto dá +1 ponto percentual de precisão e +1% aos dados da arma. Resistências podem ganhar +{SKILL_GAIN.toLocaleString("pt-BR")} ao usar o elemento ou ser atingido por ele. Magias dos familiares também treinam a resistência do conjurador ao elemento usado. Quanto maior a perícia, menor a chance de ganho. Cada ponto de resistência vale 1%.</p>
+                  <p className="mt-1 text-xs text-muted">Treino na estrada: cada personagem pode treinar uma skill por vez enquanto o grupo viaja — +{SKILL_GAIN.toLocaleString("pt-BR")} a cada {TRAVEL_TRAINING_HOURS}h de viagem. Trocar de skill recomeça a contagem.</p>
+                </section>
+              ) : (
               <div className="flex flex-col gap-4">
                 <section aria-label="Líder do grupo">
                   <h3 className="mb-2 text-sm ember-kicker">Líder do grupo</h3>
@@ -869,6 +935,7 @@ export function OverworldMapScreen({
                   <p className="mt-2 text-xs text-muted">25: +2% · 50: +5% · 80: skill de dupla · 90: +8% · 100 nas três relações: Ultimate de trio</p>
                 </section>
               </div>
+              )}
             </div>
           </section>
         </div>
@@ -877,6 +944,17 @@ export function OverworldMapScreen({
         <div className="absolute z-30 top-24 left-1/2 -translate-x-1/2 ember-plate px-3 py-1.5 text-xs">
           {hint}
         </div>
+      )}
+      {/* One-time tip once A Ponte de Pedra is cleared: points the player at Party → Skills. */}
+      {onSeenTravelTrainingHint && save.completed.includes("thebridge") && !save.flags?.includes(TRAVEL_TRAINING_HINT_FLAG) && !affinityOpen && (
+        <aside role="note" aria-label="Dica: treino na estrada" className="absolute z-30 top-36 left-1/2 w-[min(30rem,calc(100%-2rem))] -translate-x-1/2 ember-panel p-4">
+          <h3 className="font-display text-lg ember-title">Dica · Treino na estrada</h3>
+          <p className="mt-1 text-sm text-muted">Abra o menu <strong className="text-accent">Party</strong> e explore a aba <strong className="text-accent">Skills</strong>. Toque em “Treinar” numa skill de cada personagem: ela sobe sozinha enquanto o grupo viaja, +{SKILL_GAIN.toLocaleString("pt-BR")} a cada {TRAVEL_TRAINING_HOURS}h de estrada. Uma skill por vez — nada treina até você escolher.</p>
+          <div className="mt-3 flex justify-end gap-2">
+            <button type="button" onClick={() => onSeenTravelTrainingHint()} className="ember-btn ember-btn-sm ember-btn-ghost">Entendi</button>
+            <button type="button" onClick={() => { onSeenTravelTrainingHint(); setFormationSaved(null); setPartyTab("skills"); setAffinityOpen(true); }} className="ember-btn ember-btn-sm ember-btn-primary">Abrir Party · Skills</button>
+          </div>
+        </aside>
       )}
 
       <div className="map-party-panel absolute z-20 bottom-4 left-4 rounded-lg border border-border p-3 max-w-[calc(100%-6rem)]">
@@ -892,6 +970,7 @@ export function OverworldMapScreen({
                 <img src={portraitFor(sprite).src} alt={name} style={{ objectPosition: portraitFor(sprite).position }} className="w-10 h-12 object-cover rounded" />
               </button>
               <HungerBar name={name} value={heroHunger[name]} travel />
+              <LifeBar name={name} hp={save.unitHp[name] ?? mapHeroMaxHp(name, save)} maxHp={mapHeroMaxHp(name, save)} poisonTier={poisonTierOf(save.heroPoisons?.[name])} diseased={!!save.heroDiseases?.[name]} />
             </div>
           ))}
         </div>
@@ -1059,6 +1138,14 @@ const MAP_HERO_CLASS = { Kael: "swordsman", Neera: "archer", Voss: "mage", Salaz
 
 function mapHeroClass(hero: string, save: SaveData) {
   return save.promotions[hero] ?? MAP_HERO_CLASS[hero as keyof typeof MAP_HERO_CLASS] ?? "swordsman";
+}
+
+/** Max HP for the world-map life bar — same formula as GameApp's heroMaxHp (class and level,
+ * plus gear, less the hunger penalty). */
+function mapHeroMaxHp(hero: string, save: SaveData): number {
+  const stats = statsFor(mapHeroClass(hero, save), save.levels[hero] ?? 1);
+  const gear = gearStatBonus(Object.values(save.equipment[hero] ?? {}));
+  return Math.round((stats.hp + gear.hp) * (1 - hungerPenaltyFor(save.hungerStreak)));
 }
 
 function LocationPanel({

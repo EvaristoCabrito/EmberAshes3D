@@ -1,3 +1,6 @@
+import { dexAccuracy, dexEscapeChance } from "./dexterity";
+import { equippedWeaponType, trainedWeaponSkills, weaponTypesForClass, weaponModifiers, isWeaponAbility } from "./weaponSkills";
+import { elementalDamage, spellElement, sumResistances } from "./resistances";
 import { AFFINITY_HEROES, affinityBonus, affinityScore, changeAffinity, cleanAffinityScores, type AffinityHero } from "./affinity";
 import { tacticalGridStyleQuiet as tacticalGridStyle, GRID_MOVE, GRID_ROUTE, GRID_ALLY, GRID_ENEMY, GRID_ENEMY_TARGET, GRID_ENEMY_GLOW } from "./tacticalGrid";
 import { isHexGroundVariant, requestSpriteArt } from "./assets";
@@ -11,6 +14,8 @@ import { mapFloorRects, floorRectParts, hasSquareMapBorder } from "./mapFloor";
 import { closeWatchtowerWalls } from "./watchtowerDungeon";
 import { decorationPlacementArt } from "./data";
 import { canCounter, makeForecast, mulberry32, powerOf, protOf, rollDamage, rollDamageCustom } from "./combat";
+import { effectivePoisonResistance, POISON_TIERS, poisonChance, poisonDice, poisonTickDamage, poisonTierOf, strongerPoison } from "./poison";
+import { cleanHeroSkills, rollWeaponSkillGain, rollSkillGain, skillResistances, type HeroSkills } from "./skills";
 import {
   attackableEnemies,
   canHitFrom,
@@ -88,6 +93,7 @@ import type {
   StatPointAllocation,
   StatPointAttribute,
   Spawn,
+  PoisonTier,
 } from "./types";
 
 interface Layout {
@@ -631,11 +637,14 @@ function pub(u: Unit, restrained: boolean, movLeft: number): UnitPublic {
     side: u.side,
     sprite: u.sprite,
     hp: u.hp,
+    escaped: u.escaped,
     maxHp: u.maxHp,
     atk: u.atk,
     mag: u.mag,
     def: u.def,
-    res: u.res,
+    dex: u.dex,
+    resistances: { ...u.resistances },
+    weaponSkills: { ...u.weaponSkills },
     initiative: u.initiative,
     initiativeRoll: u.initiativeRoll,
     mov: u.mov,
@@ -655,7 +664,8 @@ function pub(u: Unit, restrained: boolean, movLeft: number): UnitPublic {
     size: u.size,
     diseased: u.diseased,
     poisoned: u.poisoned,
-    poisonFaces: u.poisonFaces,
+    poisonTier: u.poisonTier,
+    poisonMag: u.poisonMag,
     bleeding: u.bleeding,
     blessedHitBonusPct: u.blessedHitBonusPct,
     blessedRoundsLeft: u.blessedRoundsLeft,
@@ -753,7 +763,11 @@ interface Roster {
   /** Persistent illnesses contracted while travelling. */
   heroDiseases?: Record<string, boolean>;
   /** Poison that remained after the last battle. */
-  heroPoisons?: Record<string, boolean | 4 | 10>;
+  heroPoisons?: Record<string, PoisonTier>;
+  /** MAG of whoever applied that leftover poison. */
+  heroPoisonMag?: Record<string, number>;
+  /** Trained hero skills (skills.ts) — Resistência a Veneno. */
+  heroSkills?: HeroSkills;
 }
 
 /** True once a hero is starving badly enough to be benched outright rather than merely
@@ -832,7 +846,7 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
   // existing or new. Player heroes get to choose where their level-up points go
   // (statPointAllocations); enemies never do, so raw per-level growth alone leaves every
   // enemy class falling behind an optimized build over time. Every enemy unit, of every
-  // class, gets a flat +10% to hp/atk/mag/def/res for every 5 full levels it has,
+  // class, gets a flat +10% to hp/atk/mag/def/dex for every 5 full levels it has,
   // cumulative and stacking (level 12 is +20%, level 27 is +50%), on top of whatever
   // normal growth statsFor already gave it. This lives here — the one choke point every
   // enemy/neutral spawn passes through (see the BattleEngine constructor) — precisely so
@@ -844,7 +858,7 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
     st.atk = Math.round(st.atk * boost);
     st.mag = Math.round(st.mag * boost);
     st.def = Math.round(st.def * boost);
-    st.res = Math.round(st.res * boost);
+    st.dex = Math.round(st.dex * boost);
   }
   const statPointAllocation = side === "player" ? { ...(roster?.statPointAllocations?.[spawn.name] ?? {}) } : {};
   const point = (attribute: StatPointAttribute) => statPointAllocation[attribute] ?? 0;
@@ -888,7 +902,9 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
     atk: Math.round((st.atk + point("atk") + gearBonus.atk) * hungerKeep * diseaseKeep),
     mag: Math.round((st.mag + point("mag") + gearBonus.mag) * hungerKeep * diseaseKeep),
     def: Math.round((st.def + point("def") + gearBonus.def) * hungerKeep * diseaseKeep),
-    res: Math.round((st.res + point("res") + gearBonus.res) * hungerKeep * diseaseKeep),
+    dex: Math.round((st.dex + point("dex") + gearBonus.dex) * hungerKeep * diseaseKeep),
+    resistances: sumResistances(st.resistances, gearBonus.resistances, side === "player" ? skillResistances(roster?.heroSkills, spawn.name) : undefined),
+    weaponSkills: side === "player" ? trainedWeaponSkills(roster?.heroSkills, spawn.name, cls.id) : undefined,
     initiative: initiativeBonus(cls.id),
     initiativeRoll: 0,
     statPointAllocation,
@@ -987,12 +1003,14 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
           atk: Math.round((st.atk + point("atk") + gearBonus.atk) * hungerKeep),
           mag: Math.round((st.mag + point("mag") + gearBonus.mag) * hungerKeep),
           def: Math.round((st.def + point("def") + gearBonus.def) * hungerKeep),
-          res: Math.round((st.res + point("res") + gearBonus.res) * hungerKeep),
+          dex: Math.round((st.dex + point("dex") + gearBonus.dex) * hungerKeep),
           mov: st.mov + gearBonus.mov,
         }
       : null,
     poisoned,
-    poisonFaces: roster?.heroPoisons?.[spawn.name] === 10 ? 10 : 4,
+    poisonTier: poisoned ? poisonTierOf(roster?.heroPoisons?.[spawn.name]) ?? "lesser" : undefined,
+    poisonMag: poisoned ? roster?.heroPoisonMag?.[spawn.name] ?? 0 : undefined,
+    poisonResist: side === "player" ? skillResistances(roster?.heroSkills, spawn.name).poison ?? 0 : 0,
     bleeding: false,
     bleedMovedThisTurn: false,
     stunned: false,
@@ -1030,11 +1048,14 @@ function unitFromSnap(snap: BattleUnitSnap): Unit {
     x: snap.x,
     y: snap.y,
     hp: snap.hp,
+    escaped: snap.escaped,
     maxHp: snap.maxHp,
     atk: snap.atk,
     mag: snap.mag,
     def: snap.def,
-    res: snap.res,
+    dex: snap.dex,
+    weaponSkills: snap.weaponSkills,
+    resistances: snap.resistances ?? sumResistances(cls?.resistances, gearStatBonus(Object.values(snap.gear ?? {})).resistances, { poison: snap.poisonResist ?? 0 }),
     initiative: snap.initiative ?? initiativeBonus(classId),
     initiativeRoll: snap.initiativeRoll ?? 0,
     statPointAllocation: { ...(snap.statPointAllocation ?? {}) },
@@ -1075,7 +1096,9 @@ function unitFromSnap(snap: BattleUnitSnap): Unit {
     diseased: snap.diseased,
     diseaseBase: snap.diseaseBase ? { ...snap.diseaseBase } : null,
     poisoned: snap.poisoned,
-    poisonFaces: snap.poisonFaces,
+    poisonTier: snap.poisonTier ?? poisonTierOf(snap.poisonFaces),
+    poisonMag: snap.poisonMag ?? 0,
+    poisonResist: snap.poisonResist ?? 0,
     bleeding: snap.bleeding ?? false,
     bleedMovedThisTurn: false,
     stunned: snap.stunned,
@@ -1430,6 +1453,7 @@ export class BattleEngine {
   private cleaveVfxSequence = 0;
 
   affinityScores: Record<string, number> = {};
+  heroSkills: HeroSkills = {};
   partyLeader = "Kael";
 
   private adjacentAllies(u: Unit): Unit[] {
@@ -1440,7 +1464,7 @@ export class BattleEngine {
   private affinityUnit(u: Unit): Unit {
     if (u.side !== "player" || u.summoned || !u.alive) return u;
     const bonus = Math.max(0, ...this.adjacentAllies(u).map(ally => affinityBonus(affinityScore(this.affinityScores, u.name, ally.name))));
-    return bonus ? { ...u, atk: u.atk * (1 + bonus), mag: u.mag * (1 + bonus), def: u.def * (1 + bonus), res: u.res * (1 + bonus) } : u;
+    return bonus ? { ...u, atk: u.atk * (1 + bonus), mag: u.mag * (1 + bonus), def: u.def * (1 + bonus), dex: u.dex * (1 + bonus) } : u;
   }
 
   private awardAdjacentAffinity(u: Unit): void {
@@ -1469,6 +1493,7 @@ export class BattleEngine {
 
   constructor(mission: Mission, art: GameArt, roster: Roster, seed = 1, debugFreeCast = false) {
     this.affinityScores = cleanAffinityScores(roster.affinityScores);
+    this.heroSkills = cleanHeroSkills(roster.heroSkills, Object.keys(roster.heroSkills ?? {}));
     this.partyLeader = roster.partyLeader ?? "Kael";
     this.debugFreeCast = debugFreeCast;
     this.mission = mission;
@@ -1671,6 +1696,8 @@ export class BattleEngine {
         tileAt(this.tiles, this.cols, foeForForecast.x, foeForForecast.y),
         this.tiles,
         this.cols,
+        EQUIPMENT[fake.offHandId ?? ""]?.kind === "weapon" && (this.mode === "awaitOffHand" || (this.mode !== "awaitSpell" && this.isArrowAttack(fake) && hexDist(fake, foeForForecast) <= (EQUIPMENT[fake.offHandId!]?.maxRange ?? 1))),
+        !(this.mode === "awaitOffHand" && EQUIPMENT[fake.offHandId ?? ""]?.kind === "shield") && (this.mode !== "awaitSpell" || isWeaponAbility(this.spellKind)),
       );
     }
     const canAttack =
@@ -1872,11 +1899,14 @@ export class BattleEngine {
         x: Math.round(u.x),
         y: Math.round(u.y),
         hp: u.hp,
+    escaped: u.escaped,
         maxHp: u.maxHp,
         atk: u.atk,
         mag: u.mag,
         def: u.def,
-        res: u.res,
+        dex: u.dex,
+    resistances: { ...u.resistances },
+    weaponSkills: { ...u.weaponSkills },
         initiative: u.initiative,
         initiativeRoll: u.initiativeRoll,
         statPointAllocation: { ...u.statPointAllocation },
@@ -1904,7 +1934,9 @@ export class BattleEngine {
         diseased: u.diseased,
         diseaseBase: u.diseaseBase ? { ...u.diseaseBase } : null,
         poisoned: u.poisoned,
-    poisonFaces: u.poisonFaces,
+    poisonTier: u.poisonTier,
+        poisonMag: u.poisonMag,
+        poisonResist: u.poisonResist,
         bleeding: u.bleeding,
         stunned: u.stunned,
         stunTurns: u.stunTurns,
@@ -1937,6 +1969,7 @@ export class BattleEngine {
     }
     return {
       affinityScores: { ...this.affinityScores },
+      heroSkills: structuredClone(this.heroSkills),
       missionId: this.mission.id,
       turn: this.turn,
       phase: this.phase,
@@ -1976,6 +2009,7 @@ export class BattleEngine {
   /** Overlay a saved fight onto this engine (which has already constructed the mission). */
   applySnapshot(snap: BattleSnapshot): void {
     this.affinityScores = cleanAffinityScores(snap.affinityScores ?? this.affinityScores);
+    this.heroSkills = cleanHeroSkills(snap.heroSkills ?? this.heroSkills, Object.keys(snap.heroSkills ?? this.heroSkills));
     if (snap.missionId !== this.mission.id) return;
     if (snap.tiles.length === this.tiles.length) {
       for (let i = 0; i < snap.tiles.length; i++) this.tiles[i] = snap.tiles[i]!;
@@ -1987,7 +2021,24 @@ export class BattleEngine {
     for (let i = 0; i < cleanedTiles.length; i++) this.tiles[i] = cleanedTiles[i]!;
     this.refreshDecorOverlay();
     const needsOpeningInitiative = snap.units.some((unit) => unit.initiative == null || unit.initiativeRoll == null);
-    this.units = snap.units.map(unitFromSnap);
+    this.units = snap.units.map(saved => {
+      const unit = unitFromSnap(saved);
+      if (unit.side === "player" && !unit.summoned) {
+        // Earlier snapshots can contain unit proficiency without the top-level skill ledger.
+        for (const type of weaponTypesForClass(unit.classId)) {
+          const id = `${type}Weapon` as const;
+          if (this.heroSkills[unit.name]?.[id] == null && saved.weaponSkills?.[type] != null) {
+            this.heroSkills[unit.name] = { ...this.heroSkills[unit.name], [id]: saved.weaponSkills[type] };
+          }
+        }
+        this.heroSkills = cleanHeroSkills(this.heroSkills, Object.keys(this.heroSkills));
+        unit.weaponSkills = trainedWeaponSkills(this.heroSkills, unit.name, unit.classId);
+      }
+      if (!saved.resistances && unit.side === "player" && !unit.summoned) {
+        unit.resistances = sumResistances(CLASSES[unit.classId]?.resistances, gearStatBonus(Object.values(unit.gear)).resistances, skillResistances(this.heroSkills, unit.name));
+      }
+      return unit;
+    });
     this.invalidateOcc();
     this.turn = snap.turn;
     this.phase = snap.phase;
@@ -2803,8 +2854,11 @@ export class BattleEngine {
         // real equipped weapon at full strength.
         const dice = a.stage === "hit" ? a.customDice : a.counterCustomDice;
         const hit = dice
-          ? rollDamageCustom(this.affinityUnit(actor), this.affinityUnit(target), attTile, defTile, dice.dice, dice.faces, dice.bonus, this.rng)
-          : rollDamage(this.affinityUnit(actor), this.affinityUnit(target), attTile, defTile, this.rng);
+          ? rollDamageCustom(this.affinityUnit(actor), this.affinityUnit(target), attTile, defTile, dice.dice, dice.faces, dice.bonus, this.rng, !(a.stage === "hit" && a.spellKind === "shieldBash"))
+          : rollDamage(this.affinityUnit(actor), this.affinityUnit(target), attTile, defTile, this.rng, !(a.stage === "hit" && a.spellKind === "shieldBash"));
+        if (target.side === "enemy" && !(a.stage === "hit" && a.spellKind === "shieldBash")) this.trainWeapon(actor, equippedWeaponType(actor, !!dice));
+        const usesArcane = arcaneBolt && !this.offHandStrike(a) && (a.stage === "counterHit" || !a.spellKind);
+        if (usesArcane) this.trainElementUse(actor, "arcane");
         if (!hit.landed) {
           this.spawnMiss(target);
           this.pushLog(`${actor.name} atacou ${target.name}: Missed`);
@@ -2851,6 +2905,10 @@ export class BattleEngine {
             target.sleepTurns = 0;
           }
           hit.dmg = Math.max(1, Math.floor(hit.dmg * this.zoneDamageMul(target)));
+          if (usesArcane) {
+            hit.dmg = Math.floor(elementalDamage(hit.dmg, target.resistances?.arcane ?? 0, this.affinityUnit(actor).mag));
+            this.trainResistance(target, "arcane");
+          }
           if (a.stage === "hit" && a.spellKind && hit.dmg > 0) this.adjustAffinity(actor, target, -1);
           target.hp = Math.max(0, target.hp - hit.dmg);
           target.flash = 1;
@@ -2911,7 +2969,7 @@ export class BattleEngine {
                 target.atk = Math.round(target.atk * keep);
                 target.mag = Math.round(target.mag * keep);
                 target.def = Math.round(target.def * keep);
-                target.res = Math.round(target.res * keep);
+                target.dex = Math.round(target.dex * keep);
                 target.mov = Math.max(1, Math.round(target.mov * keep));
               }
               sfxPlay.trip(this.isBladeAttack(actor));
@@ -3014,14 +3072,13 @@ export class BattleEngine {
    * MAG only ever improved their basic attack.
    *
    * The multiplier weights the power term alone. Applied to the whole total it would scale
-   * the defender's RES with it, making armoured targets hardest for the spells meant to
-   * break them. */
+   * terrain protection with it. Elemental resistance is applied after spell damage. */
   private spellDamage(att: Unit, foe: Unit, mul: number, roll: number): number {
     att = this.affinityUnit(att);
     foe = this.affinityUnit(foe);
     const attTile = this.hexAt(att.x, att.y);
     const defTile = this.hexAt(foe.x, foe.y);
-    const prot = protOf(att, foe);
+    const prot = 0;
     const spell = Math.floor(powerOf(att) * mul) + roll + attTile.atk - prot - (defTile.cover ?? 0);
     const plain = powerOf(att) + weaponRoll(att.weaponId, att.weaponEnh, this.rng) + attTile.atk - prot - defTile.def;
     return Math.max(1, Math.floor(Math.max(spell, plain)));
@@ -3180,6 +3237,9 @@ export class BattleEngine {
     }
     if (!a.hit && (syncFireballVfx ? a.fireballImpact === true : syncCausticVenomVfx ? a.causticVenomImpact === true : syncPhantasmalVfx ? a.phantasmalImpact === true : syncMagicMissileV2Vfx ? a.magicMissileV2Impact === true : syncBurningHandsVfx ? a.burningHandsReleased === true : a.t >= hitAt)) {
       a.hit = true;
+      // One use check for this cast, independent of how many targets its area hits.
+      const usedElement = spellElement(a.spellKind);
+      if (usedElement) this.trainElementUse(att, usedElement);
       // Every attack cue (weapon skills included) already played when its animation began, in startSeq.
       // AoE/line spells: the first enemy actually hit grants full XP, every enemy after
       // that in the same cast grants half — hitting a whole group shouldn't out-earn
@@ -3211,6 +3271,7 @@ export class BattleEngine {
         let dmg: number;
         let crit = false;
         let landed = true;
+        let weaponRolled = false;
         if (a.centerId && foe.id === a.centerId) {
           dmg = this.spellDamage(att, foe, a.centerMul, rollDice(a.centerDice, a.centerFaces, a.centerBonus, this.rng));
         } else if (a.extraDice > 0) {
@@ -3227,6 +3288,7 @@ export class BattleEngine {
             tileAt(this.tiles, this.cols, foe.x, foe.y),
             this.rng,
           );
+          weaponRolled = true;
           landed = hit.landed;
           dmg = thrustHitIndex === 0 ? hit.dmg : Math.max(1, Math.floor(hit.dmg * 0.5));
           crit = hit.crit;
@@ -3240,11 +3302,23 @@ export class BattleEngine {
             tileAt(this.tiles, this.cols, att.x, att.y),
             tileAt(this.tiles, this.cols, foe.x, foe.y),
             this.rng,
+            isWeaponAbility(a.spellKind),
           );
+          weaponRolled = true;
           landed = hit.landed;
           dmg = hit.dmg;
           crit = hit.crit;
           if (a.weaponBonusDice > 0 && landed) dmg += rollDice(a.weaponBonusDice, a.weaponBonusFaces, a.weaponBonusBonus, this.rng);
+        }
+        if (isWeaponAbility(a.spellKind)) {
+          const type = equippedWeaponType(att);
+          if (!weaponRolled) {
+            const mastery = weaponModifiers(att, type);
+            const accuracy = dexAccuracy(mastery.accuracy, this.affinityUnit(foe).dex);
+            landed = accuracy >= 100 || this.rng() * 100 < accuracy;
+
+          }
+          if (foe.side === "enemy") this.trainWeapon(att, type);
         }
         if (!landed) {
           this.spawnMiss(foe);
@@ -3261,16 +3335,23 @@ export class BattleEngine {
           foe.sleepTurns = 0;
         }
         dmg = Math.max(1, Math.floor(dmg * this.zoneDamageMul(foe)));
+        const element = spellElement(a.spellKind);
+        if (element) dmg = Math.floor(elementalDamage(dmg, foe.resistances?.[element] ?? 0, this.affinityUnit(att).mag));
         if (dmg > 0 && a.spellKind) this.adjustAffinity(att, foe, -1);
         foe.hp = Math.max(0, foe.hp - dmg);
         foe.flash = 1;
         foe.hitAt = this.time;
         this.provoke(foe, att);
-        if (a.poison) {
-          const faces = a.spellKind === "causticVenom" ? 10 : 4;
-          foe.poisonFaces = foe.poisoned && foe.poisonFaces === 10 ? 10 : faces;
+        const poisonTier: PoisonTier = a.spellKind === "causticVenom" ? "poison" : "lesser";
+        if (a.poison && this.rng() * 100 < poisonChance(effectivePoisonResistance(foe.resistances?.poison ?? 0, poisonTier, this.affinityUnit(att).mag))) {
+          const currentTier = foe.poisoned ? foe.poisonTier : undefined;
+          const nextTier = strongerPoison(currentTier, poisonTier);
+          if (!currentTier || nextTier !== currentTier) foe.poisonMag = this.affinityUnit(att).mag;
+          else if (nextTier === poisonTier) foe.poisonMag = Math.max(foe.poisonMag ?? 0, this.affinityUnit(att).mag);
+          foe.poisonTier = nextTier;
           foe.poisoned = true;
         }
+        if (element) this.trainResistance(foe, element);
         // Dreno de Vida: heals the familiar's own summoning conjurer for a share of the
         // damage it just dealt (see lifeDrainHealMul) — off the real rolled damage, not a
         // separate estimate, same reasoning as every other on-hit effect in this loop.
@@ -3341,7 +3422,7 @@ export class BattleEngine {
           this.markDead(foe);
         } else {
           sfxPlay.hit();
-          if (a.echo) foe.shock = { ...a.echo };
+          if (a.echo) foe.shock = { ...a.echo, mag: this.affinityUnit(att).mag };
           if (a.spellKind === "sweep") this.knockBack(att, foe);
           if (a.spellKind === "shoulderSmash") {
             for (let i = 0; i < SHOULDER_SMASH.knockback; i++) this.knockBack(att, foe);
@@ -3458,12 +3539,12 @@ export class BattleEngine {
     if (chance <= 0 || !target.alive || target.diseased) return;
     if (this.rng() >= chance) return;
     target.diseased = true;
-    target.diseaseBase = { atk: target.atk, mag: target.mag, def: target.def, res: target.res, mov: target.mov };
+    target.diseaseBase = { atk: target.atk, mag: target.mag, def: target.def, dex: target.dex, mov: target.mov };
     const pen = (n: number) => Math.round(n * (1 - DISEASE.statPenalty));
     target.atk = pen(target.atk);
     target.mag = pen(target.mag);
     target.def = pen(target.def);
-    target.res = pen(target.res);
+    target.dex = pen(target.dex);
     target.mov = Math.max(1, pen(target.mov));
     this.tip = `${target.name} não se sente muito bem.`;
   }
@@ -3587,7 +3668,7 @@ export class BattleEngine {
     u.atk = after.atk + (u.statPointAllocation.atk ?? 0);
     u.mag = after.mag + (u.statPointAllocation.mag ?? 0);
     u.def = after.def + (u.statPointAllocation.def ?? 0);
-    u.res = after.res + (u.statPointAllocation.res ?? 0);
+    u.dex = after.dex + (u.statPointAllocation.dex ?? 0);
     u.hp = Math.min(u.maxHp, u.hp + (after.hp - before.hp));
     this.reapplyGear(u);
     const nextSpells = { ...u.spells };
@@ -3622,7 +3703,8 @@ export class BattleEngine {
 
   private curePlayerDisease(u: Unit): void {
     u.poisoned = false;
-    u.poisonFaces = undefined;
+    u.poisonTier = undefined;
+    u.poisonMag = undefined;
     if (!u.diseaseBase) {
       u.diseased = false;
       return;
@@ -3630,7 +3712,7 @@ export class BattleEngine {
     u.atk = u.diseaseBase.atk;
     u.mag = u.diseaseBase.mag;
     u.def = u.diseaseBase.def;
-    u.res = u.diseaseBase.res;
+    u.dex = u.diseaseBase.dex;
     u.mov = u.diseaseBase.mov;
     u.diseaseBase = null;
     u.diseased = false;
@@ -3842,27 +3924,32 @@ export class BattleEngine {
     if (u.shock) {
       const echo = u.shock;
       u.shock = null;
-      const dmg = Math.max(1, rollDice(echo.dice, echo.faces, echo.bonus, this.rng) - u.res);
+      const baseDamage = rollDice(echo.dice, echo.faces, echo.bonus, this.rng);
+      const dmg = Math.floor(elementalDamage(baseDamage, u.resistances?.lightning ?? 0, echo.mag ?? 0));
       u.hp = Math.max(0, u.hp - dmg);
       u.flash = 1;
       u.hitAt = this.time;
       this.spawnHit(u, dmg, false);
-      this.tip = `Relâmpago · ${diceFormula(echo.dice, echo.faces, echo.bonus)} − RES`;
+      this.tip = `Relâmpago · ${diceFormula(echo.dice, echo.faces, echo.bonus)}`;
       this.pushLog(`Eco de relâmpago em ${u.name}: ${dmg} dano`);
+      this.trainResistance(u, "lightning");
       sfxPlay.hit();
       if (u.hp <= 0) {
         this.markDead(u);
       }
     }
     if (u.alive && u.poisoned) {
-      const dmg = rollDice(1, u.poisonFaces ?? 4, 0, this.rng);
+      const tier = POISON_TIERS[u.poisonTier ?? "lesser"];
+      const dmg = poisonTickDamage(rollDice(tier.dice, tier.faces, 0, this.rng), effectivePoisonResistance(u.resistances?.poison ?? 0, u.poisonTier ?? "lesser", u.poisonMag ?? 0));
       u.hp = Math.max(0, u.hp - dmg);
       u.flash = 1;
       u.hitAt = this.time;
       this.spawnHit(u, dmg, false);
-      this.tip = `Veneno ${u.poisonFaces === 10 ? "Médio" : "Menor"} · 1D${u.poisonFaces ?? 4} dano`;
+      this.tip = `${tier.name} · ${poisonDice(u.poisonTier ?? "lesser")} dano`;
       this.pushLog(`Veneno consome ${u.name}: ${dmg} dano`);
       sfxPlay.hit();
+      // Suffering the poison is use too — every tick is a Poison Resistance check.
+      if (u.side === "player" && !u.summoned) this.trainResistance(u, "poison");
       if (u.hp <= 0) {
         this.markDead(u);
       }
@@ -3873,7 +3960,7 @@ export class BattleEngine {
     // hands out tier-3 slots to every class, not just paladin.
     if (u.alive && u.classId === "paladin" && u.hp / u.maxHp <= SECOND_WIND.badlyWoundedPct && this.tierRemaining(u, "secondWind") > 0) {
       this.spendTier(u, "secondWind");
-      const heal = Math.min(u.maxHp - u.hp, Math.floor(secondWindPct(u.level) * u.res));
+      const heal = Math.min(u.maxHp - u.hp, Math.floor(secondWindPct(u.level) * u.dex));
       if (heal > 0) {
         u.hp += heal;
         u.flash = 1;
@@ -3899,17 +3986,49 @@ export class BattleEngine {
     this.evaluateEnd();
   }
 
+  private trainWeapon(unit: Unit, type: import("./types").WeaponType | undefined): void {
+    if (!type || unit.side !== "player" || unit.summoned || !weaponTypesForClass(unit.classId).includes(type)) return;
+    const id = `${type}Weapon` as const;
+    const current = this.heroSkills[unit.name]?.[id] ?? 0;
+    const gained = rollWeaponSkillGain(current, this.rng);
+    if (gained === null) return;
+    this.heroSkills[unit.name] = { ...this.heroSkills[unit.name], [id]: gained };
+    unit.weaponSkills = { ...unit.weaponSkills, [type]: gained };
+  }
+
+  /** A familiar's elemental magic practises its summoner's matching resistance. */
+  private trainElementUse(caster: Unit, element: import("./types").ResistanceElement): void {
+    const learner = caster.summoned
+      ? this.units.find(unit => unit.id === caster.summonerId && unit.alive && unit.side === caster.side)
+      : caster;
+    if (learner) this.trainResistance(learner, element);
+  }
+
+  private trainResistance(unit: Unit, element: import("./types").ResistanceElement): void {
+    if (unit.side !== "player" || unit.summoned) return;
+    const id = `${element}Resistance` as const;
+    const current = this.heroSkills[unit.name]?.[id] ?? 0;
+    const gained = rollSkillGain(current, this.rng);
+    if (gained === null) return;
+    this.heroSkills[unit.name] = { ...this.heroSkills[unit.name], [id]: gained };
+    unit.resistances = { ...unit.resistances, [element]: Number(((unit.resistances?.[element] ?? 0) + gained - current).toFixed(1)) };
+    if (element === "poison") unit.poisonResist = gained;
+  }
+
   private applyTileHazard(unit: Unit, cell: Point): void {
     const terr = this.hexAt(cell.x, cell.y);
     if (!terr.hazardDice || !unit.alive) return;
     const faces = terr.hazardFaces ?? 8;
     let dmg = 0;
     for (let i = 0; i < terr.hazardDice; i++) dmg += 1 + Math.floor(this.rng() * faces);
+    const element = terr.id === "flame" ? "fire" : terr.id === "ember" ? "ember" : undefined;
+    if (element) dmg = Math.floor(elementalDamage(dmg, unit.resistances?.[element] ?? 0));
     unit.hp = Math.max(0, unit.hp - dmg);
     unit.flash = 1;
     unit.hitAt = this.time;
     this.spawnHit(unit, dmg, false);
     this.pushLog(`${terr.name} feriu ${unit.name}: ${dmg} dano`);
+    if (element) this.trainResistance(unit, element);
     sfxPlay.hit();
     if (unit.hp <= 0) {
       this.markDead(unit);
@@ -4460,7 +4579,7 @@ export class BattleEngine {
     if (this.activeExit && DECORATIONS[this.activeExit.id]?.exitKind === "escape") {
       const u = this.exitUnitHere(this.activeExit);
       if (!u) return;
-      if (this.rng() < 0.6) {
+      if (this.rng() * 100 < this.fleeChance(u)) {
         this.tip = `${u.name} encontrou uma saída! O grupo foge do combate.`;
         this.pushLog(this.tip);
         this.result = "victory";
@@ -4562,8 +4681,8 @@ export class BattleEngine {
     }${tile.id === "barricade" ? " · barricada bloqueia projéteis" : ""}${
       unit.classId === "troll" || unit.classId === "troll2" ? " · parte barricadas" : ""
     }${
-      unit.shock ? ` · Relâmpago ${diceFormula(unit.shock.dice, unit.shock.faces, unit.shock.bonus)} − RES no turno` : ""
-    }${unit.diseased ? " · Doente (−10% em todos os stats)" : ""}${unit.poisoned ? ` · Veneno ${unit.poisonFaces === 10 ? "Médio" : "Menor"} (1D${unit.poisonFaces ?? 4} dano por turno)` : ""}`;
+      unit.shock ? ` · Relâmpago ${diceFormula(unit.shock.dice, unit.shock.faces, unit.shock.bonus)} no turno` : ""
+    }${unit.diseased ? " · Doente (−10% em todos os stats)" : ""}${unit.poisoned ? ` · ${POISON_TIERS[unit.poisonTier ?? "lesser"].name} (${poisonDice(unit.poisonTier ?? "lesser")} dano por turno)` : ""}`;
     this.ensureVisible(unit.x, unit.y);
     sfxPlay.ui();
   }
@@ -4801,7 +4920,7 @@ export class BattleEngine {
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${FIREBALL.name}: alcance ${FIREBALL.range}, ${fireballFormula(u.mag)} − RES em área. Toque para mirar, toque de novo para lançar.`;
+    this.tip = `${FIREBALL.name}: alcance ${FIREBALL.range}, ${fireballFormula(u.mag)} em área. Toque para mirar, toque de novo para lançar.`;
     sfxPlay.ui();
   }
 
@@ -4813,7 +4932,7 @@ export class BattleEngine {
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${CAUSTIC_VENOM.name}: alcance ${CAUSTIC_VENOM.range}, alvo ${diceFormula(CAUSTIC_VENOM.centerDice, CAUSTIC_VENOM.centerFaces, CAUSTIC_VENOM.centerBonus)} − RES, respingo ${diceFormula(CAUSTIC_VENOM.splashDice, CAUSTIC_VENOM.splashFaces, CAUSTIC_VENOM.splashBonus)} − RES em área — envenena todos atingidos, até aliados. Toque para mirar, toque de novo para lançar.`;
+    this.tip = `${CAUSTIC_VENOM.name}: alcance ${CAUSTIC_VENOM.range}, alvo ${diceFormula(CAUSTIC_VENOM.centerDice, CAUSTIC_VENOM.centerFaces, CAUSTIC_VENOM.centerBonus)}, respingo ${diceFormula(CAUSTIC_VENOM.splashDice, CAUSTIC_VENOM.splashFaces, CAUSTIC_VENOM.splashBonus)} em área — envenena todos atingidos, até aliados. Toque para mirar, toque de novo para lançar.`;
     sfxPlay.ui();
   }
 
@@ -4825,7 +4944,7 @@ export class BattleEngine {
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${MINOR_VENOM.name}: alcance ${MINOR_VENOM.range}, alvo ${diceFormula(MINOR_VENOM.centerDice, MINOR_VENOM.centerFaces, MINOR_VENOM.centerBonus)} − RES, respingo ${diceFormula(MINOR_VENOM.splashDice, MINOR_VENOM.splashFaces, MINOR_VENOM.splashBonus)} − RES em área de raio ${MINOR_VENOM.size} — envenena todos atingidos, até aliados. Toque para mirar, toque de novo para lançar.`;
+    this.tip = `${MINOR_VENOM.name}: alcance ${MINOR_VENOM.range}, alvo ${diceFormula(MINOR_VENOM.centerDice, MINOR_VENOM.centerFaces, MINOR_VENOM.centerBonus)}, respingo ${diceFormula(MINOR_VENOM.splashDice, MINOR_VENOM.splashFaces, MINOR_VENOM.splashBonus)} em área de raio ${MINOR_VENOM.size} — envenena todos atingidos, até aliados. Toque para mirar, toque de novo para lançar.`;
     sfxPlay.ui();
   }
 
@@ -4861,7 +4980,7 @@ export class BattleEngine {
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${SHOCK.name}: alcance ${SHOCK.range}, ${spellFormula(u.mag, SHOCK.mul, SHOCK.dice, SHOCK.faces, SHOCK.bonus)} − RES. Toque no inimigo.`;
+    this.tip = `${SHOCK.name}: alcance ${SHOCK.range}, ${spellFormula(u.mag, SHOCK.mul, SHOCK.dice, SHOCK.faces, SHOCK.bonus)}. Toque no inimigo.`;
     sfxPlay.ui();
   }
 
@@ -4873,7 +4992,7 @@ export class BattleEngine {
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `Relâmpago: alcance ${LIGHTNING.range}, ${lightningFormula(u.mag)} − RES. Atravessa cobertura e barricadas. No turno seguinte ${diceFormula(LIGHTNING.echoDice, LIGHTNING.echoFaces, LIGHTNING.echoBonus)} − RES. Toque no inimigo.`;
+    this.tip = `Relâmpago: alcance ${LIGHTNING.range}, ${lightningFormula(u.mag)}. Atravessa cobertura e barricadas. No turno seguinte ${diceFormula(LIGHTNING.echoDice, LIGHTNING.echoFaces, LIGHTNING.echoBonus)}. Toque no inimigo.`;
     sfxPlay.ui();
   }
 
@@ -4885,7 +5004,7 @@ export class BattleEngine {
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${LIGHTNING_T3.name}: alcance ${LIGHTNING_T3.range}, ${lightningTier3Formula(u.mag)} − RES. Atravessa cobertura e barricadas. Eco ${diceFormula(LIGHTNING_T3.echoDice, LIGHTNING_T3.echoFaces, LIGHTNING_T3.echoBonus)} − RES. Toque no inimigo.`;
+    this.tip = `${LIGHTNING_T3.name}: alcance ${LIGHTNING_T3.range}, ${lightningTier3Formula(u.mag)}. Atravessa cobertura e barricadas. Eco ${diceFormula(LIGHTNING_T3.echoDice, LIGHTNING_T3.echoFaces, LIGHTNING_T3.echoBonus)}. Toque no inimigo.`;
     sfxPlay.ui();
   }
 
@@ -4898,7 +5017,7 @@ export class BattleEngine {
     this.spellAim = null;
     this.hover = null;
     const shots = magicMissileCount(u.level);
-    this.tip = `${MAGIC_MISSILE.name}: alcance ${MAGIC_MISSILE.range}, ${spellFormula(u.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)} − RES por míssil. ${shots} míssil${shots > 1 ? "eis, um alvo cada (pode repetir)" : ""}. Acerto garantido. Toque no inimigo.`;
+    this.tip = `${MAGIC_MISSILE.name}: alcance ${MAGIC_MISSILE.range}, ${spellFormula(u.mag, MAGIC_MISSILE.mul, MAGIC_MISSILE.dice, MAGIC_MISSILE.faces, MAGIC_MISSILE.bonus)} por míssil. ${shots} míssil${shots > 1 ? "eis, um alvo cada (pode repetir)" : ""}. Acerto garantido. Toque no inimigo.`;
     sfxPlay.ui();
   }
 
@@ -4913,7 +5032,7 @@ export class BattleEngine {
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${LIFE_DRAIN.name}: alcance ${LIFE_DRAIN.range}, ${lifeDrainFormula(u.level, u.mag)} − RES, cura o invocador em ${Math.round(lifeDrainHealMul(u.level) * 100)}% do dano causado. Toque no inimigo.`;
+    this.tip = `${LIFE_DRAIN.name}: alcance ${LIFE_DRAIN.range}, ${lifeDrainFormula(u.level, u.mag)}, cura o invocador em ${Math.round(lifeDrainHealMul(u.level) * 100)}% do dano causado. Toque no inimigo.`;
     sfxPlay.ui();
   }
 
@@ -5295,7 +5414,7 @@ export class BattleEngine {
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${PHANTASMAL_FORCE.name}: alcance ${PHANTASMAL_FORCE.range}, ${phantasmalForceFormula(u.level, u.mag)} − RES. Toque no inimigo.`;
+    this.tip = `${PHANTASMAL_FORCE.name}: alcance ${PHANTASMAL_FORCE.range}, ${phantasmalForceFormula(u.level, u.mag)}. Toque no inimigo.`;
     sfxPlay.ui();
   }
 
@@ -5693,7 +5812,7 @@ export class BattleEngine {
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${BURNING_HANDS.name}: cone curto à frente, ${burningHandsFormula(u.level, u.mag)} contra RES. Atinge aliados também — mire com cuidado. Toque para mirar.`;
+    this.tip = `${BURNING_HANDS.name}: cone curto à frente, ${burningHandsFormula(u.level, u.mag)} contra resistência elemental. Atinge aliados também — mire com cuidado. Toque para mirar.`;
     sfxPlay.ui();
   }
 
@@ -5705,7 +5824,7 @@ export class BattleEngine {
     this.spellArmed = false;
     this.spellAim = null;
     this.hover = null;
-    this.tip = `${POISON_BREATH.name}: cone curto à frente, ${poisonBreathFormula(u.level, u.mag)} contra RES; Veneno Menor (1D4 por turno). Atinge aliados também — mire com cuidado. Toque para mirar.`;
+    this.tip = `${POISON_BREATH.name}: cone curto à frente, ${poisonBreathFormula(u.level, u.mag)} contra resistência elemental; Veneno Menor (1D4 por turno). Atinge aliados também — mire com cuidado. Toque para mirar.`;
     sfxPlay.ui();
   }
 
@@ -6603,7 +6722,7 @@ export class BattleEngine {
     this.missileTargets = [];
     this.tip = null;
     this.mode = "locked";
-    // One queued cast per missile: each rolls its own 3d4 and takes the target's RES off
+    // One queued cast per missile: each rolls its own 3d4 before Arcane Resistance
     // separately, which is what makes splitting them different from one big hit.
     for (const shot of shots) {
       this.queue.push({
@@ -6830,7 +6949,8 @@ export class BattleEngine {
       atk: Math.round(unit.atk * scale),
       mag: Math.round(unit.mag * scale),
       def: Math.round(unit.def * scale),
-      res: Math.round(unit.res * scale),
+      dex: Math.round(unit.dex * scale),
+      resistances: { ...cls.resistances },
       initiativeRoll: familiarInitiativeRoll,
       initiative: familiarInitiativeRoll + initiativeBonus(cls.id),
       statPointAllocation: {},
@@ -7373,6 +7493,7 @@ export class BattleEngine {
   private reapplyGear(u: Unit): void {
     const base = statsFor(u.classId, u.level);
     const bonus = gearStatBonus(Object.values(u.gear));
+    if (u.side === "player" && !u.summoned) u.weaponSkills = trainedWeaponSkills(this.heroSkills, u.name, u.classId);
     // Re-applied fresh every time rather than mutated once (unlike crippled) — see
     // Unit.hungerPenaltyPct's own doc comment.
     const hungerKeep = 1 - u.hungerPenaltyPct;
@@ -7382,13 +7503,14 @@ export class BattleEngine {
       atk: Math.round((base.atk + (u.statPointAllocation.atk ?? 0) + bonus.atk) * hungerKeep),
       mag: Math.round((base.mag + (u.statPointAllocation.mag ?? 0) + bonus.mag) * hungerKeep),
       def: Math.round((base.def + (u.statPointAllocation.def ?? 0) + bonus.def) * hungerKeep),
-      res: Math.round((base.res + (u.statPointAllocation.res ?? 0) + bonus.res) * hungerKeep),
+      dex: Math.round((base.dex + (u.statPointAllocation.dex ?? 0) + bonus.dex) * hungerKeep),
       mov: base.mov + bonus.mov,
     };
     u.atk = Math.round(diseaseBase.atk * diseaseKeep);
     u.mag = Math.round(diseaseBase.mag * diseaseKeep);
     u.def = Math.round(diseaseBase.def * diseaseKeep);
-    u.res = Math.round(diseaseBase.res * diseaseKeep);
+    u.dex = Math.round(diseaseBase.dex * diseaseKeep);
+    u.resistances = sumResistances(base.resistances, bonus.resistances, u.side === "player" && !u.summoned ? skillResistances(this.heroSkills, u.name) : undefined);
     u.mov = u.diseased ? Math.max(1, Math.round(diseaseBase.mov * diseaseKeep)) : diseaseBase.mov;
     u.diseaseBase = u.diseased ? diseaseBase : null;
     u.hp = Math.min(u.maxHp, u.hp);
@@ -7617,7 +7739,7 @@ export class BattleEngine {
   }
 
   /** A random encounter can only be escaped by the hero whose turn it is, once that hero
-   * reaches any outer hex of the battlefield. This engine owns the 60% roll; the campaign
+   * reaches any outer hex of the battlefield. This engine owns the DEX-adjusted roll; the campaign
    * screen handles a successful transition back to the world map. A miss spends this hero's
    * turn, so enemies continue their normal turns and are the only source of ensuing damage. */
   canAttemptFlee(): boolean {
@@ -7635,13 +7757,18 @@ export class BattleEngine {
       footprint(u).some((cell) => cell.x <= 0 || cell.y <= 0 || cell.x >= this.cols - 1 || cell.y >= this.rows - 1);
   }
 
-  /** Rolls a 60% escape for the active edge-bound hero. Failed attempts deliberately do
+  /** Rolls a DEX-adjusted escape for the active edge-bound hero. Failed attempts deliberately do
    * not inflict scripted damage: they end the hero's turn, letting the encounter's enemies
    * carry on attacking normally before the party can try again. */
+  fleeChance(unit: Unit | undefined = this.activeTurnUnit() ?? undefined): number {
+    if (!unit) return 0;
+    return dexEscapeChance(this.affinityUnit(unit).dex);
+  }
+
   attemptFlee(): boolean {
     if (!this.canAttemptFlee()) return false;
     const u = this.activeTurnUnit()!;
-    if (this.rng() < 0.6) {
+    if (this.rng() * 100 < this.fleeChance(u)) {
       this.tip = `${u.name} encontrou uma saída! O grupo foge do combate.`;
       this.pushLog(this.tip);
       sfxPlay.ui();
@@ -8572,7 +8699,7 @@ export class BattleEngine {
     }
     this.mode = "locked";
     if (item.kind === "shield") {
-      this.queue.push({ type: "combat", att: unit.id, def: foe.id, dmgMul: item.dmgMul ?? 0.75, stunChance: 0.7 });
+      this.queue.push({ type: "combat", att: unit.id, def: foe.id, dmgMul: item.dmgMul ?? 0.75, stunChance: 0.7, spellKind: "shieldBash" });
     } else {
       this.queue.push({
         type: "combat",

@@ -1,3 +1,7 @@
+import { trainedWeaponSkills, weaponTypesForClass, weaponModifiers } from "./weaponSkills";
+import { WEAPON_TYPE_LABELS } from "./weaponTypes";
+import { skillResistances, TRAVEL_TRAINING_HINT_FLAG } from "./skills";
+import { sumResistances, RESISTANCE_ELEMENTS, RESISTANCE_LABELS } from "./resistances";
 import { isFloorConnector, floorConnectorDirection } from "./data";
 import { WISP_BOSS_ID, WISP_CROSSING_ID, wispCrossingCompleted, routeWispCrossing, completedAfterWispVictory } from "./wispCrossing";
 import { removeWallsUnderWatchtowerEntrances } from "./watchtowerDungeon";
@@ -44,6 +48,7 @@ import { OverworldMapScreen } from "./OverworldMapScreen";
 import { LoadingCurtain, useLoadingCurtain } from "./MapLoadingOverlay";
 import { HungerBar } from "./HungerBar";
 import { buyInnMeal, fullness, useRation } from "./hunger";
+import { POISON_TIERS, poisonDice, poisonTierOf } from "./poison";
 import { hungerPenaltyFor, partyIsFed, stepOverworld, teleportOverworld, type OverworldEvent } from "./overworld";
 import { GoldAmount } from "./GoldAmount";
 import { DISPLAY_VERSION } from "./version";
@@ -119,7 +124,7 @@ import {
   writeSlot,
   selectSlot,
 } from "./save";
-import type { Bag, BattleSnapshot, ClassId, DecorationPlacement, DialogAction, DialogTree, ElementalFxPlacement, EquipSlot, GameArt, GrowthLine, HudSnapshot, MapTimeOfDay, Mission, PotionId, SaveBank, SaveData, ScreenId, SpellKind, Spawn, SpriteId, StatPointAllocation, StatPointAttribute, TerrainId, UnitPublic, WinCondition, WorldLocation } from "./types";
+import type { Bag, BattleSnapshot, ClassId, DecorationPlacement, DialogAction, DialogTree, ElementalFxPlacement, EquipSlot, GameArt, GrowthLine, HudSnapshot, MapTimeOfDay, Mission, PoisonTier, PotionId, SaveBank, SaveData, ScreenId, SpellKind, Spawn, SpriteId, StatPointAllocation, StatPointAttribute, TerrainId, UnitPublic, WinCondition, WorldLocation } from "./types";
 import { footprint, hexDist, hexNeighbors, key as hexKey } from "./pathfinding";
 import { buildDecorOverlay, HEX_BLOCKED } from "./hexprops";
 
@@ -781,7 +786,7 @@ function mapStatusUnit(save: SaveData, hero: string): UnitPublic {
   // A starvation streak sets how severe hunger would be, but this character is healthy
   // immediately after being fed even if another party member still needs food.
   const hungerPenaltyPct = fullness(save.heroHunger[hero]) <= 0 ? hungerPenaltyFor(save.hungerStreak) : 0;
-  // The condition badge used to be the only sign of this — VIT/ATK/MAG/DEF/RES themselves
+  // The condition badge used to be the only sign of this — VIT/ATK/MAG/DEF/DEX themselves
   // still read at full value here, unlike the live battle roster (see spawnUnit's
   // hungerKeep), so the sheet warned about a penalty its own numbers never showed.
   const hungerKeep = 1 - hungerPenaltyPct;
@@ -793,11 +798,13 @@ function mapStatusUnit(save: SaveData, hero: string): UnitPublic {
     atk: Math.round((stats.atk + gearBonus.atk) * hungerKeep * diseaseKeep),
     mag: Math.round((stats.mag + gearBonus.mag) * hungerKeep * diseaseKeep),
     def: Math.round((stats.def + gearBonus.def) * hungerKeep * diseaseKeep),
-    res: Math.round((stats.res + gearBonus.res) * hungerKeep * diseaseKeep),
+    dex: Math.round((stats.dex + gearBonus.dex) * hungerKeep * diseaseKeep),
+    resistances: sumResistances(stats.resistances, gearBonus.resistances, skillResistances(save.heroSkills, hero)),
+    weaponSkills: trainedWeaponSkills(save.heroSkills, hero, classId),
     initiative: cls.init ?? 0, initiativeRoll: cls.init ?? 0, mov: Math.max(1, Math.round((stats.mov + gearBonus.mov) * diseaseKeep)), movLeft: Math.max(1, Math.round((stats.mov + gearBonus.mov) * diseaseKeep)), minRange: cls.minRange, maxRange: cls.maxRange,
     moved: false, acted: false, x: save.overworldPos.col, y: save.overworldPos.row, level, xp: save.xp[hero] ?? 0,
     bag: save.bags[hero] ?? { mid: 0, weak: 0, potent: 0, disease: 0, manaSmall: 0, manaMid: 0, manaLarge: 0, lockpick: 0 },
-    spells: emptySpells, weaponId: save.equipped[hero] ?? null, weaponEnh: 0, size: cls.size, diseased: save.heroDiseases[hero] === true, poisoned: !!save.heroPoisons[hero], poisonFaces: save.heroPoisons[hero] === 10 ? 10 : 4, bleeding: false, shock: null,
+    spells: emptySpells, weaponId: save.equipped[hero] ?? null, weaponEnh: 0, size: cls.size, diseased: save.heroDiseases[hero] === true, poisoned: !!save.heroPoisons[hero], poisonTier: poisonTierOf(save.heroPoisons[hero]), bleeding: false, shock: null,
     hungry: hungerPenaltyPct > 0, hungerPct: Math.round(hungerPenaltyPct * 100), fullness: save.heroHunger[hero], stunned: false, crippled: false, offHandId: null, summoned: false, asleep: false, restrained: false,
     gear,
   };
@@ -815,14 +822,24 @@ function mergeBattleDiseases(existing: Record<string, boolean>, engine: BattleEn
   return heroDiseases;
 }
 
-function mergeBattlePoisons(existing: Record<string, boolean | 4 | 10>, engine: BattleEngine): Record<string, boolean | 4 | 10> {
+function mergeBattlePoisons(existing: Record<string, PoisonTier>, engine: BattleEngine): Record<string, PoisonTier> {
   const heroPoisons = { ...existing };
   for (const unit of engine.units) {
     if (unit.side !== "player" || unit.summoned) continue;
-    if (unit.poisoned) heroPoisons[unit.name] = unit.poisonFaces ?? 4;
+    if (unit.poisoned) heroPoisons[unit.name] = unit.poisonTier ?? "lesser";
     else delete heroPoisons[unit.name];
   }
   return heroPoisons;
+}
+
+function mergeBattlePoisonMagic(existing: Record<string, number> | undefined, engine: BattleEngine): Record<string, number> {
+  const magic = { ...existing };
+  for (const unit of engine.units) {
+    if (unit.side !== "player" || unit.summoned) continue;
+    if (unit.poisoned) magic[unit.name] = unit.poisonMag ?? 0;
+    else delete magic[unit.name];
+  }
+  return magic;
 }
 
 /** Every familiar a conjurer can summon — preloaded as soon as a conjurer is in the party and
@@ -1039,6 +1056,7 @@ export function GameApp() {
       spellUses: { ...data.spellUses, ...engine.spentTiers() },
       bags: { ...data.bags, ...engine.remainingBags() },
       affinityScores: { ...engine.affinityScores },
+      heroSkills: structuredClone(engine.heroSkills),
       unitHp: { ...data.unitHp, ...engine.battlePlayerHp() },
       heroHunger: { ...data.heroHunger, ...engine.battlePlayerHunger() },
     };
@@ -1172,6 +1190,8 @@ export function GameApp() {
       heroHunger: fresh.heroHunger,
       heroDiseases: fresh.heroDiseases,
       heroPoisons: fresh.heroPoisons,
+      heroPoisonMag: fresh.heroPoisonMag,
+      heroSkills: fresh.heroSkills,
       rations: fresh.rations,
       hungerStreak: fresh.hungerStreak,
       exploredHexes: fresh.exploredHexes,
@@ -1326,7 +1346,7 @@ export function GameApp() {
       const heroPoisons = save.heroPoisons;
       const crossingDefeatedSpawns = !testMode && keepsDefeatedSpawns(m) ? save.crossingDefeatedSpawns[m.id] ?? [] : [];
       const questPickups = testMode ? undefined : activePickupsFor(save, m.id);
-      const battle = new BattleEngine(m, art, { hp, levels, bags, xp, promotions, weapons, offHand, equipment, statPointAllocations, enemyLevels, neutralLevels, ownedWeaponIds, affinityScores: save.affinityScores, partyLeader: leaderName, spellSpent, hungerPenaltyPct, heroHunger, heroDiseases, heroPoisons, crossingDefeatedSpawns, questPickups }, Date.now() % 100000, testMode);
+      const battle = new BattleEngine(m, art, { hp, levels, bags, xp, promotions, weapons, offHand, equipment, statPointAllocations, enemyLevels, neutralLevels, ownedWeaponIds, affinityScores: save.affinityScores, partyLeader: leaderName, spellSpent, hungerPenaltyPct, heroHunger, heroDiseases, heroPoisons, heroPoisonMag: save.heroPoisonMag, heroSkills: save.heroSkills, crossingDefeatedSpawns, questPickups }, Date.now() % 100000, testMode);
       if (resume && resume.missionId === m.id) battle.applySnapshot(resume);
       if (typeof window !== "undefined" && window.innerWidth < 720) battle.zoom = 0;
       // Sprites load per battle (see ensureSpriteArt): the board opens once this battle's own
@@ -1437,8 +1457,8 @@ export function GameApp() {
         magTo: stTo.mag,
         defFrom: stFrom.def,
         defTo: stTo.def,
-        resFrom: stFrom.res,
-        resTo: stTo.res,
+        dexFrom: stFrom.dex,
+        dexTo: stTo.dex,
         fallen: !u.alive,
         xp: u.xp,
         xpFrom: battleStartProgressRef.current[u.name]?.xp ?? save.xp?.[u.name] ?? 0,
@@ -1464,12 +1484,12 @@ export function GameApp() {
             ...save.crossingDefeatedSpawns,
             [mission.id]: [...new Set([
               ...(save.crossingDefeatedSpawns[mission.id] ?? []),
-              ...engine.units.filter((unit) => (unit.side === "enemy" || unit.side === "neutral") && !unit.alive && !unit.summoned).map((unit) => unit.id),
+              ...engine.units.filter((unit) => (unit.side === "enemy" || unit.side === "neutral") && !unit.alive && !unit.summoned && !unit.escaped).map((unit) => unit.id),
             ])],
           }
         : save.crossingDefeatedSpawns;
       const loot = engine.units
-        .filter((x) => x.side === "enemy" && !x.alive)
+        .filter((x) => x.side === "enemy" && !x.alive && !x.escaped)
         .reduce((n, u) => n + emberForKill(u.classId), 0);
       const weapons = { ...save.weapons };
       const looseEquipment = { ...save.looseEquipment };
@@ -1510,7 +1530,7 @@ export function GameApp() {
       // recorded whether or not the quest was accepted yet, since a crossing dungeon keeps
       // its dead monsters dead (see crossingDefeatedSpawns above).
       const questItems = [...new Set([...(save.questItems ?? []), ...engine.questFound])];
-      const deadEnemyNames = new Set(engine.units.filter((x) => x.side === "enemy" && !x.alive && !x.summoned).map((x) => x.name));
+      const deadEnemyNames = new Set(engine.units.filter((x) => x.side === "enemy" && !x.alive && !x.summoned && !x.escaped).map((x) => x.name));
       const questKills = [...new Set([...(save.questKills ?? []), ...QUESTS.filter((q) => q.kind === "kill" && q.missionId === mission.id && q.targetName && deadEnemyNames.has(q.targetName)).map((q) => q.targetName!)])];
       persistCurrent({
         ...save,
@@ -1524,6 +1544,8 @@ export function GameApp() {
         heroHunger: { ...save.heroHunger, ...engine.battlePlayerHunger() },
         heroDiseases,
         heroPoisons,
+        heroPoisonMag: mergeBattlePoisonMagic(save.heroPoisonMag, engine),
+        heroSkills: structuredClone(engine.heroSkills),
         levels,
         xp,
         weapons,
@@ -2118,6 +2140,19 @@ export function GameApp() {
           onSaveLeader={hero => {
             writeMapSave({ ...readMapSave(), partyLeader: cleanPartyLeader(hero) });
           }}
+          onSetTravelTraining={(hero, skill) => {
+            // One road-training skill per hero; picking or switching restarts its 12 h count.
+            const current = readMapSave();
+            const travelTraining = { ...current.travelTraining };
+            if (skill) travelTraining[hero] = skill;
+            else delete travelTraining[hero];
+            const flags = current.flags?.includes(TRAVEL_TRAINING_HINT_FLAG) ? current.flags : [...(current.flags ?? []), TRAVEL_TRAINING_HINT_FLAG];
+            writeMapSave({ ...current, travelTraining, travelTrainingHours: { ...current.travelTrainingHours, [hero]: 0 }, flags });
+          }}
+          onSeenTravelTrainingHint={() => {
+            const current = readMapSave();
+            if (!current.flags?.includes(TRAVEL_TRAINING_HINT_FLAG)) writeMapSave({ ...current, flags: [...(current.flags ?? []), TRAVEL_TRAINING_HINT_FLAG] });
+          }}
           locations={mapVisibleLocations}
           status={(loc) => locationStatus(loc, save.completed, testMode, campaignLocations, missionAccessFor)}
           missionStatus={(id) => missionStatus(id, save.completed, testMode, campaignLocations, campaignMissions.map((mission) => mission.id), missionAccessFor)}
@@ -2690,6 +2725,8 @@ export function GameApp() {
                   heroHunger: { ...rec.heroHunger, ...engine.battlePlayerHunger() },
                   heroDiseases: mergeBattleDiseases(rec.heroDiseases, engine),
                   heroPoisons: mergeBattlePoisons(rec.heroPoisons, engine),
+                  heroPoisonMag: mergeBattlePoisonMagic(rec.heroPoisonMag, engine),
+                  heroSkills: structuredClone(engine.heroSkills),
                   pendingMission: null,
                   battle: null,
                 });
@@ -2887,6 +2924,7 @@ export function GameApp() {
                   battle: engine.captureSnapshot(),
                   bags: { ...save.bags, ...engine.remainingBags() },
                   affinityScores: { ...engine.affinityScores },
+                  heroSkills: structuredClone(engine.heroSkills),
                   unitHp: { ...save.unitHp, ...engine.battlePlayerHp() },
                   heroHunger: { ...save.heroHunger, ...engine.battlePlayerHunger() },
                   spellUses: engine.spentTiers(),
@@ -3341,7 +3379,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     tier: spellTier("causticVenom")!,
     formula: (mag: number) =>
       `centro ${spellFormula(mag, CAUSTIC_VENOM.centerMul, CAUSTIC_VENOM.centerDice, CAUSTIC_VENOM.centerFaces, CAUSTIC_VENOM.centerBonus)} · respingo ${spellFormula(mag, CAUSTIC_VENOM.splashMul, CAUSTIC_VENOM.splashDice, CAUSTIC_VENOM.splashFaces, CAUSTIC_VENOM.splashBonus)}`,
-    note: `Alcance ${CAUSTIC_VENOM.range}. Veneno Médio: 1D10 no início de cada turno do alvo, até curado. Área de raio ${CAUSTIC_VENOM.size}, pega os dois lados.`,
+    note: `Alcance ${CAUSTIC_VENOM.range}. ${POISON_TIERS.poison.name}: ${poisonDice("poison")} no início de cada turno do alvo, até curado (−10 pontos de Poison Resistance). Área de raio ${CAUSTIC_VENOM.size}, pega os dois lados.`,
   },
   {
     name: MULTI_SHOT.name,
@@ -3355,7 +3393,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     name: SECOND_WIND.name,
     cls: SKILL_CLASS.secondWind!,
     tier: spellTier("secondWind")!,
-    formula: (level: number) => `${Math.round(secondWindPct(level) * 100)}% de RES`,
+    formula: (level: number) => `${Math.round(secondWindPct(level) * 100)}% de DEX`,
     param: "level" as const,
     note: `Passiva: cura sozinho ao cair a ${Math.round(SECOND_WIND.badlyWoundedPct * 100)}% de HP ou menos. Não é um golpe do atalho.`,
   },
@@ -3451,7 +3489,7 @@ function helpFormulaText(value: string): string {
     .replaceAll("centro", "center")
     .replaceAll("respingo", "splash")
     .replaceAll("raio", "radius")
-    .replaceAll("% de RES", "% RES")
+    .replaceAll("% de DEX", "% DEX")
     .replaceAll("% dano", "% damage")
     .replaceAll("dano", "damage")
     .replaceAll("armadura", "armor");
@@ -3490,7 +3528,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <ul className="space-y-3 text-sm text-muted leading-relaxed">
             <li>{uiText("Toque numa aliada para ver movimento (azul) e ataque (vermelho).")}</li>
             <li>{uiText("Toque num inimigo para ver HP, alcance e a área vermelha de perigo.")}</li>
-            <li>{uiText("Todo mundo tem AT, MAG, DF, RES, Mov e Alc. Nada fica de fora da ficha.")}</li>
+            <li>{uiText("Todo mundo tem AT, MAG, DF, DEX, Mov e Alc. Nada fica de fora da ficha.")}</li>
             <li>{uiText("Terreno alto: +10% do ATK ou MAG (arredondado); armas de alcance ganham +1 de alcance. Flechas disparadas do alto passam por outro hex alto.", { en: "High ground: +10% ATK or MAG (rounded); ranged weapons gain +1 range. Arrows fired from high ground pass over another high hex." })}</li>
             <li>{uiText("Barricada (estacas, 3 hexes): ninguém passa. De trás você atira. Projéteis não acertam quem está atrás.")}</li>
             <li>{uiText("Após um ataque, o alvo pode contra-atacar se estiver vivo, não estiver atordoado e conseguir alcançar quem atacou. A prévia mostra chance e dano do contra-ataque.", { en: "After an attack, the target can counter if alive, not stunned, and able to reach the attacker. The preview shows counter hit chance and damage." })}</li>
@@ -3541,7 +3579,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <div className="space-y-5">
             <div className="space-y-2">
               <p className="text-sm leading-relaxed">
-                <span className="text-accent">{uiText("Ataque normal")}</span> = {uiText("metade do seu ATK (ou MAG, se for conjurador) + dados da arma + terreno − metade da DEF do alvo (RES, contra magia). Metades não contam: arredonda pra baixo. Mínimo 1 de dano.")}
+                <span className="text-accent">{uiText("Ataque normal")}</span> = {uiText("metade do seu ATK (ou MAG, se for conjurador) + dados da arma + terreno − metade da DEF do alvo (resistência elemental, contra magia). Metades não contam: arredonda pra baixo. Mínimo 1 de dano.")}
               </p>
               <p className="text-sm leading-relaxed">
                 <span className="text-accent">{uiText("Magia")}</span> = {uiText("a mesma conta, com a sua metade de MAG multiplicada pelo peso da magia e os dados dela no lugar da arma. Todo peso é maior que 1, e o resultado nunca fica abaixo de um ataque normal — conjurar sempre vale mais que bater.")}
@@ -4078,18 +4116,18 @@ const EDITOR_HEROES: { name: string; classId: ClassId }[] = [
  * clearly instead of claiming a browser-local copy is a game map. */
 async function saveMapToRepo(draft: MapDraft): Promise<{ ok: true; serial: number; file: string } | { ok: false; error: string }> {
   try {
-    const res = await fetch("/__map-save", {
+    const dex = await fetch("/__map-save", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...draft, id: normalizeScenarioId(draft.id), decorations: removeWallsUnderWatchtowerEntrances(draft.decorations) }),
     });
     let body: { ok?: boolean; serial?: number; file?: string; error?: string };
     try {
-      body = (await res.json()) as typeof body;
+      body = (await dex.json()) as typeof body;
     } catch {
-      return { ok: false, error: `a rota /__map-save respondeu HTTP ${res.status}, sem confirmação válida` };
+      return { ok: false, error: `a rota /__map-save respondeu HTTP ${dex.status}, sem confirmação válida` };
     }
-    if (!res.ok || !body.ok) return { ok: false, error: body.error ?? `a rota /__map-save respondeu HTTP ${res.status}` };
+    if (!dex.ok || !body.ok) return { ok: false, error: body.error ?? `a rota /__map-save respondeu HTTP ${dex.status}` };
     if (!Number.isInteger(body.serial) || (body.serial ?? 0) < 1 || typeof body.file !== "string" || !body.file) {
       return { ok: false, error: "a rota /__map-save não confirmou o arquivo e a versão gravados" };
     }
@@ -4104,13 +4142,13 @@ async function saveMapToRepo(draft: MapDraft): Promise<{ ok: true; serial: numbe
  * constraint as saving: only reachable while `npm run dev` is running. */
 async function deleteMapFile(file: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const res = await fetch("/__map-delete", {
+    const dex = await fetch("/__map-delete", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ file }),
     });
-    const body = (await res.json()) as { ok?: boolean; error?: string; stillOnDisk?: boolean };
-    if (!res.ok || !body.ok) return { ok: false, error: body.error ?? `HTTP ${res.status}` };
+    const body = (await dex.json()) as { ok?: boolean; error?: string; stillOnDisk?: boolean };
+    if (!dex.ok || !body.ok) return { ok: false, error: body.error ?? `HTTP ${dex.status}` };
     if (body.stillOnDisk) return { ok: false, error: "o arquivo continua no disco" };
     return { ok: true };
   } catch (err) {
@@ -4520,11 +4558,11 @@ export function MapEditorScreen({
     const write = async () => {
       try {
         for (const [route, payload] of [["/__map-order", next], ["/__location-order", nextLocations]] as const) {
-          const res = await fetch(route, {
+          const dex = await fetch(route, {
             method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
           });
-          const body = await res.json() as { ok?: boolean; error?: string };
-          if (!res.ok || !body.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+          const body = await dex.json() as { ok?: boolean; error?: string };
+          if (!dex.ok || !body.ok) throw new Error(body.error ?? `HTTP ${dex.status}`);
         }
         setNote("Ordem das missões e dos Locais salva no navegador e no repositório.");
       } catch {
@@ -4550,13 +4588,13 @@ export function MapEditorScreen({
   const saveEncounterRegions = async (next: typeof encounterRegions) => {
     setEncounterRegions(next);
     try {
-      const res = await fetch("/__random-encounters", {
+      const dex = await fetch("/__random-encounters", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ regions: next }),
       });
-      const body = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !body.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+      const body = (await dex.json()) as { ok?: boolean; error?: string };
+      if (!dex.ok || !body.ok) throw new Error(body.error ?? `HTTP ${dex.status}`);
       setNote("Regiões de R-Encounter atualizadas.");
     } catch (err) {
       setNote(`Sem servidor de dev — regiões não gravadas (${err instanceof Error ? err.message : String(err)}).`);
@@ -4738,14 +4776,14 @@ export function MapEditorScreen({
     setSlots(next);
     const localOk = saveLocaisLocal({ order, slots: next, locationOrder, submaps });
     try {
-      const res = await fetch("/__map-slots", {
+      const dex = await fetch("/__map-slots", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(next),
       });
-      const body = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !body.ok) {
-        setNote(localOk ? "Vagas salvas neste navegador." : `Não deu pra gravar as vagas: ${body.error ?? `HTTP ${res.status}`}`);
+      const body = (await dex.json()) as { ok?: boolean; error?: string };
+      if (!dex.ok || !body.ok) {
+        setNote(localOk ? "Vagas salvas neste navegador." : `Não deu pra gravar as vagas: ${body.error ?? `HTTP ${dex.status}`}`);
         return;
       }
       setNote("Vagas do local atualizadas em src/game/map-slots.json.");
@@ -4836,13 +4874,13 @@ export function MapEditorScreen({
       return;
     }
     const post = async (route: string, payload: unknown) => {
-      const res = await fetch(route, {
+      const dex = await fetch(route, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const body = (await res.json()) as { ok?: boolean; error?: string; file?: string; onDisk?: unknown };
-      if (!res.ok || !body.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+      const body = (await dex.json()) as { ok?: boolean; error?: string; file?: string; onDisk?: unknown };
+      if (!dex.ok || !body.ok) throw new Error(body.error ?? `HTTP ${dex.status}`);
       return body;
     };
     try {
@@ -5660,9 +5698,9 @@ export function MapEditorScreen({
       return;
     }
     setArmedDelete("");
-    const res = await deleteMapFile(name);
-    if (res.ok) await refreshRepoFiles(draft.id);
-    setNote(res.ok ? `${name} apagado.` : `NÃO APAGOU ${name}: ${res.error}`);
+    const dex = await deleteMapFile(name);
+    if (dex.ok) await refreshRepoFiles(draft.id);
+    setNote(dex.ok ? `${name} apagado.` : `NÃO APAGOU ${name}: ${dex.error}`);
   };
 
   /** Browser-local versions need the same two-click confirmation as repository files. */
@@ -7912,7 +7950,7 @@ function BattleScreen({
   onAdjustStatPoint?: (hero: string, unitId: string, stat: StatPointAttribute, delta: 1 | -1) => boolean;
   /** True while running a map from the editor, which exits back to it rather than quitting. */
   playtest?: boolean;
-  /** Random encounters offer an edge-only, 60% flee action; authored campaign missions remain resumable. */
+  /** Random encounters offer an edge-only, DEX-adjusted flee action; authored campaign missions remain resumable. */
   fleeable?: boolean;
   /** An NPC reply that opens one of the Inn's menus (Brue's tavern, Vargan's smith). */
   onDialogAction?: (action: DialogAction) => void;
@@ -8501,7 +8539,7 @@ function BattleScreen({
                 {hud.activeExit?.targetMapId === WISP_BOSS_ID
                   ? "A passagem leva à Planta Carnívora. Desejam avançar para o encontro?"
                   : hud.activeExit?.id === "escape-exit"
-                  ? "Encontraram uma rota de fuga. Desejam tentar escapar? (60% de chance)"
+                  ? `Encontraram uma rota de fuga. Desejam tentar escapar? (${engine.fleeChance().toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% de chance)`
                   : DECORATIONS[hud.activeExit?.id ?? ""]?.exitKind === "dungeon"
                     ? "Encontraram a saída da masmorra. Desejam sair?"
                     : isFloorConnector(hud.activeExit)
@@ -8618,7 +8656,7 @@ function BattleScreen({
                       <p className={`text-xs ${unit.side === "enemy" ? "text-danger" : "text-muted"}`}>
                         {unit.className}
                         {unit.diseased && <span className="text-danger"> · Doente</span>}
-                        {unit.poisoned && <span className="text-danger"> · Veneno {unit.poisonFaces === 10 ? "Médio" : "Menor"} (1D{unit.poisonFaces ?? 4})</span>}
+                        {unit.poisoned && <span className="text-danger"> · {POISON_TIERS[unit.poisonTier ?? "lesser"].name} ({poisonDice(unit.poisonTier ?? "lesser")})</span>}
                       </p>
                     </div>
                     <div className="mt-0.5 flex items-center gap-2">
@@ -8697,13 +8735,13 @@ function BattleScreen({
               variant="ghost"
               className="ember-btn ember-btn-sm ember-btn-ghost"
               disabled={hud.busy}
-              title="Apenas na borda do mapa. 60% de chance; se falhar, o turno acaba e os inimigos continuam atacando."
+              title={`Apenas na borda do mapa. ${engine.fleeChance().toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% de chance; DEX do personagem aumenta a chance de fuga em DEX/3. Se falhar, o turno acaba.`}
               onClick={() => {
                 if (engine.attemptFlee()) onQuit();
                 else onHud(engine.getHud());
               }}
             >
-              Fugir combate · 60%
+              Fugir combate · {engine.fleeChance().toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%
             </Button>
           )}
           <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm ember-btn-ghost" disabled={!showAct || hud.busy} onClick={() => engine.wait()}>
@@ -8794,7 +8832,7 @@ function BattleScreen({
             {fleeable && (
               <p className="text-xs text-muted border border-border rounded-md bg-bg/50 px-3 py-2 mb-4">
                 Emboscada — não dá pra desistir daqui. A única saída é levar alguém até a
-                borda do mapa e tentar fugir (60% de chance) pelo botão "Fugir combate" na
+                borda do mapa e tentar fugir (60% + DEX/3 de chance) pelo botão "Fugir combate" na
                 barra de ações.
               </p>
             )}
@@ -8920,6 +8958,7 @@ function BattleScreen({
       {showStatus && statusUnit && (
         <StatusPanel
           unit={statusUnit}
+          accuracyTarget={hud.forecast && hud.forecast.attacker === statusUnit.id ? engine.publicUnit(hud.forecast.defender) ?? undefined : hud.inspected?.side === "enemy" && hud.inspected.id !== statusUnit.id ? engine.publicUnit(hud.inspected.id) ?? undefined : undefined}
           statPointAllocation={statusAllocation}
           unspentStatPoints={unspentStatusPoints}
           onAdjustStatPoint={adjustStatusPoint}
@@ -9144,8 +9183,8 @@ function characterCondition(unit: UnitPublic): CharacterCondition {
   }
   if (unit.poisoned) {
     return {
-      title: `Veneno ${unit.poisonFaces === 10 ? "Médio" : "Menor"} · 1D${unit.poisonFaces ?? 4}`,
-      detail: `Veneno ${unit.poisonFaces === 10 ? "Médio" : "Menor"} · sofre 1D${unit.poisonFaces ?? 4} de dano no início de cada turno. Use Curar Doença ou uma Poção de Curar Doenças para removê-lo.`,
+      title: `${POISON_TIERS[unit.poisonTier ?? "lesser"].name} · ${poisonDice(unit.poisonTier ?? "lesser")}`,
+      detail: `${POISON_TIERS[unit.poisonTier ?? "lesser"].name} · sofre ${poisonDice(unit.poisonTier ?? "lesser")} de dano no início de cada turno. Use Curar Doença ou uma Poção de Curar Doenças para removê-lo.`,
       icon: "poisoned",
       tone: "danger",
     };
@@ -9200,7 +9239,7 @@ function damageFormula(mag: number, mul: number, dice: number, faces: number, bo
 /** Which equipped pieces (if any) are boosting one core stat, and by how much — the status
  * sheet turns the stat blue and names them in a hover tooltip instead of just showing the
  * post-gear number with no explanation of where it came from. */
-function gearContributors(gear: Partial<Record<EquipSlot, string>>, stat: "hp" | "atk" | "mag" | "def" | "res" | "mov"): { total: number; lines: string[] } {
+function gearContributors(gear: Partial<Record<EquipSlot, string>>, stat: "hp" | "atk" | "mag" | "def" | "dex" | "mov"): { total: number; lines: string[] } {
   let total = 0;
   const lines: string[] = [];
   for (const id of Object.values(gear)) {
@@ -9214,17 +9253,18 @@ function gearContributors(gear: Partial<Record<EquipSlot, string>>, stat: "hp" |
   return { total, lines };
 }
 
-function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustStatPoint, bagIcon, onClose, onOpenInventory, onOpenEquipment, onCycle }: { unit: UnitPublic; statPointAllocation: StatPointAllocation; unspentStatPoints: number; onAdjustStatPoint?: (stat: StatPointAttribute, delta: 1 | -1) => boolean; bagIcon?: string; onClose: () => void; onOpenInventory?: () => void; onOpenEquipment?: () => void; /** Switches which unit the sheet shows — any living unit still in the fight, either side. */ onCycle?: (dir: 1 | -1) => void }) {
+function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoints, onAdjustStatPoint, bagIcon, onClose, onOpenInventory, onOpenEquipment, onCycle }: { unit: UnitPublic; accuracyTarget?: UnitPublic; statPointAllocation: StatPointAllocation; unspentStatPoints: number; onAdjustStatPoint?: (stat: StatPointAttribute, delta: 1 | -1) => boolean; bagIcon?: string; onClose: () => void; onOpenInventory?: () => void; onOpenEquipment?: () => void; /** Switches which unit the sheet shows — any living unit still in the fight, either side. */ onCycle?: (dir: 1 | -1) => void }) {
   const [showConditionDetail, setShowConditionDetail] = useState(false);
-  const gearStat = (stat: "hp" | "atk" | "mag" | "def" | "res" | "mov") => gearContributors(unit.gear, stat);
-  // Fome docks VIT/ATK/MAG/DEF/RES uniformly (see hungerKeep in mapStatusUnit/spawnUnit) —
+  const gearStat = (stat: "hp" | "atk" | "mag" | "def" | "dex" | "mov") => gearContributors(unit.gear, stat);
+  // Fome docks VIT/ATK/MAG/DEF/DEX uniformly (see hungerKeep in mapStatusUnit/spawnUnit) —
   // flagged per stat here so the number itself reads as reduced, not just the condition badge.
   const stats: Array<{ label: string; value: string | number; stat?: StatPointAttribute; gear?: { total: number; lines: string[] }; penalized?: boolean }> = [
     { label: "VIT", value: unit.maxHp, stat: "hp", gear: gearStat("hp"), penalized: unit.hungry },
     { label: "ATK", value: unit.atk, stat: "atk", gear: gearStat("atk"), penalized: unit.hungry },
     { label: "MAG", value: unit.mag, stat: "mag", gear: gearStat("mag"), penalized: unit.hungry },
     { label: "DEF", value: unit.def, stat: "def", gear: gearStat("def"), penalized: unit.hungry },
-    { label: "RES", value: unit.res, stat: "res", gear: gearStat("res"), penalized: unit.hungry },
+    { label: "DEX", value: unit.dex, stat: "dex", gear: gearStat("dex"), penalized: unit.hungry },
+
     { label: "INI", value: unit.initiative },
     { label: "MOV", value: unit.movLeft < unit.mov ? `${unit.movLeft}/${unit.mov}` : unit.mov, gear: gearStat("mov") },
     { label: "Alcance", value: rangeLabel(unit.minRange, unit.maxRange) },
@@ -9377,6 +9417,38 @@ function StatusPanel({ unit, statPointAllocation, unspentStatPoints, onAdjustSta
             </div>
           </div>
         )}
+
+        {unit.side === "player" && !unit.summoned && <>
+          <p className="text-xs ember-kicker mb-2">Weapon Skills</p>
+          <table className="w-full mb-2 text-xs tabular-nums">
+            <thead><tr className="text-muted"><th className="text-left py-1">Weapon Type</th><th className="text-right py-1">Skill</th><th className="text-right py-1">{accuracyTarget ? `Accuracy vs ${accuracyTarget.name} (DEX ${accuracyTarget.dex})` : "Accuracy vs DEX 0"}</th><th className="text-right py-1">Weapon Dice Bonus</th></tr></thead>
+            <tbody>{weaponTypesForClass(unit.classId).map(type => {
+              const value = unit.weaponSkills?.[type] ?? 0;
+              const modifiers = weaponModifiers(unit, type);
+              const accuracy = Math.max(0, Math.min(100, modifiers.accuracy - (accuracyTarget?.dex ?? 0)));
+              return <tr key={type} className="border-t border-border"><td className="py-1">{WEAPON_TYPE_LABELS[type]}</td><td className="text-right">{value} / 100</td><td className="text-right">{accuracy}%</td><td className="text-right">+{value}%</td></tr>;
+            })}</tbody>
+          </table>
+          {!!unit.blessedHitBonusPct && <p className="text-[11px] text-muted">Bless accuracy: +{unit.blessedHitBonusPct * 100} percentage points, included before the final 0–100% limit.</p>}
+          <p className="text-[11px] text-muted mb-4">Combat attempts, including misses, can raise the used weapon skill by 1, up to 100. Each point adds 1 percentage point to accuracy and 1% to weapon dice. Defender DEX subtracts accuracy. Without a selected enemy, the table assumes DEX 0.</p>
+        </>}
+
+        <p className="text-xs ember-kicker mb-2">Elemental Resistances</p>
+        <table className="w-full mb-4 text-xs tabular-nums">
+          <thead><tr className="text-muted"><th className="text-left py-1">Element</th><th className="text-right py-1">Resistance</th></tr></thead>
+          <tbody>{RESISTANCE_ELEMENTS.map(element => {
+            const items = Object.values(unit.gear).flatMap(id => {
+              const item = id ? EQUIPMENT[id] : undefined;
+              const value = item?.resistances?.[element] ?? 0;
+              return value ? [`${item!.name}: ${value > 0 ? "+" : ""}${value}%`] : [];
+            });
+            return <tr key={element} className="border-t border-border">
+              <td className="py-1">{RESISTANCE_LABELS[element]}</td>
+              <td className="py-1 text-right"><ItemTip text={`Effective resistance = resistance − attacker MAG/2, limited to −50%–100%. Poison also subtracts its tier penalty.${items.length ? `\nEquipment:\n${items.join("\n")}` : ""}`}><span>{unit.resistances?.[element] ?? 0}%</span></ItemTip></td>
+            </tr>;
+          })}</tbody>
+        </table>
+        <p className="text-[11px] text-muted mb-4">Resistance skills improve by 0.1 through hostile magic exposure, up to 100. Equipment adds to trained resistance.</p>
 
         <p className="text-xs ember-kicker mb-2">Atributos</p>
         <div className="grid grid-cols-4 gap-1.5 mb-4">
@@ -9896,7 +9968,7 @@ function ResultScreen({
                     {g.atkTo !== g.atkFrom ? ` · AT ${g.atkFrom} → ${g.atkTo}` : ""}
                     {g.magTo !== g.magFrom ? ` · MAG ${g.magFrom} → ${g.magTo}` : ""}
                     {g.defTo !== g.defFrom ? ` · DF ${g.defFrom} → ${g.defTo}` : ""}
-                    {g.resTo !== g.resFrom ? ` · RES ${g.resFrom} → ${g.resTo}` : ""}
+                    {g.dexTo !== g.dexFrom ? ` · DEX ${g.dexFrom} → ${g.dexTo}` : ""}
                   </p>
                 )}
                 {g.skillGain ? (

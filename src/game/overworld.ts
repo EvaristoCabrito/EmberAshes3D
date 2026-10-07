@@ -1,5 +1,8 @@
-import { CHEST_LOOT, EMPTY_BAG, EQUIPMENT, heroRecruited, MAX_LEVEL, partyBagHasRoom, POTION_CARRY_MAX, POTIONS, statsFor, weightedLootPick, weightedPotionPick, WEAPONS, WORLD_LOCATIONS } from "./data";
+import { advanceTravelTraining, skillResistances } from "./skills";
+import { sumResistances } from "./resistances";
+import { CHEST_LOOT, EMPTY_BAG, EQUIPMENT, gearStatBonus, heroRecruited, MAX_LEVEL, partyBagHasRoom, POTION_CARRY_MAX, POTIONS, statsFor, weightedLootPick, weightedPotionPick, WEAPONS, WORLD_LOCATIONS } from "./data";
 import { DAILY_HUNGER_COST, drainHunger, fullness, travelHungerCost } from "./hunger";
+import { POISON_TIERS, poisonTierOf, poisonTickDamage, effectivePoisonResistance } from "./poison";
 import { campaignHour, campaignTimeOfDay, usesTravelClock } from "./campaignTime";
 import { ALL_LOCATIONS, missionsForLocation, RANDOM_ENCOUNTER_REGIONS } from "./mapstore";
 import ENCOUNTER_ZONES from "./random-encounter-zones.json";
@@ -410,6 +413,23 @@ export function stepOverworld(save: SaveData, toCol: number, toRow: number, loca
       unitHp[hero] = Math.min(max, Math.round(current + max * RECOVERY_PCT * elapsedDays));
     }
   }
+  // Poison keeps working on the road: every hex step rolls its damage for each poisoned
+  // traveller (its tier's dice from POISON_TIERS — the same roll as a battle turn). Out here
+  // it can't finish a hero off: it stops at 1 HP. Fallen heroes aren't affected.
+  for (const hero of Object.keys(HERO_BASE_CLASS)) {
+    const tier = poisonTierOf(save.heroPoisons?.[hero]);
+    if (!tier || !ages(hero)) continue;
+    const max = maxHpFor(save, hero);
+    const current = unitHp[hero] ?? max;
+    if (current <= 0) continue;
+    const { dice, faces } = POISON_TIERS[tier];
+    let dmg = 0;
+    for (let i = 0; i < dice; i++) dmg += 1 + Math.floor(Math.random() * faces);
+    const cls = save.promotions[hero] ?? HERO_BASE_CLASS[hero];
+    const resistance = sumResistances(statsFor(cls, save.levels[hero] ?? 1).resistances, gearStatBonus(Object.values(save.equipment?.[hero] ?? {})).resistances, skillResistances(save.heroSkills, hero));
+    dmg = poisonTickDamage(dmg, effectivePoisonResistance(resistance.poison ?? 0, tier, save.heroPoisonMag?.[hero] ?? 0));
+    unitHp[hero] = Math.max(1, current - dmg);
+  }
 
   let event: OverworldEvent | null = null;
   const newPenalty = hungerPenaltyFor(hungerStreak);
@@ -559,6 +579,9 @@ export function stepOverworld(save: SaveData, toCol: number, toRow: number, loca
 
   const exploredKey = key(toCol, toRow);
   const exploredHexes = (save.exploredHexes ?? []).includes(exploredKey) ? save.exploredHexes : [...(save.exploredHexes ?? []), exploredKey];
+  // Travel training: each travelling hero with a chosen skill banks this step's road hours,
+  // +0.1 to that skill per 12 h (see advanceTravelTraining). Fallen heroes don't train.
+  const { heroSkills, travelTrainingHours } = advanceTravelTraining(save.heroSkills, save.travelTraining, save.travelTrainingHours, travelHours, travellingHeroes);
 
   return {
     save: {
@@ -582,6 +605,8 @@ export function stepOverworld(save: SaveData, toCol: number, toRow: number, loca
       looseEquipment,
       bags,
       spellUses,
+      heroSkills,
+      travelTrainingHours,
     },
     event,
   };

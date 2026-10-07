@@ -1,2 +1,16 @@
 [1006/160617.680:ERROR:gpu\command_buffer\service\gl_utils.cc:427] [.WebGL-0x154c02530200]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
 [1006/160617.722:ERROR:gpu\command_buffer\service\gl_utils.cc:427] [.WebGL-0x154c02530800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[1007/011027.800:ERROR:third_party\blink\renderer\modules\media\audio\mojo_audio_output_ipc.cc:186] MojoAudioOutputIPC failed to acquire factory
+[1007/011041.312:ERROR:third_party\blink\renderer\modules\media\audio\mojo_audio_output_ipc.cc:186] MojoAudioOutputIPC failed to acquire factory
+[1007/011041.312:ERROR:third_party\blink\renderer\modules\media\audio\mojo_audio_output_ipc.cc:186] MojoAudioOutputIPC failed to acquire factory
+[1007/011041.313:ERROR:third_party\blink\renderer\modules\media\audio\mojo_audio_output_ipc.cc:186] MojoAudioOutputIPC failed to acquire factory
+[1007/011041.313:ERROR:third_party\blink\renderer\modules\media\audio\mojo_audio_output_ipc.cc:186] MojoAudioOutputIPC failed to acquire factory
+[1007/011041.313:ERROR:third_party\blink\renderer\modules\media\audio\mojo_audio_output_ipc.cc:186] MojoAudioOutputIPC failed to acquire factory
+[1007/011041.313:ERROR:third_party\blink\renderer\modules\media\audio\mojo_audio_output_ipc.cc:186] MojoAudioOutputIPC failed to acquire factory
+[1007/012519.694:ERROR:third_party\blink\renderer\modules\media\audio\mojo_audio_output_ipc.cc:186] MojoAudioOutputIPC failed to acquire factory
+[1007/012519.695:ERROR:third_party\blink\renderer\modules\media\audio\mojo_audio_output_ipc.cc:186] MojoAudioOutputIPC failed to acquire factory
+[1007/012519.695:ERROR:third_party\blink\renderer\modules\media\audio\mojo_audio_output_ipc.cc:186] MojoAudioOutputIPC failed to acquire factory
+[1007/014930.494:ERROR:third_party\blink\renderer\modules\media\audio\mojo_audio_output_ipc.cc:186] MojoAudioOutputIPC failed to acquire factory
+[1007/015213.891:ERROR:ui\gl\direct_composition_support.cc:625] AMD VideoProcessorGetOutputExtension failed: Parâmetro incorreto. (0x80070057)
+[1007/015533.115:ERROR:third_party\blink\renderer\modules\media\audio\mojo_audio_output_ipc.cc:186] MojoAudioOutputIPC failed to acquire factory
+[1007/015644.248:ERROR:third_party\blink\renderer\modules\media\audio\mojo_audio_output_ipc.cc:186] MojoAudioOutputIPC failed to acquire factory

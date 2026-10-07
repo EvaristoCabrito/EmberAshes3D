@@ -1,5 +1,13 @@
+export type WeaponType = "sword" | "axe" | "mace" | "hammer" | "staff" | "spear" | "bow" | "crossbow" | "dagger";
+export type WeaponSkillValues = Partial<Record<WeaponType, number>>;
+
+export type ResistanceElement = "fire" | "lightning" | "ice" | "arcane" | "darkness" | "holy" | "poison" | "ember";
+export type Resistances = Partial<Record<ResistanceElement, number>>;
+
 export type MapTimeOfDay = "day" | "noon" | "dawn" | "dusk" | "brightNight" | "darkNight";
 export type PotionId ="mid" | "weak" | "potent" | "disease" | "manaSmall" | "manaMid" | "manaLarge";
+/** Poison strength, weakest to strongest — dice and Poison Resistance penalties live in POISON_TIERS (poison.ts). */
+export type PoisonTier = "lesser" | "poison" | "greater" | "deadly" | "lethal";
 
 export interface Bag {
   mid: number;
@@ -242,7 +250,9 @@ export interface ClassDef {
   atk: number;
   mag: number;
   def: number;
-  res: number;
+  dex: number;
+  /** Elemental resistance percentages, independent of general DEX. Missing values are zero. */
+  resistances?: Resistances;
   mov: number;
   minRange: number;
   maxRange: number;
@@ -668,7 +678,7 @@ export interface WorldLocation {
 }
 
 /** Attributes that can receive the three permanent points earned at every level-up. */
-export type StatPointAttribute = "hp" | "atk" | "mag" | "def" | "res";
+export type StatPointAttribute = "hp" | "atk" | "mag" | "def" | "dex";
 export type StatPointAllocation = Partial<Record<StatPointAttribute, number>>;
 
 export interface Unit {
@@ -689,11 +699,15 @@ export interface Unit {
   x: number;
   y: number;
   hp: number;
+  escaped?: boolean;
   maxHp: number;
   atk: number;
   mag: number;
   def: number;
-  res: number;
+  dex: number;
+  /** Elemental resistance percentages, independent of general DEX. Missing values are zero. */
+  resistances?: Resistances;
+  weaponSkills?: WeaponSkillValues;
   /** Rolled once at battle start: 1d20 + the class initiative modifier. */
   initiative: number;
   initiativeRoll: number;
@@ -756,7 +770,7 @@ export interface Unit {
   footprintW?: number;
   footprintH?: number;
   footprintOffsets?: { dx: number; dy: number }[];
-  shock: { dice: number; faces: number; bonus: number } | null;
+  shock: { dice: number; faces: number; bonus: number; mag?: number } | null;
   /** Enemy-only Choque charges (weaker Relâmpago). Not a player tier — see shockChargesFor.
    * Distinct from `shock` above, which is Relâmpago's echo DoT. */
   shockCharges: number;
@@ -781,12 +795,17 @@ export interface Unit {
    * BattleEngine.stepSpell); undefined for every non-familiar unit. */
   summonerId?: string;
   diseased: boolean;
-  diseaseBase: { atk: number; mag: number; def: number; res: number; mov: number } | null;
-  /** Poison: minor 1D4 or medium 1D10 at the start of each of this unit's own turns
+  diseaseBase: { atk: number; mag: number; def: number; dex: number; mov: number } | null;
+  /** Poison: its tier's dice (POISON_TIERS in poison.ts — Lesser 1D4, Poison 1D10, Greater
+   * 1D10, Deadly 2D8, Lethal 3D6) at the start of each of this unit's own turns
    * (see startOfTurnEffects) until cured — same cure trigger as diseased (Cure Disease
    * spell or the disease potion), but no stat penalty of its own. */
   poisoned: boolean;
-  poisonFaces?: 4 | 10;
+  poisonTier?: PoisonTier;
+  /** MAG of whoever applied the current poison — half of it pierces Poison Resistance. */
+  poisonMag?: number;
+  /** Resistência a Veneno skill (0–100). Heroes carry their trained value; everyone else 0. */
+  poisonResist?: number;
   /** Rasteira wound: suffers 1D8 whenever acting; movement only once each own turn. */
   bleeding: boolean;
   bleedMovedThisTurn: boolean;
@@ -796,7 +815,7 @@ export interface Unit {
    * to 1, Trip (Lancer tier 3) to 2. Decremented each time it costs a turn; `stunned` only
    * clears once this reaches 0. */
   stunTurns: number;
-  /** Trip (Lancer tier 3) victim: a permanent (this battle) −10% to ATK/MAG/DEF/RES/MOV,
+  /** Trip (Lancer tier 3) victim: a permanent (this battle) −10% to ATK/MAG/DEF/DEX/MOV,
    * applied once and never restored — unlike `diseased`, nothing cures it. */
   crippled: boolean;
   /** 0..0.9 — carried in from the party's overworld hunger streak at spawn (see Roster
@@ -848,11 +867,15 @@ export interface UnitPublic {
   side: Side;
   sprite: SpriteId;
   hp: number;
+  escaped?: boolean;
   maxHp: number;
   atk: number;
   mag: number;
   def: number;
-  res: number;
+  dex: number;
+  /** Elemental resistance percentages, independent of general DEX. Missing values are zero. */
+  resistances?: Resistances;
+  weaponSkills?: WeaponSkillValues;
   initiative: number;
   initiativeRoll: number;
   mov: number;
@@ -876,12 +899,13 @@ export interface UnitPublic {
   size: number;
   diseased: boolean;
   poisoned: boolean;
-  poisonFaces?: 4 | 10;
+  poisonTier?: PoisonTier;
+  poisonMag?: number;
   bleeding: boolean;
   blessedHitBonusPct?: number;
   blessedRoundsLeft?: number;
   /** Delayed lightning echo that resolves at the start of this unit's turn. */
-  shock: { dice: number; faces: number; bonus: number } | null;
+  shock: { dice: number; faces: number; bonus: number; mag?: number } | null;
   /** True once the party's hunger streak has passed its 3-day grace period. Optional so
    * older battle saves remain valid. */
   hungry?: boolean;
@@ -908,6 +932,7 @@ export interface UnitPublic {
 
 export interface WeaponDef {
   id: string;
+  weaponType: WeaponType;
   name: string;
   /** Classes (base and prestige) allowed to equip this weapon. */
   usableBy: ClassId[];
@@ -950,6 +975,8 @@ export type EquipSlot =
 
 export interface EquipmentDef {
   id: string;
+  /** Weapon equipment only: proficiency for an off-hand strike. */
+  weaponType?: WeaponType;
   name: string;
   slot: EquipSlot;
   /** Classes (base and prestige) allowed to equip this item. Empty/omitted = any class. */
@@ -958,7 +985,9 @@ export interface EquipmentDef {
   atk?: number;
   mag?: number;
   def?: number;
-  res?: number;
+  dex?: number;
+  /** Elemental resistance percentages, independent of general DEX. Missing values are zero. */
+  resistances?: Resistances;
   mov?: number;
   price?: number;
   /** offHand-slot items only: "weapon" grants an off-hand attack command (using this
@@ -1166,11 +1195,15 @@ export interface BattleUnitSnap {
   x: number;
   y: number;
   hp: number;
+  escaped?: boolean;
   maxHp: number;
   atk: number;
   mag: number;
   def: number;
-  res: number;
+  dex: number;
+  /** Elemental resistance percentages, independent of general DEX. Missing values are zero. */
+  resistances?: Resistances;
+  weaponSkills?: WeaponSkillValues;
   /** Optional for compatibility with saves made before individual initiative existed. */
   initiative?: number;
   initiativeRoll?: number;
@@ -1192,7 +1225,7 @@ export interface BattleUnitSnap {
   spells: Spells;
   weaponId: string | null;
   weaponEnh: number;
-  shock: { dice: number; faces: number; bonus: number } | null;
+  shock: { dice: number; faces: number; bonus: number; mag?: number } | null;
   /** Enemy-only Choque charges. Distinct from `shock` (Relâmpago echo DoT). */
   shockCharges: number;
   /** Enemy-only legacy FantomForce uses remaining in this battle. Optional for older saves. */
@@ -1200,9 +1233,13 @@ export interface BattleUnitSnap {
   blessedHitBonusPct?: number;
   blessedRoundsLeft?: number;
   diseased: boolean;
-  diseaseBase: { atk: number; mag: number; def: number; res: number; mov: number } | null;
+  diseaseBase: { atk: number; mag: number; def: number; dex: number; mov: number } | null;
   poisoned: boolean;
+  poisonTier?: PoisonTier;
+  /** Legacy (pre-tier saves): 4 = Lesser, 10 = Poison. Read only when poisonTier is missing. */
   poisonFaces?: 4 | 10;
+  poisonMag?: number;
+  poisonResist?: number;
   bleeding?: boolean;
   stunned: boolean;
   stunTurns: number;
@@ -1224,6 +1261,7 @@ export interface BattleUnitSnap {
 }
 
 export interface BattleSnapshot {
+  heroSkills?: Record<string, Partial<Record<`${ResistanceElement}Resistance` | `${WeaponType}Weapon`, number>>>;
   affinityScores?: Record<string, number>;
   missionId: string;
   turn: number;
@@ -1360,7 +1398,16 @@ export interface SaveData {
    * potion or the Curar Doença spell. Missing heroes are healthy for old saves. */
   heroDiseases: Record<string, boolean>;
   /** Poison residue that survives between battles until cured. Older saves default to none. */
-  heroPoisons: Record<string, boolean | 4 | 10>;
+  heroPoisons: Record<string, PoisonTier>;
+  /** MAG of whoever poisoned each hero, so the road ticks pierce resistance like battle ones. */
+  heroPoisonMag?: Record<string, number>;
+  /** Per-hero skills (skills.ts) — Resistência a Veneno, … Older saves start every skill at 0. */
+  heroSkills?: Record<string, Partial<Record<`${ResistanceElement}Resistance` | `${WeaponType}Weapon`, number>>>;
+  /** Travel training (party menu Skills tab): the one skill each hero practises on the road.
+   * Nothing trains until the player picks one. */
+  travelTraining?: Partial<Record<string, `${ResistanceElement}Resistance` | `${WeaponType}Weapon`>>;
+  /** Road hours banked toward each hero's next travel-training point (see advanceTravelTraining). */
+  travelTrainingHours?: Record<string, number>;
   /** Party-wide ration stock. One ration refills one character's fullness to 100%; inn
    * meals are bought separately. A real backpack item that stacks by RATION_STACK_MAX. */
   rations: number;
@@ -1407,8 +1454,8 @@ export interface GrowthLine {
   magTo: number;
   defFrom: number;
   defTo: number;
-  resFrom: number;
-  resTo: number;
+  dexFrom: number;
+  dexTo: number;
   fallen: boolean;
   /** XP toward the next level at the end of the mission (0..expToLevel(level)-1). */
   xp: number;

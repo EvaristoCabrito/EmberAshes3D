@@ -1,3 +1,7 @@
+import { savedDex } from "./dexterity";
+import { weaponTypesForClass } from "./weaponSkills";
+import { WEAPON_TYPES, cleanWeaponSkill } from "./weaponTypes";
+import { cleanResistances } from "./resistances";
 import { cleanPartyFormation, cleanPartyLeader } from "./partyFormation";
 import { EQUIPMENT, EXP_TO_LEVEL, expToLevel, MAX_GRID, MAX_LEVEL, POTION_CARRY_MAX, BAG_MAX, PROMOTIONS, STAT_POINTS_PER_LEVEL, WEAPONS, WORLD_LOCATIONS, emberFromCompleted, equipmentFitsSlot, starterWeaponFor, startingBags } from "./data";
 import { ALL_MISSIONS } from "./mapstore";
@@ -5,8 +9,10 @@ import { OVERWORLD_START_HEX, locationAt, worldToHex } from "./overworld";
 import { cleanHunger, fullness } from "./hunger";
 import { cleanAffinityScores } from "./affinity";
 import { cleanConversationMemory } from "./companionDialogues";
+import { poisonTierOf } from "./poison";
+import { cleanHeroSkills, cleanTravelTraining, SKILL_CAP, TRAVEL_TRAINING_HOURS } from "./skills";
 import { TIER_KEYS } from "./types";
-import type { Bag, BattleSnapshot, BattleUnitSnap, ClassId, DialogAction, DialogLine, DialogTree, EquipSlot, Phase, SaveBank, SaveData, Side, SpriteId, StatPointAllocation, StatPointAttribute, TerrainId, TierKey } from "./types";
+import type { Bag, BattleSnapshot, BattleUnitSnap, ClassId, DialogAction, DialogLine, DialogTree, EquipSlot, Phase, PoisonTier, SaveBank, SaveData, Side, SpriteId, StatPointAllocation, StatPointAttribute, TerrainId, TierKey } from "./types";
 
 /** Fresh parties begin one hex left of Stone Bridge, on the map's west edge. */
 const START_HEX = OVERWORLD_START_HEX;
@@ -25,7 +31,7 @@ const HEROES = ["Kael", "Neera", "Voss", "Salazar"] as const;
 /** RPG map only: 5 days' worth per starting party member, so a fresh party isn't already
  * on the clock the moment it can travel. */
 const STARTING_RATIONS = 5 * HEROES.length;
-const STAT_POINT_ATTRIBUTES: StatPointAttribute[] = ["hp", "atk", "mag", "def", "res"];
+const STAT_POINT_ATTRIBUTES: StatPointAttribute[] = ["hp", "atk", "mag", "def", "dex"];
 const MISSION_IDS = new Set(ALL_MISSIONS.map((m) => m.id));
 
 const HERO_BASE_CLASS: Record<(typeof HEROES)[number], ClassId> = {
@@ -139,6 +145,19 @@ function cleanXp(raw: unknown, levels: Record<string, number>): Record<string, n
 /** Keeps old saves safe while immediately granting their heroes every point they had earned
  * before this system was introduced. The spend cap is derived from level, never trusted from
  * storage, so malformed saves cannot manufacture extra permanent stats. */
+function cleanUnitStatPoints(raw: unknown, level: number): StatPointAllocation {
+  if (!raw || typeof raw !== "object") return {};
+  const source = raw as Record<string, unknown>;
+  let left = Math.max(0, (level - 1) * STAT_POINTS_PER_LEVEL);
+  const points: StatPointAllocation = {};
+  for (const stat of STAT_POINT_ATTRIBUTES) {
+    const amount = clampInt(stat === "dex" ? savedDex(source) : source[stat], 0, left);
+    if (amount > 0) points[stat] = amount;
+    left -= amount;
+  }
+  return points;
+}
+
 function cleanStatPointAllocations(raw: unknown, levels: Record<string, number>): Record<string, StatPointAllocation> {
   const out: Record<string, StatPointAllocation> = {};
   if (!raw || typeof raw !== "object") return out;
@@ -148,7 +167,7 @@ function cleanStatPointAllocations(raw: unknown, levels: Record<string, number>)
     let left = Math.max(0, (levels[hero] - 1) * STAT_POINTS_PER_LEVEL);
     const allocated: StatPointAllocation = {};
     for (const stat of STAT_POINT_ATTRIBUTES) {
-      const amount = clampInt((source as Record<string, unknown>)[stat], 0, left);
+      const amount = clampInt(stat === "dex" ? savedDex(source as Record<string, unknown>) : (source as Record<string, unknown>)[stat], 0, left);
       if (amount > 0) allocated[stat] = amount;
       left -= amount;
     }
@@ -298,6 +317,7 @@ function cleanBattleUnit(raw: unknown): BattleUnitSnap | null {
           dice: clampInt((u.shock as { dice?: unknown }).dice, 0, 20),
           faces: clampInt((u.shock as { faces?: unknown }).faces, 1, 20),
           bonus: clampInt((u.shock as { bonus?: unknown }).bonus, 0, 40),
+          mag: clampInt((u.shock as { mag?: unknown }).mag, 0, 999),
         }
       : null;
   const diseaseBase =
@@ -306,7 +326,7 @@ function cleanBattleUnit(raw: unknown): BattleUnitSnap | null {
           atk: clampInt((u.diseaseBase as { atk?: unknown }).atk, 0, 99),
           mag: clampInt((u.diseaseBase as { mag?: unknown }).mag, 0, 99),
           def: clampInt((u.diseaseBase as { def?: unknown }).def, 0, 99),
-          res: clampInt((u.diseaseBase as { res?: unknown }).res, 0, 99),
+          dex: clampInt(savedDex(u.diseaseBase as Record<string, unknown>), 0, 999),
           mov: clampInt((u.diseaseBase as { mov?: unknown }).mov, 0, 20),
         }
       : null;
@@ -339,11 +359,15 @@ function cleanBattleUnit(raw: unknown): BattleUnitSnap | null {
     x: clampInt(u.x, 0, MAX_GRID - 1),
     y: clampInt(u.y, 0, MAX_GRID - 1),
     hp: clampInt(u.hp, 0, 999),
+    escaped: u.escaped === true,
     maxHp: clampInt(u.maxHp, 1, 999),
     atk: clampInt(u.atk, 0, 99),
     mag: clampInt(u.mag, 0, 99),
     def: clampInt(u.def, 0, 99),
-    res: clampInt(u.res, 0, 99),
+    dex: clampInt(savedDex(u), 0, 999),
+    statPointAllocation: cleanUnitStatPoints(u.statPointAllocation, clampInt(u.level, 1, MAX_LEVEL)),
+    resistances: cleanResistances(u.resistances),
+    weaponSkills: Object.fromEntries(WEAPON_TYPES.filter(type => weaponTypesForClass(u.classId as ClassId).includes(type)).map(type => [type, cleanWeaponSkill((u.weaponSkills as Record<string, unknown> | undefined)?.[type])])),
     mov: clampInt(u.mov, 0, 20),
     minRange: clampInt(u.minRange, 0, 20),
     maxRange: clampInt(u.maxRange, 0, 20),
@@ -365,7 +389,9 @@ function cleanBattleUnit(raw: unknown): BattleUnitSnap | null {
     diseased: u.diseased === true,
     diseaseBase,
     poisoned: u.poisoned === true,
-    poisonFaces: u.poisonFaces === 10 ? 10 : 4,
+    poisonTier: poisonTierOf(u.poisonTier) ?? poisonTierOf(u.poisonFaces) ?? "lesser",
+    poisonMag: clampInt(u.poisonMag, 0, 999),
+    poisonResist: typeof u.poisonResist === "number" && Number.isFinite(u.poisonResist) ? Math.max(0, Math.min(SKILL_CAP, Math.round(u.poisonResist * 10) / 10)) : 0,
     stunned: u.stunned === true,
     stunTurns: clampInt(u.stunTurns, 0, 9),
     crippled: u.crippled === true,
@@ -452,6 +478,7 @@ function cleanBattle(raw: unknown, pendingMission: string | null): BattleSnapsho
   return {
     missionId,
     affinityScores: b.affinityScores == null ? undefined : cleanAffinityScores(b.affinityScores),
+    heroSkills: b.heroSkills == null ? undefined : cleanHeroSkills(b.heroSkills, [...HEROES, ...Object.keys(LATE_HERO_BASE_CLASS)], (hero, type) => weaponTypesForClass(units.find(unit => unit.name === hero)?.classId ?? ({ ...HERO_BASE_CLASS, ...LATE_HERO_BASE_CLASS } as Record<string, ClassId>)[hero]).includes(type)),
     turn: clampInt(b.turn, 1, 999),
     phase,
     units,
@@ -494,12 +521,22 @@ function cleanHp(raw: unknown): Record<string, number> {
   return out;
 }
 
-function cleanHeroPoisons(raw: unknown): Record<string, boolean | 4 | 10> {
+function cleanHeroPoisons(raw: unknown): Record<string, PoisonTier> {
   if (!raw || typeof raw !== "object") return {};
-  const out: Record<string, boolean | 4 | 10> = {};
+  const out: Record<string, PoisonTier> = {};
+  for (const hero of [...HEROES, ...Object.keys(LATE_HERO_BASE_CLASS)]) {
+    const tier = poisonTierOf((raw as Record<string, unknown>)[hero]);
+    if (tier) out[hero] = tier;
+  }
+  return out;
+}
+
+function cleanHeroPoisonMag(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, number> = {};
   for (const hero of [...HEROES, ...Object.keys(LATE_HERO_BASE_CLASS)]) {
     const value = (raw as Record<string, unknown>)[hero];
-    if (value === true || value === 4 || value === 10) out[hero] = value === true ? 4 : value;
+    if (typeof value === "number" && Number.isFinite(value)) out[hero] = clampInt(value, 0, 999);
   }
   return out;
 }
@@ -741,6 +778,11 @@ function migrateRecord(raw: Record<string, unknown>, muted: boolean): SaveData {
     heroHunger: cleanHunger(raw.heroHunger),
     heroDiseases: cleanHeroDiseases(raw.heroDiseases),
     heroPoisons: cleanHeroPoisons(raw.heroPoisons),
+    heroPoisonMag: cleanHeroPoisonMag(raw.heroPoisonMag),
+    heroSkills: cleanHeroSkills(raw.heroSkills, [...HEROES, ...Object.keys(LATE_HERO_BASE_CLASS)], (hero, type) => weaponTypesForClass(cleanPromotions(raw.promotions)[hero] ?? ({ ...HERO_BASE_CLASS, ...LATE_HERO_BASE_CLASS } as Record<string, ClassId>)[hero]).includes(type)),
+    travelTraining: cleanTravelTraining(raw.travelTraining, [...HEROES, ...Object.keys(LATE_HERO_BASE_CLASS)]),
+    travelTrainingHours: Object.fromEntries(Object.entries(raw.travelTrainingHours && typeof raw.travelTrainingHours === "object" ? raw.travelTrainingHours : {})
+      .filter(([, h]) => typeof h === "number" && Number.isFinite(h) && h > 0).map(([hero, h]) => [hero, Math.min(TRAVEL_TRAINING_HOURS * 10, h as number)])),
     rations: typeof raw.rations === "number" ? clampInt(raw.rations, 0, 999999) : STARTING_RATIONS,
     hungerStreak: clampInt(raw.hungerStreak, 0, 999999),
     hungerHours: typeof raw.hungerHours === "number" && Number.isFinite(raw.hungerHours) ? Math.max(0, raw.hungerHours) : undefined,

@@ -17,6 +17,12 @@
   height: 100%;
   transition: width 240ms ease;
 }
+/* World-map life bar (LifeBar): sits under the hunger bar, same shape; its color is the hero's
+   condition at a glance. */
+.life-bar.is-healthy > span { background: #b8322a; }
+.life-bar.is-poisoned > span { background: #3f9b3a; }
+.life-bar.is-diseased > span { background: #8a46c2; }
+.life-bar.is-both > span { background: linear-gradient(90deg, #3f9b3a, #8a46c2); }
 .hunger-bar > .hunger-bonus {
   /* A genuinely distinct warm gold, not --color-fg (which used to sit almost on top of
      --color-accent's own fill color, making the 100-120% "overfed" segment nearly invisible

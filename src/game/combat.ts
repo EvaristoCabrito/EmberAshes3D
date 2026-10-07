@@ -1,5 +1,7 @@
-import { EQUIPMENT, isProjectile, rollDice, TERRAIN, WEAPONS, weaponPreview, weaponRoll } from "./data";
-import { canHitFrom } from "./pathfinding";
+import { dexAccuracy } from "./dexterity.ts";
+import { equippedWeaponType, weaponModifiers } from "./weaponSkills.ts";
+import { EQUIPMENT, isProjectile, rollDice, TERRAIN, WEAPONS } from "./data.ts";
+import { canHitFrom, hexDist } from "./pathfinding.ts";
 import type { Forecast, TerrainId, Unit } from "./types";
 
 /** What a unit's own stat contributes to a hit: half of ATK, or half of MAG for a caster.
@@ -11,11 +13,9 @@ export function powerOf(unit: Unit): number {
   return Math.floor((unit.mag > 0 ? unit.mag : unit.atk) / 2);
 }
 
-/** What the defender's stat takes off, halved to match powerOf — DEF against a weapon, RES
- * against a caster. Halving only the attacking side would have cut damage to a third
- * rather than half, since this is subtracted after. */
+/** Physical attacks subtract half DEF. Elemental resistances protect against magic. */
 export function protOf(attacker: Unit, defender: Unit): number {
-  return Math.floor((attacker.mag > 0 ? defender.res : defender.def) / 2);
+  return Math.floor((attacker.mag > 0 ? 0 : defender.def) / 2);
 }
 
 /** High ground's attack bonus, as a fraction of the attacker's own ATK (or MAG for a
@@ -48,16 +48,19 @@ export function rollDamage(
   attTile: TerrainId,
   defTile: TerrainId,
   rng: () => number,
+  useWeaponSkill = true,
 ): { dmg: number; crit: boolean; landed: boolean; hitChance: number; preCritDmg: number } {
   const b = terrainBonus(attacker, defender, attTile, defTile);
-  const weapon = weaponRoll(attacker.weaponId, attacker.weaponEnh, rng);
-  const hitChance = 100;
+  const mastery = useWeaponSkill ? weaponModifiers(attacker, equippedWeaponType(attacker)) : { accuracy: 100, damage: 1 };
+  const definition = attacker.weaponId ? WEAPONS[attacker.weaponId] : undefined;
+  const weapon = definition ? rollDice(definition.dice, definition.faces, 0, rng) * mastery.damage + definition.bonus + attacker.weaponEnh : 0;
+  const hitChance = useWeaponSkill ? dexAccuracy(mastery.accuracy, defender.dex ?? 0) : 100;
   const raw = powerOf(attacker) + weapon + b.atk - protOf(attacker, defender) - b.def;
   const preCritDmg = Math.max(1, Math.floor(Math.max(1, raw) * weaponClassBonusMul(attacker)));
   let dmg = preCritDmg;
   const crit = rng() < 0.08;
   if (crit) dmg = Math.max(1, Math.floor(dmg * 1.5));
-  return { dmg, crit, landed: true, hitChance, preCritDmg };
+  return { dmg, crit, landed: hitChance >= 100 || rng() * 100 < hitChance, hitChance, preCritDmg };
 }
 
 /** Same formula as rollDamage, but rolling explicit dice instead of the attacker's
@@ -72,16 +75,18 @@ export function rollDamageCustom(
   faces: number,
   bonus: number,
   rng: () => number,
+  useWeaponSkill = true,
 ): { dmg: number; crit: boolean; landed: boolean; hitChance: number; preCritDmg: number } {
   const b = terrainBonus(attacker, defender, attTile, defTile);
-  const weapon = rollDice(dice, faces, bonus, rng);
-  const hitChance = 100;
+  const mastery = useWeaponSkill ? weaponModifiers(attacker, equippedWeaponType(attacker, true)) : { accuracy: 100, damage: 1 };
+  const weapon = rollDice(dice, faces, 0, rng) * mastery.damage + bonus;
+  const hitChance = useWeaponSkill ? dexAccuracy(mastery.accuracy, defender.dex ?? 0) : 100;
   const raw = powerOf(attacker) + weapon + b.atk - protOf(attacker, defender) - b.def;
   const preCritDmg = Math.max(1, Math.floor(raw));
   let dmg = preCritDmg;
   const crit = rng() < 0.08;
   if (crit) dmg = Math.max(1, Math.floor(dmg * 1.5));
-  return { dmg, crit, landed: true, hitChance, preCritDmg };
+  return { dmg, crit, landed: hitChance >= 100 || rng() * 100 < hitChance, hitChance, preCritDmg };
 }
 
 export function previewDamage(
@@ -89,13 +94,20 @@ export function previewDamage(
   defender: Unit,
   attTile: TerrainId,
   defTile: TerrainId,
+  offHand = false,
+  useWeaponSkill = true,
 ): { dmg: number; hitChance: number } {
   const b = terrainBonus(attacker, defender, attTile, defTile);
-  const weapon = weaponPreview(attacker.weaponId, attacker.weaponEnh);
-  const hitChance = 100;
+  const item = offHand && attacker.offHandId ? EQUIPMENT[attacker.offHandId] : undefined;
+  const mastery = useWeaponSkill ? weaponModifiers(attacker, equippedWeaponType(attacker, offHand)) : { accuracy: 100, damage: 1 };
+  const definition = attacker.weaponId ? WEAPONS[attacker.weaponId] : undefined;
+  const weapon = offHand
+    ? item?.kind === "weapon" ? (item.dice ?? 1) * ((item.faces ?? 4) + 1) / 2 * mastery.damage + (item.bonus ?? 0) : 0
+    : definition ? definition.dice * (definition.faces + 1) / 2 * mastery.damage + definition.bonus + attacker.weaponEnh : 0;
+  const hitChance = useWeaponSkill ? dexAccuracy(mastery.accuracy, defender.dex ?? 0) : 100;
   const raw = powerOf(attacker) + weapon + b.atk - protOf(attacker, defender) - b.def;
-  const dmg = Math.max(1, Math.floor(Math.max(1, raw) * weaponClassBonusMul(attacker)));
-  return { dmg, hitChance: Math.round(hitChance) };
+  const dmg = Math.max(1, Math.floor(Math.max(1, raw) * (offHand ? 1 : weaponClassBonusMul(attacker))));
+  return { dmg, hitChance };
 }
 
 export function canCounter(
@@ -121,10 +133,14 @@ export function makeForecast(
   defTile: TerrainId,
   tiles: TerrainId[],
   cols: number,
+  offHand = false,
+  useWeaponSkill = true,
 ): Forecast {
-  const out = previewDamage(attacker, defender, attTile, defTile);
+  const out = previewDamage(attacker, defender, attTile, defTile, offHand, useWeaponSkill);
   const counter = canCounter(attacker, defender, { x: attacker.x, y: attacker.y }, tiles, cols);
-  const back = counter ? previewDamage(defender, attacker, defTile, attTile) : null;
+  const counterWeapon = defender.offHandId ? EQUIPMENT[defender.offHandId] : undefined;
+  const daggerCounter = counterWeapon?.kind === "weapon" && hexDist(defender, attacker) <= (counterWeapon.maxRange ?? 1);
+  const back = counter ? previewDamage(defender, attacker, defTile, attTile, daggerCounter) : null;
   return {
     attacker: attacker.id,
     defender: defender.id,
