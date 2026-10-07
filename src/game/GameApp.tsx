@@ -1400,7 +1400,9 @@ export function GameApp() {
     const levels = { ...save.levels };
     const xp = { ...(save.xp ?? {}) };
     const hp: Record<string, number> = {};
-    for (const u of engine.units.filter((x) => x.side === "player")) {
+    // Summoned allies disappear with the battle and are recreated from their summoner's
+    // current stats next time, so they are not campaign progression rows.
+    for (const u of engine.units.filter((x) => x.side === "player" && !x.summoned)) {
       // Levels (and any level-ups from XP earned mid-battle) already happened live in the
       // engine — `from` is just whatever was on file before this mission started.
       const from = battleStartProgressRef.current[u.name]?.level ?? levels[u.name] ?? u.level;
@@ -3488,11 +3490,12 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <ul className="space-y-3 text-sm text-muted leading-relaxed">
             <li>{uiText("Toque numa aliada para ver movimento (azul) e ataque (vermelho).")}</li>
             <li>{uiText("Toque num inimigo para ver HP, alcance e a área vermelha de perigo.")}</li>
-            <li>{uiText("Golpe de arma: AT − DF, dentro do alcance da ficha.")}</li>
-            <li>{uiText("Magia ofensiva: o dado − RES, no alcance da magia.")}</li>
             <li>{uiText("Todo mundo tem AT, MAG, DF, RES, Mov e Alc. Nada fica de fora da ficha.")}</li>
-            <li>{uiText("Terreno alto (barranco, tronco morto, casa abandonada): +2 de dano. A arqueira também ganha +1 de alcance. No alto, outro hex alto na frente não corta a flecha.")}</li>
+            <li>{uiText("Terreno alto: +10% do ATK ou MAG (arredondado); armas de alcance ganham +1 de alcance. Flechas disparadas do alto passam por outro hex alto.", { en: "High ground: +10% ATK or MAG (rounded); ranged weapons gain +1 range. Arrows fired from high ground pass over another high hex." })}</li>
             <li>{uiText("Barricada (estacas, 3 hexes): ninguém passa. De trás você atira. Projéteis não acertam quem está atrás.")}</li>
+            <li>{uiText("Após um ataque, o alvo pode contra-atacar se estiver vivo, não estiver atordoado e conseguir alcançar quem atacou. A prévia mostra chance e dano do contra-ataque.", { en: "After an attack, the target can counter if alive, not stunned, and able to reach the attacker. The preview shows counter hit chance and damage." })}</li>
+            <li>{uiText("Veneno causa dano no início do turno da vítima até ser curado. Sangramento causa 1D8 por ação; mover causa isso no máximo uma vez por turno. Doença reduz os atributos em 10%.", { en: "Poison deals damage at the start of the victim’s turn until cured. Bleeding deals 1D8 per action; movement triggers it at most once per turn. Disease reduces stats by 10%." })}</li>
+            <li>{uiText("Atacar uma fera neutra acorda todas as feras vivas da mesma espécie; elas começam a agir na rodada seguinte.", { en: "Attacking a neutral beast provokes every living beast of the same species; they start acting next round." })}</li>
             <li>{uiText("Depois de mover, dois cliques no personagem = Esperar e passa ao próximo.")}</li>
           </ul>
         ) : tab === "tabelas" ? (
@@ -4055,7 +4058,6 @@ const SPAWN_GROUPS: { side: SpawnKey; summon: boolean; label: string }[] = [
   { side: "playerSpawns", summon: false, label: "Heróis" },
   { side: "playerSpawns", summon: true, label: "Invocações aliadas" },
   { side: "enemySpawns", summon: false, label: "Inimigos" },
-  { side: "enemySpawns", summon: true, label: "Invocações inimigas" },
   { side: "neutralSpawns", summon: false, label: "Feras neutras" },
   { side: "neutralSpawns", summon: true, label: "Invocações neutras" },
 ];
@@ -4339,6 +4341,17 @@ export function MapEditorScreen({
   const [activeVersions, setActiveVersions] = useState<Record<string, number>>(() => loadActiveVersions());
   const [draft, setDraft] = useState<MapDraft>(() => initialDraft ?? blankDraft());
   useEffect(() => {
+    setDraft((d) => {
+      const misplaced = d.enemySpawns.filter((s) => isSummonClass(s.classId) || CLASSES[s.classId].role.startsWith("Civil"));
+      if (misplaced.length === 0) return d;
+      return {
+        ...d,
+        enemySpawns: d.enemySpawns.filter((s) => !isSummonClass(s.classId) && !CLASSES[s.classId].role.startsWith("Civil")),
+        neutralSpawns: [...(d.neutralSpawns ?? []), ...misplaced],
+      };
+    });
+  }, []);
+  useEffect(() => {
     setDraft(d => {
       const decorations = removeWallsUnderWatchtowerEntrances(d.decorations);
       return decorations.length === d.decorations.length ? d : { ...d, decorations };
@@ -4436,9 +4449,8 @@ export function MapEditorScreen({
   // there is no third list to keep in sync and no saved map to migrate.
   const [summonBrush, setSummonBrush] = useState<ClassId>(SUMMON_CLASSES[0] ?? "familiar");
   const [npcBrush, setNpcBrush] = useState<EncounterNpcId | "breadLady">("breadLady");
-  // Summons exist on every side — the Conjurer's familiar, whatever an enemy caster brings
-  // up, and wild things that belong to nobody. The brush drops into whichever this points at.
-  const [summonSide, setSummonSide] = useState<"player" | "enemy" | "neutral">("player");
+  // Summons can be allied or neutral, never enemies.
+  const [summonSide, setSummonSide] = useState<"player" | "neutral">("player");
   const [gridStyle, setGridStyle] = useState<"hex" | "square">("hex");
   const [exportText, setExportText] = useState<string | null>(null);
   const [copyOk, setCopyOk] = useState(false);
@@ -4949,11 +4961,7 @@ export function MapEditorScreen({
           : mode === "npc"
             ? "neutralSpawns"
             : mode === "summon"
-              ? summonSide === "enemy"
-                ? "enemySpawns"
-                : summonSide === "neutral"
-                  ? "neutralSpawns"
-                  : "playerSpawns"
+              ? summonSide === "neutral" ? "neutralSpawns" : "playerSpawns"
               : "playerSpawns";
       const list = d[key] ?? [];
       const existing = list.findIndex((s) => s.x === x && s.y === y);
@@ -5680,6 +5688,7 @@ export function MapEditorScreen({
   // search in a dropdown. pt-BR collation so accents and case sort where a reader expects.
   const classOptions = (Object.keys(CLASSES) as ClassId[]).sort((a, b) => byName(CLASSES[a].name, CLASSES[b].name));
   const summonOptions = [...SUMMON_CLASSES].sort((a, b) => byName(CLASSES[a].name, CLASSES[b].name));
+  const enemyClassOptions = classOptions.filter((c) => !isSummonClass(c) && !CLASSES[c].role.startsWith("Civil"));
   // A named-individual classId (aldric, kaelFinal, conjurer, sandoval, ...) deliberately
   // keeps the same display name/role as the generic job it's a re-skin of (Aldric's own
   // class is still named "Lanceiro", same as the plain Lancer enemy; Sandoval's is
@@ -6760,22 +6769,20 @@ export function MapEditorScreen({
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs uppercase tracking-wide text-muted">Lado</span>
               <div className="flex rounded-md overflow-hidden border border-border text-xs">
-                {(["player", "neutral", "enemy"] as const).map((sd) => (
+                {(["player", "neutral"] as const).map((sd) => (
                   <button
                     key={sd}
                     type="button"
                     onClick={() => setSummonSide(sd)}
                     className={`px-2.5 py-1.5 ${
                       summonSide === sd
-                        ? sd === "enemy"
-                          ? "bg-danger text-bg"
-                          : sd === "neutral"
-                            ? "bg-emerald-500 text-bg"
-                            : "bg-accent text-bg"
+                        ? sd === "neutral"
+                          ? "bg-emerald-500 text-bg"
+                          : "bg-accent text-bg"
                         : "bg-bg text-muted"
                     }`}
                   >
-                    {sd === "player" ? "Aliada" : sd === "neutral" ? "Neutra" : "Inimiga"}
+                    {sd === "player" ? "Aliada" : "Neutra"}
                   </button>
                 ))}
               </div>
@@ -6797,15 +6804,13 @@ export function MapEditorScreen({
             </div>
             <p className="text-xs text-muted">
               Clique numa casa vazia pra pôr {CLASSES[summonBrush].name.toLowerCase()}{" "}
-              {summonSide === "enemy" ? "do lado inimigo" : summonSide === "neutral" ? "como fera neutra" : "do lado aliado"};
+              {summonSide === "neutral" ? "como fera neutra" : "do lado aliado"};
               clique numa casa ocupada desse lado pra remover.
             </p>
             <p className="text-xs text-muted">
               {summonSide === "player"
                 ? "Aliadas não contam na derrota — perder todas não perde a missão."
-                : summonSide === "enemy"
-                  ? "Inimigas contam pra limpar o mapa, como qualquer inimigo."
-                  : "Neutras ficam paradas: não entram na ordem de turno e não contam pra limpar o mapa. Atacar uma acorda o bando inteiro da mesma classe, que vira inimigo e passa a agir na rodada seguinte — a menos que ela tenha um Diálogo (veja a lista de unidades abaixo): aí não pode ser atacada, e clicar nela conversa em vez de brigar."}
+                : "Neutras ficam paradas: não entram na ordem de turno e não contam pra limpar o mapa. Atacar uma acorda o bando inteiro da mesma classe, que vira inimigo e passa a agir na rodada seguinte — a menos que ela tenha um Diálogo (veja a lista de unidades abaixo): aí não pode ser atacada, e clicar nela conversa em vez de brigar."}
             </p>
           </div>
         )}
@@ -7155,7 +7160,7 @@ export function MapEditorScreen({
                   // mission's draft, not the hero's real pinned art anywhere else).
                   onChange={(e) => updateSpawn(side, i, { classId: e.target.value as ClassId, useClassSprite: true })}
                 >
-                  {classOptions.map((c) => (
+                  {(side === "enemySpawns" ? enemyClassOptions : classOptions).map((c) => (
                     <option key={c} value={c}>
                       {heroNameByClassId[c] ?? `${CLASSES[c].name} · ${CLASSES[c].role}`}
                     </option>
@@ -7181,7 +7186,7 @@ export function MapEditorScreen({
                       // Never hand a random enemy a named hero's own classId (Aldric,
                       // kaelFinal, Malrec's conjurer, ...) — that classId's unit ID belongs
                       // exclusively to that hero, not to a shuffled mook.
-                      const pool = classOptions.filter((c) => !isSummonClass(c) && !heroNameByClassId[c]);
+                      const pool = enemyClassOptions.filter((c) => !heroNameByClassId[c]);
                       const pick = pool[Math.floor(Math.random() * pool.length)] ?? s.classId;
                       updateSpawn(side, i, { classId: pick, useClassSprite: true });
                     }}
@@ -7914,6 +7919,7 @@ function BattleScreen({
   onAffinityChange?: () => void;
 }) {
   const [showStatus, setShowStatus] = useState(false);
+  const [showCombatGuide, setShowCombatGuide] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [audioSettingsOpen, setAudioSettingsOpen] = useState(false);
   const [audioLevels, setAudioLevels] = useState(() => getAudioVolumes());
@@ -8309,6 +8315,14 @@ function BattleScreen({
           paused={paused || introDialogOpen || outroDialogOpen || !!hud.pendingDialog}
           onTileReadout={setHeldTile}
         />
+        <button
+          type="button"
+          onClick={() => setShowCombatGuide(true)}
+          aria-label={uiText("Regras de combate", { en: "Combat rules" })}
+          className="absolute right-2 top-[max(0.5rem,env(safe-area-inset-top))] z-10 pointer-events-auto flex items-center gap-1.5 rounded-md border border-white/15 bg-[#111b22]/95 px-2 py-1 text-[10px] leading-none text-slate-300 transition-colors hover:bg-[#25313b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#cdd3dc]"
+        >
+          <Swords className="size-3" /><span>{uiText("Regras", { en: "Rules" })}</span>
+        </button>
         {hud.turnQueue.length > 0 && (
           <div className="pointer-events-none absolute left-2 right-2 top-[max(0.5rem,env(safe-area-inset-top))] flex flex-col items-start gap-1">
             <button type="button" aria-expanded={showTurnOrder} aria-label={showTurnOrder ? "Ocultar ordem de turnos" : "Mostrar ordem de turnos"}
@@ -9023,6 +9037,7 @@ function BattleScreen({
           onClose={() => setPickerSlot(null)}
         />
       )}
+      {showCombatGuide && <HelpModal onClose={() => setShowCombatGuide(false)} />}
     </section>
   );
 }

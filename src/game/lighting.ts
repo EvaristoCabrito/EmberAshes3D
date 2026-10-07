@@ -56,6 +56,10 @@ export const LIGHT_DEFS: Record<string, LightDef> = {
   "wilds-lantern-signpost": { color: LANTERN, intensity: 4, radius: 1.35, flicker: 0.35 },
   // Bioluminescent Wisp Forest mushrooms cast a compact, steady blue pool.
   "wilds-wisp-mushrooms": { color: [0.34, 0.62, 1.0], intensity: 2.2, radius: 2.2, flicker: 0.12 },
+  // Red wisps mark the waystone, forgotten shrine, and hanging marker lantern.
+  "wilds-wisp-waystone": { color: [1.0, 0.12, 0.16], intensity: 2.5, radius: 2.0, flicker: 0.2 },
+  "wilds-wisp-shrine": { color: [1.0, 0.12, 0.16], intensity: 2.5, radius: 2.0, flicker: 0.2 },
+  "wilds-wisp-lantern-marker": { color: [1.0, 0.12, 0.16], intensity: 2.5, radius: 2.0, flicker: 0.2 },
   lamppost: NORMAL_LANTERN,
   // Wall torches and bowls share normal-fire reach; the fireplace has extra intensity only.
   "light-wall-torch": { ...NORMAL_FIRE, intensity: 11 },

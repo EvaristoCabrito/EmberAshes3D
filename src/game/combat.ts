@@ -42,38 +42,6 @@ function weaponClassBonusMul(attacker: Unit): number {
   return weapon?.bonusClass === attacker.classId ? WEAPON_CLASS_BONUS_MUL : 1;
 }
 
-/** Full-strength ATT/DEF (or MAG/RES for a caster) feeding ONLY the hit-chance formulas
- * below — separate from powerOf/protOf's halved stat, which still drives damage exactly as
- * before. Same weapon-roll + terrain bonus inputs damage already uses. */
-function effectivePower(
-  attacker: Unit,
-  defender: Unit,
-  weaponOrDiceRoll: number,
-  b: { atk: number; def: number },
-): { att: number; def: number; magical: boolean } {
-  const magical = attacker.mag > 0;
-  const att = (magical ? attacker.mag : attacker.atk) + weaponOrDiceRoll + b.atk;
-  const def = (magical ? defender.res : defender.def) + b.def;
-  return { att, def, magical };
-}
-
-/** Physical accuracy: high enough that missing is rare, reserved for a defender who has
- * built up roughly double the attacker's ATT in DEF. */
-function physicalHitChance(att: number, def: number): number {
-  return Math.min(99, Math.max(75, 90 + (att - def) / 2));
-}
-
-/** Magic bypasses dodge/evasion almost entirely — RES only trims an already-near-certain
- * hit, at a quarter the sensitivity of DEF against a physical attack. */
-function magicalHitChance(mag: number, res: number): number {
-  return Math.min(100, Math.max(85, 95 + (mag - res) / 4));
-}
-
-function hitChanceFor(att: number, def: number, magical: boolean, blessBonusPct = 0): number {
-  const base = magical ? magicalHitChance(att, def) : physicalHitChance(att, def);
-  return Math.min(100, base + Math.max(0, blessBonusPct) * 100);
-}
-
 export function rollDamage(
   attacker: Unit,
   defender: Unit,
@@ -83,9 +51,7 @@ export function rollDamage(
 ): { dmg: number; crit: boolean; landed: boolean; hitChance: number; preCritDmg: number } {
   const b = terrainBonus(attacker, defender, attTile, defTile);
   const weapon = weaponRoll(attacker.weaponId, attacker.weaponEnh, rng);
-  const { att, def, magical } = effectivePower(attacker, defender, weapon, b);
-  const hitChance = hitChanceFor(att, def, magical, attacker.blessedHitBonusPct);
-  if (rng() * 100 >= hitChance) return { dmg: 0, crit: false, landed: false, hitChance, preCritDmg: 0 };
+  const hitChance = 100;
   const raw = powerOf(attacker) + weapon + b.atk - protOf(attacker, defender) - b.def;
   const preCritDmg = Math.max(1, Math.floor(Math.max(1, raw) * weaponClassBonusMul(attacker)));
   let dmg = preCritDmg;
@@ -109,9 +75,7 @@ export function rollDamageCustom(
 ): { dmg: number; crit: boolean; landed: boolean; hitChance: number; preCritDmg: number } {
   const b = terrainBonus(attacker, defender, attTile, defTile);
   const weapon = rollDice(dice, faces, bonus, rng);
-  const { att, def, magical } = effectivePower(attacker, defender, weapon, b);
-  const hitChance = hitChanceFor(att, def, magical, attacker.blessedHitBonusPct);
-  if (rng() * 100 >= hitChance) return { dmg: 0, crit: false, landed: false, hitChance, preCritDmg: 0 };
+  const hitChance = 100;
   const raw = powerOf(attacker) + weapon + b.atk - protOf(attacker, defender) - b.def;
   const preCritDmg = Math.max(1, Math.floor(raw));
   let dmg = preCritDmg;
@@ -128,8 +92,7 @@ export function previewDamage(
 ): { dmg: number; hitChance: number } {
   const b = terrainBonus(attacker, defender, attTile, defTile);
   const weapon = weaponPreview(attacker.weaponId, attacker.weaponEnh);
-  const { att, def, magical } = effectivePower(attacker, defender, weapon, b);
-  const hitChance = hitChanceFor(att, def, magical, attacker.blessedHitBonusPct);
+  const hitChance = 100;
   const raw = powerOf(attacker) + weapon + b.atk - protOf(attacker, defender) - b.def;
   const dmg = Math.max(1, Math.floor(Math.max(1, raw) * weaponClassBonusMul(attacker)));
   return { dmg, hitChance: Math.round(hitChance) };

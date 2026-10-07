@@ -1784,7 +1784,7 @@ export class BattleEngine {
   battlePlayerHp(): Record<string, number> {
     const out: Record<string, number> = {};
     for (const u of this.units) {
-      if (u.side !== "player") continue;
+      if (u.side !== "player" || u.summoned) continue;
       out[u.name] = u.alive ? u.hp : 0;
     }
     return out;
@@ -1793,7 +1793,7 @@ export class BattleEngine {
   remainingPlayerHp(): Record<string, number> {
     const out: Record<string, number> = {};
     for (const u of this.units) {
-      if (u.side !== "player") continue;
+      if (u.side !== "player" || u.summoned) continue;
       if (!u.alive) out[u.name] = Math.max(1, Math.ceil(u.maxHp * 0.5));
       else out[u.name] = Math.min(u.maxHp, u.hp + Math.ceil((u.maxHp - u.hp) * 0.5));
     }
@@ -1803,7 +1803,7 @@ export class BattleEngine {
   remainingBags(): Record<string, Bag> {
     const out: Record<string, Bag> = {};
     for (const u of this.units) {
-      if (u.side !== "player") continue;
+      if (u.side !== "player" || u.summoned) continue;
       out[u.name] = { ...u.bag };
     }
     return out;
@@ -7843,35 +7843,6 @@ export class BattleEngine {
     const walkReach = computeReachable(this.effectiveUnitForReach(next), this.tiles, this.cols, this.rows, this.units, false, this.decorOverlay);
     const players = this.units.filter((u) => u.side === "player" && u.alive);
 
-    // The small blue ox keeps as far from the party as a clear spell shot allows.
-    // Its exhausted tier-1 pool falls through to the normal melee/chase AI below.
-    const blueOxCasting = next.classId === "swampBlueCalf" && this.tierRemaining(next, "phantasmalForce") > 0;
-    if (blueOxCasting && !next.acted && players.length > 0) {
-      let bestForce: { foe: Unit; target: Point; from: Point; distance: number; cost: number } | null = null;
-      for (const cell of reach.values()) {
-        const distance = Math.min(...players.flatMap((foe) => footprint(foe).map((p) => hexDist(cell, p))));
-        for (const foe of players) {
-          for (const target of footprint(foe)) {
-            if (hexDist(cell, target) > PHANTASMAL_FORCE.range) continue;
-            if (!clearShot(cell, target, this.tiles, this.cols, "bolt", this.decorOverlay)) continue;
-            if (!bestForce || distance > bestForce.distance || (distance === bestForce.distance && cell.cost < bestForce.cost)) {
-              bestForce = { foe, target, from: { x: cell.x, y: cell.y }, distance, cost: cell.cost };
-            }
-          }
-        }
-      }
-      if (bestForce) {
-        if (bestForce.from.x !== next.x || bestForce.from.y !== next.y) {
-          this.queue.push({ type: "move", id: next.id, path: reconstructPath(walkReach, bestForce.from) });
-        }
-        this.spendTier(next, "phantasmalForce");
-        const dice = phantasmalForceDice(next.level);
-        this.queue.push({ type: "spell", att: next.id, tiles: [bestForce.target], ids: [bestForce.foe.id], dice: dice.dice, faces: dice.faces, bonus: 0, label: PHANTASMAL_FORCE.name, spellMul: 1, spellKind: "phantasmalForce" });
-        this.queue.push({ type: "delay", dur: 0.12 });
-        return;
-      }
-    }
-
     // The Ox spends its own three per-battle tier-1 charges on warrior Bull Rush.
     if (next.classId === "bigBlueCalf" && !next.acted && this.tierRemaining(next, "bullRush") > 0) {
       const targets = players.flatMap((foe) => footprint(foe).map((cell) => ({ foe, cell })))
@@ -7884,10 +7855,9 @@ export class BattleEngine {
     }
 
 
-    // Cultist ("Feiticeiro") and Cultist V2 ("Cultista Ancestral") — same kit, same priority:
-    // Relâmpago outranks Choque outranks Magic Missile. Choque ignores cover the same way
-    // Relâmpago does; Magic Missile still needs line of sight.
-    if ((next.classId === "cultist" || next.classId === "cultistV2" || next.classId === "emberedWraith") && (next.spells.tier1 > 0 || next.spells.tier2 > 0 || next.shockCharges > 0 || (next.fantomForceCharges ?? 0) > 0)) {
+    // Cultists retain their spell priority; Swamp Blue Calf enters only for its separate
+    // Phantom System charge pool below.
+    if ((next.classId === "cultist" || next.classId === "cultistV2" || next.classId === "emberedWraith" || next.classId === "swampBlueCalf") && (next.spells.tier1 > 0 || next.spells.tier2 > 0 || next.shockCharges > 0 || (next.fantomForceCharges ?? 0) > 0)) {
       if (next.spells.tier2 > 0) {
         let bestBolt: { foe: Unit; from: Point; score: number } | null = null;
         for (const cell of reach.values()) {
@@ -8275,7 +8245,6 @@ export class BattleEngine {
     let best: { foe: Unit; from: Point; score: number } | null = null;
     for (const cell of reach.values()) {
       for (const foe of players) {
-        if (blueOxCasting) continue;
         if (!canHitFrom(next, cell, foe, this.tiles, this.cols, this.decorOverlay)) continue;
         const terr = this.hexAt(cell.x, cell.y);
         const score = (foe.maxHp - foe.hp) * 3 + terr.def * 2 + (foe.hp <= 8 ? 20 : 0);
@@ -9894,7 +9863,9 @@ export class BattleEngine {
     // the board without its art (a map-editor preview, a mid-battle addition) requests it here
     // and draws as soon as it lands.
     if (!this.art.sprites[u.sprite]) void requestSpriteArt(this.art, u.sprite);
-    const s = unitSize(u);
+    // Undead Ox occupies four hexes but uses the size-2 visual box so it doesn't render
+    // at the giant size-4 scale used by creatures like Rocco.
+    const s = u.classId === "undeadOx" ? 2 : unitSize(u);
     const boss = isBossClass(u.classId);
     const { bob, sway, breath } = this.liveMotion(u, cell);
     const lift = this.unitLift(u, cell);
@@ -10083,12 +10054,11 @@ export class BattleEngine {
     // height stays the human box, width follows the canvas aspect (1.333 / 0.782) so the wide
     // lunge frames aren't squeezed. Idle, walk and ATT share this one canvas, so nothing shrinks.
     const zombieWidthScale = u.sprite === "zombie" ? 1.705 : u.sprite === "zombie2" ? 1.085 : 1;
-    // Undead Ox (640x404 canvas, standing figure ~81% of its height, 44px headroom for the
-    // hit rear-up and the cast's venom orb): ~2.15 cells tall, a head taller than a human and
-    // bigger than WarDog 2, with the canvas's own aspect kept (1.584).
+    // Undead Ox is 15% larger than its previous size; keep Plague Bearing Cattle unchanged.
     // Plague Bearing Cattle: same 640x404 canvas, ground line and standing fill as the Undead Ox.
-    const undeadOxHeightScale = u.sprite === "big-blue-ox-002" ? 0.85 : u.sprite === "undeadOx" || u.sprite === "plague-bearing-cattle" ? 1.283 : 1;
-    const undeadOxWidthScale = u.sprite === "big-blue-ox-002" ? 1.49 : u.sprite === "undeadOx" || u.sprite === "plague-bearing-cattle" ? 1.889 : 1;
+    const undeadOxScale = u.classId === "undeadOx" ? 0.75 * 1.1 * 1.15 : 1;
+    const undeadOxHeightScale = (u.sprite === "big-blue-ox-002" ? 0.85 : u.sprite === "undeadOx" || u.sprite === "plague-bearing-cattle" ? 1.283 : 1) * undeadOxScale;
+    const undeadOxWidthScale = (u.sprite === "big-blue-ox-002" ? 1.49 : u.sprite === "undeadOx" || u.sprite === "plague-bearing-cattle" ? 1.889 : 1) * undeadOxScale;
     let h =
       cell *
       (s >= 4 ? 3.35 : s === 2 ? 1.72 : boss ? 1.44 : 1.42) *

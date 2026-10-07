@@ -76,6 +76,14 @@ export const FOOTPRINT_TYPE_2 = [
   { dx: 1, dy: 0 },
 ];
 
+/** Tipo 4 — two hexes at the legs/front row and two above under the torso/head. */
+export const FOOTPRINT_TYPE_4 = [
+  { dx: 0, dy: 0 },
+  { dx: 1, dy: 0 },
+  { dx: 0, dy: -1 },
+  { dx: 1, dy: -1 },
+];
+
 /** Tipo 3 — a normal side-by-side pair plus one hex behind, on the creature's back (e.g. o Cão de guerra). */
 const FOOTPRINT_TYPE_3 = [
   { dx: 0, dy: 0 },
@@ -1538,7 +1546,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     size: 1,
     init: 2,
   },
-  // Undead Ox: ~2.5x the Zombie, Type 3 body like the War Hound. Its hit sickens like a
+  // Undead Ox: four occupied hexes, two for the legs and two above for torso/head. Its hit sickens like a
   // zombie's (DISEASE.zombieChance) and it spits Veneno Cáustico twice per battle (tier4,
   // runAiFor's birolho branch). Sheets cut from reference video (sprites/undeadOx/README.md).
   undeadOx: {
@@ -1554,8 +1562,8 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     minRange: 1,
     maxRange: 1,
     sprite: "undeadOx",
-    size: 2,
-    footprintOffsets: FOOTPRINT_TYPE_3,
+    size: 4,
+    footprintOffsets: FOOTPRINT_TYPE_4,
     init: 3,
   },
   // Plague Bearing Cattle: the Undead Ox's stats x1.2, same body type, disease hit and
@@ -4128,7 +4136,7 @@ export const FANTOM_FORCE = {
 };
 
 export function fantomForceChargesFor(classId: ClassId): number {
-  return classId === "cultist" || classId === "cultistV2" || classId === "emberedWraith"
+  return classId === "cultist" || classId === "cultistV2" || classId === "emberedWraith" || classId === "swampBlueCalf"
     ? FANTOM_FORCE.usesPerBattle
     : 0;
 }
@@ -4720,8 +4728,8 @@ export function rulesClass(classId: ClassId): ClassId {
 }
 
 export function tierUses(classId: ClassId, tier: SpellTier, level: number): number {
-  // Small blue ox: daily Phantasmal Force pool, with a third cast from level 5.
-  if (classId === "swampBlueCalf") return tier === 1 ? (level >= 5 ? 3 : 2) : 0;
+  // Swamp Blue Calf uses its separate Phantom System charge pool, not a spell tier.
+  if (classId === "swampBlueCalf") return 0;
   const progressionClass = rulesClass(classId);
   const table = CLASS_TIER_TABLE[progressionClass];
   if (table) {

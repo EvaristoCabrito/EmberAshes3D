@@ -1389,7 +1389,7 @@ export class ThreeBattleRenderer {
     }
     // Both cameras use the continuous ground fill around the outer hexes. In 2D it
     // sits beneath the original tiles, preserving their authored elevation steps.
-    const stamp = `continuous-atlas-v6:closed-edges:${JSON.stringify([...floorRects])}:${this.engine.tacticsCamera}:${this.engine.cols}:${this.engine.rows}:${tile}:${this.engine.fogged ? this.engine.visVersion : "clear"}:` + cells.map(c =>
+    const stamp = `continuous-atlas-v6:closed-edges:${JSON.stringify([...floorRects])}:${this.engine.tacticsCamera}:${this.engine.cols}:${this.engine.rows}:${tile}:` + cells.map(c =>
       `${c.col},${c.row},${c.height},${c.entry.id},${c.entry.variant},${c.entry.rot}`).join(";");
     if (stamp !== this.terrainSolidKey && cells.length) {
       if (!this.cliffMaterial) {
@@ -1434,10 +1434,8 @@ export class ThreeBattleRenderer {
         const rect = floorRects.get(cell);
         const fx = x / tile, fy = -y / tile - BOARD_PAD_MUL - 0.25;
         if (!rect || !floorRectContains(rect, fx, fy)) return false;
-        if (this.engine.fogged) {
-          const col = cell % this.engine.cols, row = Math.floor(cell / this.engine.cols);
-          return this.engine.explored(col, row) || this.engine.visible(col, row);
-        }
+        // Keep ground continuous under fog. FogMask is the opaque visual cover for
+        // unseen cells; cutting the terrain here exposed square gaps at its edges.
         return true;
       }, true, {
         x: [...new Set([...floorRects.values()].flatMap(floorRectParts).flatMap(r => [r.minX * tile, r.maxX * tile]))],
@@ -3436,6 +3434,27 @@ export class ThreeBattleRenderer {
         -handY,
         1.1 + (handY / tile) * 0.004 + tile * 0.01,
       );
+      if (caster.classId === "zombieDog" && visual.img) {
+        // The Zombie Dog spits from the open muzzle on its cast frame, not the generic hand
+        // point above. These normalized canvas coordinates are the mouth center on cast-1.png.
+        const mouthX = 0.895;
+        const mouthY = 0.52;
+        const footX = anchor.worldX + this.cameraRight.x * visual.sway + this.cameraGroundDown.x * visual.footY;
+        const footY = -anchor.worldY + this.cameraRight.y * visual.sway + this.cameraGroundDown.y * visual.footY;
+        const groundLift = this.engine.tacticsCamera ? this.landscape?.heightAt(footX, footY) ?? 0 : visual.lift;
+        const centerYLocal = (visual.footOffset - visual.h / 2) * visual.scaleY * this.cameraSpriteScale;
+        const base = artBase(visual.img);
+        const transparentFootPadding = (1 - (base?.v ?? 1)) * visual.h * visual.scaleY * this.cameraSpriteScale;
+        const visualUpOffset = (this.engine.tacticsCamera ? -transparentFootPadding : groundLift) - visual.bob - centerYLocal;
+        const center = new THREE.Vector3(
+          footX + this.unitUp.x * visualUpOffset,
+          footY + this.unitUp.y * visualUpOffset,
+          spriteDepthZ(anchor.worldY + visual.footY, tile) + UNIT_DEPTH_TIE + this.unitUp.z * visualUpOffset,
+        );
+        origin.copy(center)
+          .addScaledVector(this.cameraRight, (mouthX - 0.5) * visual.w * visual.scaleX * this.cameraSpriteScale)
+          .addScaledVector(this.unitUp, (0.5 - mouthY) * visual.h * visual.scaleY * this.cameraSpriteScale);
+      }
       const impactHexes = request.tiles.map((cell) => {
         const cellAnchor = this.engine.effectAnchor(cell.x, cell.y);
         const elevation = this.engine.hexElevated(cell.x, cell.y) ? cellAnchor.tile * 0.18 : 0;
