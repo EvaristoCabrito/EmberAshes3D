@@ -177,10 +177,13 @@ export type HealId = "cureMinor" | "cureWounds" | "cureLight";
 export type SpellKind =
   | "fireball"
   | "iceStorm"
+  | "frost"
   | "bless"
   | HealId
   | "longShot"
   | "bloodyShot"
+  /** Warrior Tier 1 (level 3): draws enemies' enmity onto the warrior — see PROVOKE, enmity.ts. */
+  | "provoke"
   | "piercing"
   | "lightning"
   | "lightningTier3"
@@ -789,6 +792,8 @@ export interface Unit {
   lifeDrainCharges?: number;
   /** Enemy-only legacy FantomForce uses, replenished at battle start. */
   fantomForceCharges?: number;
+  /** Cultist V2 owns a separate Frost pool; player mages use Tier 2 charges. */
+  frostCharges?: number;
   /** Current Bless accuracy bonus, stored as a fraction (0.01 = one percentage point). */
   blessedHitBonusPct?: number;
   /** Remaining rounds for Bless. */
@@ -901,6 +906,7 @@ export interface UnitPublic {
   xp: number;
   bag: Bag;
   spells: Spells;
+  frostCharges?: number;
   weaponId: string | null;
   weaponEnh: number;
   size: number;
@@ -1090,6 +1096,11 @@ export interface HudSnapshot {
   inspected: UnitPublic | null;
   pendingFoe: UnitPublic | null;
   spellReady: boolean;
+  /** A skill is aimed and waiting for Confirmar/Cancelar (see BattleEngine.handleCell). */
+  spellArmed: boolean;
+  /** Hit chance (0-100) of the aimed weapon skill against the enemy at its aim; null for
+   * spells and for aims with no enemy. */
+  spellHitChance: number | null;
   spellKind: SpellKind | null;
   /** Battle turn order (both sides mixed), highest opening initiative first. */
   turnQueue: { id: string; name: string; side: Side; acted: boolean; active: boolean; initiative: number }[];
@@ -1239,6 +1250,8 @@ export interface BattleUnitSnap {
   shockCharges: number;
   /** Enemy-only legacy FantomForce uses remaining in this battle. Optional for older saves. */
   fantomForceCharges?: number;
+  /** Cultist V2 owns a separate Frost pool; player mages use Tier 2 charges. */
+  frostCharges?: number;
   blessedHitBonusPct?: number;
   blessedRoundsLeft?: number;
   diseased: boolean;
@@ -1278,6 +1291,10 @@ export interface BattleSnapshot {
   /** missionMapKey of the map this fight was played on. A fight saved on an older version
    * of the map (or before this existed) is not resumed — the battle starts on the current map. */
   mapKey?: string;
+  /** The mission's intro dialog was already shown in this fight — never replay it on load. */
+  introDialogDone?: boolean;
+  /** Each enemy's enmity table (enmity.ts EnmitySnapshot): { enemyId: { heroId: [ce, ve] } }. */
+  enmity?: Record<string, Record<string, [number, number]>>;
   turn: number;
   phase: Phase;
   units: BattleUnitSnap[];
@@ -1338,6 +1355,10 @@ export interface SaveData {
   chapter?: number;
   /** Named story flags set by quests/triggers (see progression.ts). */
   flags?: string[];
+  /** Every scripted conversation that has already played in this save (dialogSeenKey in
+   * save.ts). A conversation listed here never opens by itself again — not after saving,
+   * loading, leaving or replaying the mission. No size cap: a campaign holds thousands. */
+  dialogsSeen?: string[];
   /** NPC ids the party has talked to (Inn NPC ids such as "brue"). */
   npcTalked?: string[];
   /** Fetch-quest pickups already picked up, as "questId:pickupId". */

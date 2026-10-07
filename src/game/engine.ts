@@ -1,3 +1,4 @@
+import { FROST, frostPower, frostAreaTiles, frostCharges } from "./frost";
 import { dexAccuracy, dexEscapeChance } from "./dexterity";
 import { equippedWeaponType, trainedWeaponSkills, weaponTypesForClass, weaponModifiers, isWeaponAbility } from "./weaponSkills";
 import { elementalDamage, spellElement, sumResistances } from "./resistances";
@@ -6,7 +7,7 @@ import { tacticalGridStyleQuiet as tacticalGridStyle, GRID_MOVE, GRID_ROUTE, GRI
 import { isHexGroundVariant, requestSpriteArt } from "./assets";
 import { drawGroundTexture, drawHexGround } from "./hexGround";
 import { vauBackdropBounds } from "./vauBackdrop";
-import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, DIVINE_BOLT, MINOR_VENOM, DECOR_ART_SCALE, HOUSE_ART_SCALE, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expToLevel, expForHit, FIREBALL, ICE_STORM, iceStormPower, iceStormAreaTiles, iceStormFormula, FANTOM_FORCE, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, BLOODY_SHOT, bloodyShotMul, bloodyShotBleed, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, decorationImageRetryWebp, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashPower, POISON_BREATH, poisonBreathFormula, poisonBreathPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower, BLESS, rulesClass } from "./data";
+import { BIG_HOUSE_DECOR_IDS, CAUSTIC_VENOM, DIVINE_BOLT, MINOR_VENOM, DECOR_ART_SCALE, HOUSE_ART_SCALE, CHEST_DECOR_IDS, CHEST_LOOT, CLASSES, CLEAVE, cleaveDoublesVs, cleaveFormula, cleavePower, CURE_DISEASE, CURES, DECORATIONS, DISEASE, DOUBLE_STRIKE, doubleStrikeFormula, doubleStrikePower, EMPTY_BAG, EQUIPMENT, EXP_TO_LEVEL, expToLevel, expForHit, FIREBALL, ICE_STORM, iceStormPower, iceStormAreaTiles, iceStormFormula, FANTOM_FORCE, FOOTPRINT_TYPE_7, FOOTPRINT_TYPE_8, formatSpellUseGains, HIGH_GROUND_LIFT, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, longShotPower, BLOODY_SHOT, bloodyShotMul, bloodyShotBleed, PROVOKE, provokePower, provokeFormula, MAGIC_MISSILE, magicMissileCount, MAX_LEVEL, PIERCING, piercingMul, PIERCING_THRUST, POTION_CARRY_MAX, POTIONS, RATIONS_ICON, SHOCK, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceDice, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, FAMILIAR_SPELL, familiarSpellCharges, familiarMagicMissileCharges, LIFE_DRAIN, lifeDrainDice, lifeDrainFormula, familiarLifeDrainCharges, lifeDrainHealMul, SWEEP, TRIP, WEAPON_MAX_ENH, WEAPONS, WEB_OF_DREAMS, healFormula, barricadeDecor, decorationCells, decorationFacing, decorationImage, decorationImageRetryWebp, diceFormula, effectiveMaxRange, enemyLevelFor, equipmentIcon, fireballFormula, fireballOrigin, fireballPower, fireballRangeTiles, fireballTiles, hexAreaTiles, isProjectile, isSummonClass, isBossClass, lightningDice, lightningFormula, lightningTier3Formula, parseLayout, placedFootprint, potionLabel, rollCure, rollDice, rollPotion, shockChargesFor, spellFormula, spellTier, spellUseGains, starterWeaponFor, STARTING_BAG, statsFor, terrainNote, TERRAIN, tierKey, tierUses, gearStatBonus, offHandBlocked, equipmentFitsSlot, equipmentSlotName, equipmentTooltip, weaponTooltip, potionTooltip, weaponIcon, weaponRoll, weightedLootPick, weightedPotionPick, MULTI_SHOT, multiShotFormula, multiShotPower, multiShotTargets, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathFormula, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, shoulderSmashPower, SIGHT_RADIUS, STAMPEDE, stampedeFormula, stampedePower, cultistSpellUses, brigandSpellUses, birolhoSpellUses, webOfDreamsSize, webOfDreamsSleepChance, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, bullRushFormula, bullRushPower, EXECUTIONER_STRIKE, executionerStrikeFormula, executionerStrikePower, SHIELD_BASH, shieldBashPower, POISON_BREATH, poisonBreathFormula, poisonBreathPower, BURNING_HANDS, burningHandsFormula, burningHandsPower, CREATE_FOOD_AND_WATER, createFoodAndWaterPower, BLESS, rulesClass } from "./data";
 import type { SpellTier } from "./data";
 import { weightedWeaponPick, shieldBashFormula, fantomForceChargesFor, fantomForceDice } from "./data";
 import { clearRockColumnTiles, placedBlockingFootprint, THREE_D_DOOR_VARIANTS } from "./data";
@@ -15,7 +16,8 @@ import { closeWatchtowerWalls } from "./watchtowerDungeon";
 import { decorationPlacementArt } from "./data";
 import { canCounter, makeForecast, mulberry32, powerOf, protOf, rollDamage, rollDamageCustom } from "./combat";
 import { effectivePoisonResistance, POISON_TIERS, poisonChance, poisonDice, poisonTickDamage, poisonTierOf, strongerPoison } from "./poison";
-import { cleanHeroSkills, rollWeaponSkillGain, rollSkillGain, skillResistances, SKILL_GAIN, type HeroSkills } from "./skills";
+import { cleanHeroSkills, rollWeaponSkillGain, rollSkillGain, skillResistances, SKILL_GAIN, SKILLS, type HeroSkills, type SkillId } from "./skills";
+import { addToEntry, ENMITY, enmityFromSnapshot, enmityToSnapshot, enmityTotal, type EnmityEntry, type EnmityTable } from "./enmity";
 import {
   attackableEnemies,
   canHitFrom,
@@ -661,6 +663,7 @@ function pub(u: Unit, restrained: boolean, movLeft: number): UnitPublic {
     xp: u.xp,
     bag: { ...u.bag },
     spells: { ...u.spells },
+    frostCharges: u.frostCharges,
     weaponId: u.weaponId,
     weaponEnh: u.weaponEnh,
     size: u.size,
@@ -999,6 +1002,7 @@ function spawnUnit(spawn: Mission["playerSpawns"][number], side: Unit["side"], i
     footprintOffsets: cls.footprintOffsets,
     shock: null,
     shockCharges: side === "enemy" ? shockChargesFor(cls.id) : 0,
+    frostCharges: side === "enemy" && cls.id === "cultistV2" ? frostCharges(level) : 0,
     fantomForceCharges: side === "enemy" ? fantomForceChargesFor(cls.id) : 0,
     diseased,
     diseaseBase: diseased
@@ -1095,6 +1099,7 @@ function unitFromSnap(snap: BattleUnitSnap): Unit {
     footprintOffsets: cls?.footprintOffsets,
     shock: snap.shock ? { ...snap.shock } : null,
     shockCharges: snap.shockCharges ?? 0,
+    frostCharges: snap.frostCharges ?? (snap.side === "enemy" && classId === "cultistV2" ? frostCharges(snap.level) : 0),
     fantomForceCharges: snap.fantomForceCharges ?? (snap.side === "enemy" ? fantomForceChargesFor(classId) : 0),
     blessedHitBonusPct: snap.blessedHitBonusPct ?? 0,
     blessedRoundsLeft: snap.blessedRoundsLeft ?? 0,
@@ -1182,6 +1187,8 @@ export class BattleEngine {
   selectedId: string | null = null;
   inspectedId: string | null = null;
   pendingFoeId: string | null = null;
+  /** The staged attack (pendingFoeId) is the off-hand strike — see stageAttack. */
+  private pendingAttackOffHand = false;
   threat: Point[] = [];
   cursor: Point = { x: 0, y: 0 };
   reach: Map<string, ReachCell> = new Map();
@@ -1332,6 +1339,9 @@ export class BattleEngine {
   /** missionMapKey of the authored map this battle was built from — set by whoever starts the
    * battle, stamped into every snapshot (see BattleSnapshot.mapKey). */
   mapKey = "";
+  /** The mission's intro dialog has already been shown for this fight. Saved in every
+   * snapshot, so saving and loading never replays it (see BattleSnapshot.introDialogDone). */
+  introDialogDone = false;
   /** See HudSnapshot.chestLoot — set the instant a chest opens, cleared only by
    * acknowledgeChestLoot() (the player's "Ok" on the popup), not by anything time-based. */
   private chestLoot: { unitName: string; ember: number; items: { name: string; icon: string; tip?: string }[] } | null = null;
@@ -1433,6 +1443,7 @@ export class BattleEngine {
    * without the normal "that's not a valid target" gameplay rules getting in the way. Wired
    * from GameApp's testMode — never true for a real save. */
   private debugFreeCast = false;
+  readonly frostVfxRequests: { origin:Point; cells:Point[]; seed:number }[] = [];
   readonly fireballVfxRequests: FireballVfxRequest[] = [];
   readonly fireballVfxEvents: FireballVfxEvent[] = [];
   fireballVfxAvailable = false;
@@ -1479,20 +1490,65 @@ export class BattleEngine {
     return bonus ? { ...u, atk: u.atk * (1 + bonus), mag: u.mag * (1 + bonus), def: u.def * (1 + bonus), dex: u.dex * (1 + bonus) } : u;
   }
 
-  private awardAdjacentAffinity(u: Unit): void {
-    if (!u.acted) for (const ally of this.adjacentAllies(u)) this.adjustAffinity(u, ally, 0.1);
+  /** Enmity (enmity.ts): each enemy's score per player-side unit. Drives enemy targeting. */
+  private enmity: EnmityTable = new Map();
+
+  private addEnmity(foe: Unit, hero: Unit, ce: number, ve: number): void {
+    if (foe.side !== "enemy" || hero.side !== "player" || !foe.alive || !hero.alive) return;
+    const row = this.enmity.get(foe.id) ?? new Map<string, EnmityEntry>();
+    row.set(hero.id, addToEntry(row.get(hero.id), ce, ve));
+    this.enmity.set(foe.id, row);
+  }
+
+  /** Damage in either direction: a hero hurting an enemy raises their enmity with it (spells
+   * more than weapons); an enemy hurting a hero wears that hero's cumulative enmity down. */
+  private noteDamageEnmity(attacker: Unit, target: Unit, dmg: number, kind: "weapon" | "spell"): void {
+    if (dmg <= 0) return;
+    if (attacker.side === "player" && target.side === "enemy") {
+      const k = ENMITY[kind];
+      this.addEnmity(target, attacker, dmg * k.ce, dmg * k.ve);
+    } else if (attacker.side === "enemy" && target.side === "player") {
+      const entry = this.enmity.get(attacker.id)?.get(target.id);
+      if (entry) this.enmity.get(attacker.id)!.set(target.id, addToEntry(entry, -dmg * ENMITY.damageTakenCe, 0));
+    }
+  }
+
+  /** Heals and support skills are noticed by every enemy already aware of the party. */
+  private noteAwareEnmity(hero: Unit, ce: number, ve: number): void {
+    if (hero.side !== "player") return;
+    for (const foe of this.units) {
+      if (foe.side !== "enemy" || !foe.alive) continue;
+      if (this.fogged && !this.awake.has(foe.id)) continue;
+      this.addEnmity(foe, hero, ce, ve);
+    }
+  }
+
+  /** Whoever tops this enemy's enmity table, or null while it has none (usual targeting). */
+  private enmityTarget(foe: Unit): Unit | null {
+    const row = this.enmity.get(foe.id);
+    if (!row) return null;
+    let best: Unit | null = null;
+    let bestTotal = 0;
+    for (const [heroId, entry] of row) {
+      const hero = this.units.find((u) => u.id === heroId);
+      if (!hero || !hero.alive || hero.side !== "player") continue;
+      const total = enmityTotal(entry);
+      if (total > bestTotal) {
+        best = hero;
+        bestTotal = total;
+      }
+    }
+    return best;
   }
 
   private adjustAffinity(a: Unit, b: Unit, delta: number): void {
     if (a.id === b.id || a.side !== "player" || b.side !== "player" || a.summoned || b.summoned) return;
-    this.adjustHeroAffinity(a.name, b.name, delta);
+    this.adjustHeroAffinity(a.name, b.name, delta > 0 ? 0.1 : delta, false);
   }
 
-  private adjustHeroAffinity(a: string, b: string, delta: number): void {
+  private adjustHeroAffinity(a: string, b: string, delta: number, dialogue = true): void {
     if (a === b || delta === 0 || !AFFINITY_HEROES.includes(a as AffinityHero) || !AFFINITY_HEROES.includes(b as AffinityHero)) return;
-    // The party leader's gains (conversations, combat, anything) catch up faster the lower the
-    // pair's affinity is: x2 at 0, easing to x1 at 100. Losses are never amplified.
-    if (delta > 0 && (a === this.partyLeader || b === this.partyLeader)) {
+    if (dialogue && delta > 0 && (a === this.partyLeader || b === this.partyLeader)) {
       delta = Math.round(delta * (2 - affinityScore(this.affinityScores, a, b) / 100) * 100) / 100;
     }
     this.affinityScores = changeAffinity(this.affinityScores, a as AffinityHero, b as AffinityHero, delta);
@@ -1740,7 +1796,7 @@ export class BattleEngine {
             passable: terr.passable,
             blocksShot: !!terr.blocksShot,
             hazard: terr.hazardDice ? `${terr.hazardDice}d${terr.hazardFaces ?? 8}` : undefined,
-            note: hoveredWeb ? undefined : terrainNote(terr.id),
+            note: hoveredWeb || hoveredIceStorm ? undefined : terrainNote(terr.id),
             spellZone: hoveredWeb
               ? {
                   kind: "webOfDreams" as const,
@@ -1794,6 +1850,23 @@ export class BattleEngine {
         this.mode === "awaitSpell" &&
         !!selected &&
         (this.spellKind === "sweep" || (!!this.hover && this.spellAimValid(selected, this.hover))),
+      spellArmed: this.mode === "awaitSpell" && !!selected && this.spellArmed && !!this.spellAim,
+      spellHitChance: (() => {
+        // Weapon skills roll the same weapon hit chance as a basic attack (see the forecast above).
+        if (this.mode !== "awaitSpell" || !selected || !this.spellArmed || !this.spellAim || !isWeaponAbility(this.spellKind)) return null;
+        const foe = this.occ().get(key(this.spellAim.x, this.spellAim.y));
+        if (!foe || foe.side === selected.side || !this.targetable(foe)) return null;
+        return makeForecast(
+          this.affinityUnit(selected),
+          this.affinityUnit(foe),
+          tileAt(this.tiles, this.cols, selected.x, selected.y),
+          tileAt(this.tiles, this.cols, foe.x, foe.y),
+          this.tiles,
+          this.cols,
+          false,
+          true,
+        ).hitOut;
+      })(),
       spellKind: this.mode === "awaitSpell" ? this.spellKind : null,
       turnQueue: (() => {
         const active = this.activeTurnUnit();
@@ -1951,6 +2024,7 @@ export class BattleEngine {
         weaponEnh: u.weaponEnh,
         shock: u.shock ? { ...u.shock } : null,
         shockCharges: u.shockCharges ?? 0,
+        frostCharges: u.frostCharges,
         fantomForceCharges: u.fantomForceCharges,
         blessedHitBonusPct: u.blessedHitBonusPct,
         blessedRoundsLeft: u.blessedRoundsLeft,
@@ -1997,6 +2071,8 @@ export class BattleEngine {
       heroSkills: structuredClone(this.heroSkills),
       missionId: this.mission.id,
       mapKey: this.mapKey || undefined,
+      introDialogDone: this.introDialogDone,
+      enmity: enmityToSnapshot(this.enmity),
       turn: this.turn,
       phase: this.phase,
       units,
@@ -2099,6 +2175,10 @@ export class BattleEngine {
       ? { unitName: snap.chestLoot.unitName, ember: snap.chestLoot.ember, items: snap.chestLoot.items.map((i) => ({ ...i })) }
       : null;
     this.pendingDialog = snap.pendingDialog;
+    // A saved fight is always past its opening: the intro opens before the player can act,
+    // so a snapshot from before this flag existed counts as done too.
+    this.introDialogDone = snap.introDialogDone ?? true;
+    this.enmity = enmityFromSnapshot(snap.enmity);
     this.turnRestrained = snap.turnRestrained;
     this.result = null;
     this.queue.length = 0;
@@ -2425,7 +2505,9 @@ export class BattleEngine {
         const caster = this.units.find((u) => u.id === step.att);
         const arrowSpell = step.spellKind === "longShot" || step.spellKind === "bloodyShot" || step.spellKind === "multiShot" || step.spellKind === "piercing";
         const meleeSkill = step.spellKind === "cleave" || step.spellKind === "sweep" || step.spellKind === "shoulderSmash" || step.spellKind === "stampede" || step.spellKind === "piercingThrust" || step.spellKind === "trip" || step.spellKind === "doubleStrike";
-        if (arrowSpell) sfxPlay.arrowAttack(caster?.sprite === "neera");
+        // Neera's bow skills wind up for her full Special sheet (LONG_ANIM_SECONDS) before the
+        // arrow leaves — her shot sound is timed to that release (see sfxPlay.arrowAttack).
+        if (arrowSpell) sfxPlay.arrowAttack(caster?.sprite === "neera", this.reducedMotion ? 0 : LONG_ANIM_SECONDS);
         else if (step.spellKind === "tendrilSwipe") sfxPlay.carnivorousPlantAttack();
         else if (meleeSkill) sfxPlay.meleeAttack(!!caster && this.isBladeAttack(caster));
         else if (step.spellKind !== "webOfDreams" && step.spellKind !== "bless" && !meleeSkill) {
@@ -2442,7 +2524,7 @@ export class BattleEngine {
       } else if (step.type === "combat") {
         const attacker = this.units.find((u) => u.id === step.att);
         if (attacker && (attacker.classId === "brigand" || (!step.customDice && this.isArrowAttack(attacker)))) {
-          sfxPlay.arrowAttack(attacker.sprite === "neera");
+          sfxPlay.arrowAttack(attacker.sprite === "neera", this.reducedMotion ? 0 : LONG_ARROW_RELEASE_SECONDS);
         } else if (attacker && !step.customDice && this.isArcaneCaster(attacker)) {
           if (attacker.sprite === "cultist-v2") sfxPlay.cultistV2Attack();
           else if (!sfxPlay.monster(attacker.sprite, "attack")) sfxPlay.magicAttack();
@@ -2646,6 +2728,7 @@ export class BattleEngine {
       this.banner = step.label ?? "";
       if (step.spellKind === "bless") sfxPlay.heal();
       else if (step.spellKind !== "longShot" && step.spellKind !== "multiShot" && step.spellKind !== "piercing") sfxPlay.crit();
+      if(step.spellKind === "frost"){const caster=this.units.find(u=>u.id===step.att);if(caster)this.frostVfxRequests.push({origin:{x:caster.x,y:caster.y},cells:step.tiles.map(c=>({...c})),seed:Math.floor(this.time*1000)});}
       if (step.spellKind === "magicMissile") {
         const caster = this.units.find((u) => u.id === step.att);
         if (caster) for (const t of step.tiles) this.emitMissileFx(caster.x, caster.y, t.x, t.y, "magicMissile");
@@ -2946,6 +3029,7 @@ export class BattleEngine {
           }
           if (a.stage === "hit" && a.spellKind && hit.dmg > 0) this.adjustAffinity(actor, target, -1);
           target.hp = Math.max(0, target.hp - hit.dmg);
+          this.noteDamageEnmity(actor, target, hit.dmg, "weapon");
           target.flash = 1;
           target.hitAt = this.time;
           this.provoke(target, actor);
@@ -3070,7 +3154,7 @@ export class BattleEngine {
               !a.counterCustomDice && this.isArrowAttack(def) && (counterSheet?.length ?? 0) >= LONG_SHEET_FRAMES && !this.reducedMotion ? this.time : undefined;
             // startSeq only cues the attacker's own strike, so the counter plays its cue here,
             // as the counter animation begins.
-            if (!a.counterCustomDice && this.isArrowAttack(def)) sfxPlay.arrowAttack(def.sprite === "neera");
+            if (!a.counterCustomDice && this.isArrowAttack(def)) sfxPlay.arrowAttack(def.sprite === "neera", a.counterWindAt != null ? LONG_ARROW_RELEASE_SECONDS : 0);
             else if (this.isArcaneCaster(def)) {
               if (def.sprite === "cultist-v2") sfxPlay.cultistV2Attack();
               else if (!sfxPlay.monster(def.sprite, "attack")) sfxPlay.magicAttack();
@@ -3268,7 +3352,7 @@ export class BattleEngine {
       if (!a.magicMissileV2Complete && a.t >= 3.2) a.magicMissileV2Complete = true;
     }
     const arrowSpell = a.spellKind === "longShot" || a.spellKind === "bloodyShot" || a.spellKind === "multiShot" || a.spellKind === "piercing";
-    const hitAt = arrowSpell ? ARROW_TRAVEL : a.spellKind === "fantomForce" ? FANTOM_FORCE_TRAVEL : a.spellKind === "phantasmalForce" ? PHANTASMAL_FORCE_TRAVEL : a.spellKind === "magicMissile" || a.spellKind === "magicMissileV2" || a.spellKind === "fireball" || a.spellKind === "causticVenom" || a.spellKind === "minorVenom" ? SPELL_TRAVEL : 0.18;
+    const hitAt = a.spellKind === "frost" ? .75 : arrowSpell ? ARROW_TRAVEL : a.spellKind === "fantomForce" ? FANTOM_FORCE_TRAVEL : a.spellKind === "phantasmalForce" ? PHANTASMAL_FORCE_TRAVEL : a.spellKind === "magicMissile" || a.spellKind === "magicMissileV2" || a.spellKind === "fireball" || a.spellKind === "causticVenom" || a.spellKind === "minorVenom" ? SPELL_TRAVEL : 0.18;
     if (syncMagicMissileV2Vfx && a.magicMissileV2VfxId === "") {
       if (a.t >= hitAt) a.magicMissileV2Impact = true;
     }
@@ -3374,6 +3458,7 @@ export class BattleEngine {
         if (element) dmg = Math.floor(elementalDamage(dmg, foe.resistances?.[element] ?? 0, this.affinityUnit(att).mag));
         if (dmg > 0 && a.spellKind) this.adjustAffinity(att, foe, -1);
         foe.hp = Math.max(0, foe.hp - dmg);
+        this.noteDamageEnmity(att, foe, dmg, isWeaponAbility(a.spellKind) ? "weapon" : "spell");
         foe.flash = 1;
         foe.hitAt = this.time;
         this.provoke(foe, att);
@@ -3494,7 +3579,7 @@ export class BattleEngine {
     // The slower spell bolts (SPELL_TRAVEL) need the step to outlast their flight, impact and
     // trail afterglow.
     const boltSpell = a.spellKind === "magicMissile" || a.spellKind === "magicMissileV2" || a.spellKind === "fireball" || a.spellKind === "causticVenom" || a.spellKind === "minorVenom" || a.spellKind === "fantomForce";
-    const spellEnd = Math.max(att.sprite === "conjurer" ? 0.72 : 0.55, boltSpell ? SPELL_TRAVEL + MISSILE_AFTERGLOW + 0.15 : 0, syncPhantasmalVfx ? 1.5 : 0, syncCausticVenomVfx ? SPELL_TRAVEL + 2.3 : 0);
+    const spellEnd = Math.max(a.spellKind === "frost" ? 1.1 : 0,att.sprite === "conjurer" ? 0.72 : 0.55, boltSpell ? SPELL_TRAVEL + MISSILE_AFTERGLOW + 0.15 : 0, syncPhantasmalVfx ? 1.5 : 0, syncCausticVenomVfx ? SPELL_TRAVEL + 2.3 : 0);
     if (syncMagicMissileV2Vfx && a.magicMissileV2VfxId === "" && a.t >= spellEnd) a.magicMissileV2Complete = true;
     if (syncFireballVfx) {
       if (a.fireballComplete && this.heldDone(a)) this.finishCombat(att);
@@ -3523,6 +3608,7 @@ export class BattleEngine {
       const gained = Math.min(heal, target.maxHp - target.hp);
       target.hp += gained;
       if (gained > 0) this.adjustAffinity(att, target, 1);
+      if (gained > 0) this.noteAwareEnmity(att, gained * ENMITY.heal.ce, gained * ENMITY.heal.ve);
       this.gainExp(att, target.level, gained);
       this.emitParticle({
         x: target.drawX,
@@ -3556,6 +3642,7 @@ export class BattleEngine {
       a.applied = true;
       this.curePlayerDisease(target);
       this.adjustAffinity(att, target, 1);
+      this.noteAwareEnmity(att, ENMITY.support.ce, ENMITY.support.ve);
       this.emitParticle({
         x: target.drawX,
         y: target.drawY - 0.35,
@@ -3774,7 +3861,6 @@ export class BattleEngine {
    * action was taken from a position a rewind would erase.
    */
   private finishAction(u: Unit): void {
-    this.awardAdjacentAffinity(u);
     this.noteUnitDrawAction(u.id);
     if (u.side === "player" && !u.summoned) u.fullness = drainHunger(u.fullness, ACTION_HUNGER_COST);
     u.acted = true;
@@ -3814,7 +3900,6 @@ export class BattleEngine {
     this.banner = null;
     this.evaluateEnd();
     if (this.result) {
-      this.awardAdjacentAffinity(att);
       this.selectedId = null;
       this.pendingFoeId = null;
       this.inspectedId = null;
@@ -4068,6 +4153,13 @@ export class BattleEngine {
     if (gained === null) return;
     this.heroSkills[unit.name] = { ...this.heroSkills[unit.name], [id]: gained };
     unit.weaponSkills = { ...unit.weaponSkills, [type]: gained };
+    this.logSkillGain(unit, id, current, gained);
+  }
+
+  /** Every skill point a hero earns in battle is announced in the combat log. */
+  private logSkillGain(unit: Unit, id: SkillId, before: number, after: number): void {
+    const number = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+    this.pushLog(`${unit.name} melhorou ${SKILLS[id].name}: ${number(after)} (+${number(after - before)})`);
   }
 
   /** A familiar's elemental magic practises its summoner's matching resistance. */
@@ -4089,6 +4181,7 @@ export class BattleEngine {
     this.heroSkills[unit.name] = { ...this.heroSkills[unit.name], [id]: gained };
     unit.resistances = { ...unit.resistances, [element]: Number(((unit.resistances?.[element] ?? 0) + gained - current).toFixed(2)) };
     if (element === "poison") unit.poisonResist = gained;
+    this.logSkillGain(unit, id, current, gained);
   }
 
   private applyTileHazard(unit: Unit, cell: Point): void {
@@ -5006,6 +5099,13 @@ export class BattleEngine {
     sfxPlay.ui();
   }
 
+  private frostTiles(origin:Point,through:Point,level?:number):Point[]{
+    const caster=origin as Unit;const cells=frostAreaTiles(origin,through,level??caster.level,this.cols,this.rows);const out:Point[]=[];
+    for(const cell of cells){if(tileAt(this.tiles,this.cols,cell.x,cell.y)==="void"||!clearShot(origin,cell,this.tiles,this.cols,"bolt",this.decorOverlay))break;out.push(cell);}return out;
+  }
+  startFrost():void {const u=this.units.find(x=>x.id===this.selectedId);if(!u||u.acted||(u.side==="player"&&u.level<FROST.unlockLevel)||this.tierRemaining(u,"frost")<=0)return;this.mode="awaitSpell";this.spellKind="frost";this.spellArmed=false;this.spellAim=null;this.hover=null;this.tip=`Frost: linha de ${frostPower(u.level).length} hexes à frente. Dano de Ice; atinge aliados também.`;}
+  private queueFrost(u:Unit,origin:Point,through:Point):void {const cells=this.frostTiles(origin,through,u.level);if(!cells.length)return;const ids=this.units.filter(target=>target.alive&&target.id!==u.id&&cells.some(c=>occupies(target,c.x,c.y))).map(target=>target.id);const p=frostPower(u.level);this.spendTier(u,"frost");this.queue.push({type:"spell",att:u.id,tiles:cells,ids,dice:p.dice,faces:p.faces,bonus:0,spellMul:p.mul,label:FROST.name,spellKind:"frost"});}
+  private castFrost(u:Unit,cell:Point):void {if(this.tierRemaining(u,"frost")<=0||!this.frostTiles(u,cell).length)return;this.queueFrost(u,u,cell);this.spellKind=null;this.mode="locked";this.tip=null;}
   startIceStorm(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || u.acted || u.level < ICE_STORM.unlockLevel || this.tierRemaining(u, "iceStorm") <= 0) return;
@@ -5362,6 +5462,55 @@ export class BattleEngine {
 
   /** Warrior tier 3: adjacent, replaces (never stacks with) a normal crit — see
    * stepCombat's executionerStrike branch. */
+  startProvoke(): void {
+    const u = this.units.find((x) => x.id === this.selectedId);
+    if (!u || u.acted || u.level < PROVOKE.unlockLevel || this.tierRemaining(u, "provoke") <= 0) return;
+    this.mode = "awaitSpell";
+    this.spellKind = "provoke";
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.hover = null;
+    this.tip = `${PROVOKE.name}: ${provokeFormula(u.level)}. Os inimigos atingidos voltam-se contra ${u.name}. Toque no inimigo.`;
+    sfxPlay.ui();
+  }
+
+  /** Board cells Provoke reaches around its aim — only the aim itself at radius 0. */
+  private provokeArea(cell: Point, level: number): Point[] {
+    const { radius } = provokePower(level);
+    const out: Point[] = [];
+    for (let y = cell.y - radius; y <= cell.y + radius; y++) {
+      for (let x = cell.x - radius - 1; x <= cell.x + radius + 1; x++) {
+        if (inBounds(x, y, this.cols, this.rows) && hexDist(cell, { x, y }) <= radius) out.push({ x, y });
+      }
+    }
+    return out;
+  }
+
+  /** Provoke: no damage — every enemy in the area gets Provoke's huge volatile enmity on the
+   * warrior (enmity.ts), so it turns on him until someone out-generates it. */
+  private castProvoke(unit: Unit, cell: Point): void {
+    if (!this.spellAimValid(unit, cell)) {
+      this.tip = this.spellAimError(unit, cell);
+      sfxPlay.ui();
+      return;
+    }
+    const area = new Set(this.provokeArea(cell, unit.level).map((p) => key(p.x, p.y)));
+    const foes = this.units.filter((f) => f.alive && f.side === "enemy" && this.targetable(f) && footprint(f).some((c) => area.has(key(c.x, c.y))));
+    this.spendTier(unit, "provoke");
+    for (const foe of foes) {
+      this.addEnmity(foe, unit, ENMITY.provoke.ce, ENMITY.provoke.ve);
+      this.emitParticle({ x: foe.drawX, y: foe.drawY - 0.35, vx: 0, vy: -0.18, life: 0, max: 2, size: 1, color: "#e0603a", text: "Provocado", kind: "text", frame: 0 });
+    }
+    this.spellKind = null;
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.missileTargets = [];
+    this.tip = null;
+    this.pushLog(`${unit.name} usa ${PROVOKE.name}: ${foes.map((f) => f.name).join(", ")} ${foes.length > 1 ? "voltam-se" : "volta-se"} contra ${unit.name}.`);
+    sfxPlay.ui();
+    this.finishAction(unit);
+  }
+
   startExecutionerStrike(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || u.acted || this.tierRemaining(u, "executionerStrike") <= 0) return;
@@ -5645,6 +5794,7 @@ export class BattleEngine {
     const cells = new Set(hexAreaTiles({ x: u.x, y: u.y }, p.radius, this.cols, this.rows).map((c) => key(c.x, c.y)));
     this.auraZones.push({ cells, roundsLeft: p.duration, kind: "protection", side: u.side, pct: p.pct });
     this.spendTier(u, "auraOfProtection");
+    this.noteAwareEnmity(u, ENMITY.support.ce, ENMITY.support.ve);
     this.spellKind = null;
     this.spellArmed = false;
     this.spellAim = null;
@@ -5661,6 +5811,7 @@ export class BattleEngine {
     const cells = new Set(hexAreaTiles({ x: u.x, y: u.y }, p.radius, this.cols, this.rows).map((c) => key(c.x, c.y)));
     this.auraZones.push({ cells, roundsLeft: p.duration, kind: "intimidation", side: u.side, pct: p.pct });
     this.spendTier(u, "intimidatingPresence");
+    this.noteAwareEnmity(u, ENMITY.support.ce, ENMITY.support.ve);
     this.spellKind = null;
     this.spellArmed = false;
     this.spellAim = null;
@@ -5684,6 +5835,7 @@ export class BattleEngine {
     }
     const allies = this.units.filter((target) => target.alive && target.side === u.side && hexDist(u, target) <= BLESS.radius);
     this.spendTier(u, "bless");
+    this.noteAwareEnmity(u, ENMITY.support.ce, ENMITY.support.ve);
     this.spellKind = null;
     this.spellArmed = false;
     this.spellAim = null;
@@ -5720,6 +5872,7 @@ export class BattleEngine {
     }
     this.lootRations += gained;
     this.spendTier(u, "createFoodAndWater");
+    this.noteAwareEnmity(u, ENMITY.support.ce, ENMITY.support.ve);
     this.spellKind = null;
     this.spellArmed = false;
     this.spellAim = null;
@@ -5786,6 +5939,7 @@ export class BattleEngine {
       this.confirmFireball();
       return;
     }
+    if (this.spellKind === "frost") { this.castFrost(u, cell); return; }
     if (this.spellKind === "iceStorm") {
       this.castIceStorm(u, cell);
       return;
@@ -5898,6 +6052,10 @@ export class BattleEngine {
       this.castBullRush(u, cell);
       return;
     }
+    if (this.spellKind === "provoke") {
+      this.castProvoke(u, cell);
+      return;
+    }
     if (this.spellKind === "executionerStrike") {
       this.castExecutionerStrike(u, cell);
       return;
@@ -5984,6 +6142,7 @@ export class BattleEngine {
   }
 
   private tierRemaining(u: Unit, kind: SpellKind): number {
+    if(kind === "frost" && u.side === "enemy")return u.frostCharges ?? 0;
     if (kind === "poisonBreath" && u.level < POISON_BREATH.unlockLevel) return 0;
     if (kind === "burningHands" && u.level < 5) return 0;
     const tier = spellTier(kind);
@@ -5991,6 +6150,7 @@ export class BattleEngine {
   }
 
   private spendTier(u: Unit, kind: SpellKind): void {
+    if(kind === "frost" && u.side === "enemy"){u.frostCharges=Math.max(0,(u.frostCharges??0)-1);return;}
     const tier = spellTier(kind);
     if (!tier) return;
     u.spells[tierKey(tier)] -= 1;
@@ -6163,7 +6323,7 @@ export class BattleEngine {
     }
 
     const target = this.occ().get(key(cell.x, cell.y));
-    const targetRequired = ["longShot", "bloodyShot", "lightning", "lightningTier3", "shock", "phantasmalForce", "multiShot", "doubleStrike", "trip", "lifeDrain", "executionerStrike", "shieldBash"].includes(kind);
+    const targetRequired = ["longShot", "bloodyShot", "lightning", "lightningTier3", "shock", "phantasmalForce", "multiShot", "doubleStrike", "trip", "lifeDrain", "executionerStrike", "shieldBash", "provoke"].includes(kind);
     if (targetRequired) {
       if (!target) return "Não há unidade na casa selecionada.";
       if (this.unitHidden(target)) return "Escolha um inimigo visível.";
@@ -6192,6 +6352,10 @@ export class BattleEngine {
       const range = iceStormPower(caster.level).range;
       if (distance > range) return `Casa fora de alcance (máximo ${range} hexes).`;
       if (!clearShot(caster, fireballOrigin(cell, this.cols, this.rows), this.tiles, this.cols, "bolt", this.decorOverlay)) return this.shotBlockedTip(caster, fireballOrigin(cell, this.cols, this.rows), "bolt");
+    }
+    if (kind === "provoke") {
+      const range = provokePower(caster.level).range;
+      if (hexDist(caster, cell) > range) return `Alvo fora de alcance (máximo ${range} hexes).`;
     }
     if (kind === "cleave" || kind === "shoulderSmash") return "Escolha um hex vizinho ao personagem.";
     if (kind === "sweep") return `Escolha uma casa dentro do raio ${SWEEP.radius}.`;
@@ -6419,6 +6583,7 @@ export class BattleEngine {
       if (manhattan(caster, cell) > FIREBALL.range) return false;
       return clearShot(caster, fireballOrigin(cell, this.cols, this.rows), this.tiles, this.cols, "bolt", this.decorOverlay);
     }
+    if(this.spellKind === "frost")return this.frostTiles(caster,cell).length>0;
     if (this.spellKind === "iceStorm") {
       if (manhattan(caster, cell) > iceStormPower(caster.level).range) return false;
       return clearShot(caster, fireballOrigin(cell, this.cols, this.rows), this.tiles, this.cols, "bolt", this.decorOverlay);
@@ -6499,6 +6664,10 @@ export class BattleEngine {
     if (this.spellKind === "doubleStrike" || this.spellKind === "trip" || this.spellKind === "lifeDrain" || this.spellKind === "executionerStrike" || this.spellKind === "shieldBash") {
       const here = this.occ().get(key(cell.x, cell.y));
       return !!here && here.alive && here.side !== caster.side && canHitFrom(caster, caster, here, this.tiles, this.cols, this.decorOverlay);
+    }
+    if (this.spellKind === "provoke") {
+      const here = this.occ().get(key(cell.x, cell.y));
+      return !!here && here.alive && here.side === "enemy" && this.targetable(here) && hexDist(caster, cell) <= provokePower(caster.level).range;
     }
     if (this.spellKind === "cleave" || this.spellKind === "shoulderSmash") {
       return hexNeighbors(caster.x, caster.y).some((p) => p.x === cell.x && p.y === cell.y);
@@ -7202,6 +7371,7 @@ export class BattleEngine {
       moveBudgetUsed: 0,
     };
     this.spendTier(unit, spellKind);
+    this.noteAwareEnmity(unit, ENMITY.support.ce, ENMITY.support.ve);
     this.spellKind = null;
     this.missileTargets = [];
     this.tip = `${unit.name} invocou ${familiar.name}.`;
@@ -7247,6 +7417,7 @@ export class BattleEngine {
       }
     }
     this.spendTier(unit, "webOfDreams");
+    this.noteAwareEnmity(unit, ENMITY.support.ce, ENMITY.support.ve);
     this.spellKind = null;
     this.missileTargets = [];
     this.emitMissileFx(unit.x, unit.y, click.x, click.y, "webOfDreams");
@@ -8060,6 +8231,10 @@ export class BattleEngine {
 
   /** Everyone has had their turn this round — reset and re-roll the initiative order. */
   private startNewRound(): void {
+    // Volatile enmity fades round by round (enmity.ts); cumulative enmity stays.
+    for (const row of this.enmity.values()) {
+      for (const [heroId, entry] of row) row.set(heroId, addToEntry(entry, 0, -ENMITY.volatileDecayPerRound));
+    }
     this.mode = "locked";
     this.selectedId = null;
     this.pendingFoeId = null;
@@ -8169,7 +8344,11 @@ export class BattleEngine {
     // only they ever looked "stuck" — the AI had already picked a real, reachable destination,
     // it just never got a real path to it.
     const walkReach = computeReachable(this.effectiveUnitForReach(next), this.tiles, this.cols, this.rows, this.units, false, this.decorOverlay);
-    const players = this.units.filter((u) => u.side === "player" && u.alive);
+    // Enmity (enmity.ts): once heroes have drawn this enemy's attention, it goes after whoever
+    // tops its enmity table — attacking them if it can, otherwise walking toward them (FFXI
+    // style), ignoring easier targets. With no enmity yet it keeps its usual targeting.
+    const focus = this.enmityTarget(next);
+    const players = focus ? [focus] : this.units.filter((u) => u.side === "player" && u.alive);
 
     // The Ox spends its own three per-battle tier-1 charges on warrior Bull Rush.
     if (next.classId === "bigBlueCalf" && !next.acted && this.tierRemaining(next, "bullRush") > 0) {
@@ -8283,6 +8462,15 @@ export class BattleEngine {
       }
     }
 
+    // Frost is the close-range fallback after Cultist ranged spell attempts.
+    if(next.classId==="cultistV2"&&(next.frostCharges??0)>0){
+      let best:{from:Point;target:Point;score:number}|null=null;
+      for(const from of [next])for(const foe of players){const cells=this.frostTiles(from,foe,next.level);const hits=players.filter(p=>cells.some(c=>occupies(p,c.x,c.y))).length;if(!hits)continue;
+        const allies=this.units.filter(u=>u.alive&&u.side===next.side&&u.id!==next.id&&cells.some(c=>occupies(u,c.x,c.y))).length;
+        const score=hits*10-allies*12-hexDist(next,from);if(!best||score>best.score)best={from:{x:from.x,y:from.y},target:{x:foe.x,y:foe.y},score};
+      }
+      if(best&&best.score>0){if(best.from.x!==next.x||best.from.y!==next.y)this.queue.push({type:"move",id:next.id,path:reconstructPath(walkReach,best.from)});this.queueFrost(next,best.from,best.target);this.queue.push({type:"delay",dur:.12});return;}
+    }
     // Undead Ox — its tier4 Veneno Menor (2 per battle), then plain melee.
     if ((next.classId === "undeadOx" || next.classId === "plagueBearingCattle") && this.tryAiMinorVenom(next, reach, walkReach, players)) return;
 
@@ -8620,6 +8808,9 @@ export class BattleEngine {
   }
 
   pointerMove(cssX: number, cssY: number): void {
+    // An aimed skill waits for Confirmar: confirmSpell casts at `hover`, so moving the mouse
+    // toward the button must not drag the aim along. Clicking another cell re-aims.
+    if (this.mode === "awaitSpell" && this.spellArmed && this.spellAim) return;
     const cell = this.cellAt(cssX, cssY);
     this.hover = cell;
   }
@@ -8680,6 +8871,9 @@ export class BattleEngine {
     const occ = this.occ();
     const here = occ.get(key(cell.x, cell.y));
     const selected = this.units.find((u) => u.id === this.selectedId);
+    // A staged attack (see stageAttack) is dropped by clicking anywhere but an enemy; clicking
+    // another enemy re-targets it below.
+    if (this.pendingFoeId && !this.targetable(here)) this.pendingFoeId = null;
 
     if (this.mode === "awaitPotion" && selected) {
       this.hover = cell;
@@ -8703,13 +8897,18 @@ export class BattleEngine {
         sfxPlay.ui();
         return;
       }
-      if (
-        via === "tap" &&
-        (!this.spellArmed || !this.spellAim || this.spellAim.x !== cell.x || this.spellAim.y !== cell.y)
-      ) {
+      // Multi-target skills collect one target per pick; only the pick that casts asks to confirm.
+      const picks = this.spellKind === "magicMissile" ? magicMissileCount(selected.level) : this.spellKind === "multiShot" ? multiShotTargets(selected.level) : 1;
+      if (this.missileTargets.length + 1 < picks) {
+        this.confirmSpell();
+        return;
+      }
+      // Every click (mouse or tap) first aims the skill; the HUD then asks Confirmar/Cancelar
+      // (see spellArmed). Clicking the same aimed cell again still casts, as a tap always did.
+      if (!this.spellArmed || !this.spellAim || this.spellAim.x !== cell.x || this.spellAim.y !== cell.y) {
         this.spellArmed = true;
         this.spellAim = cell;
-        this.tip = "Toque de novo ou Lançar.";
+        this.tip = null;
         sfxPlay.ui();
         return;
       }
@@ -8764,7 +8963,7 @@ export class BattleEngine {
         // adjacent target read "Fora de alcance").
         const offHandReach = this.offHandReach(selected);
         if (canHitFrom(offHandReach, selected, here, this.tiles, this.cols, this.decorOverlay)) {
-          this.commitOffHandAction(selected, here, { x: selected.x, y: selected.y });
+          this.stageAttack(here, true);
           return;
         }
         this.tip = "Fora de alcance.";
@@ -8779,19 +8978,14 @@ export class BattleEngine {
         // within its reach from where they stand — it always outhits the arrow.
         const offHandItem = selected.offHandId ? EQUIPMENT[selected.offHandId] : null;
         if (offHandItem?.kind === "weapon" && this.isArrowAttack(selected) && canHitFrom(this.offHandReach(selected), selected, here, this.tiles, this.cols, this.decorOverlay)) {
-          this.commitOffHandAction(selected, here, { x: selected.x, y: selected.y });
+          this.stageAttack(here, true);
           return;
         }
         // attackFrom stores the best reachable hex for each visible foe. Using only the
         // unit's current hex let ranged units fire but made melee attacks appear dead
         // unless the player first moved adjacent by hand.
-        const from = this.attackFrom.get(here.id);
-        if (from) {
-          this.commitAttack(selected, here, from);
-          return;
-        }
-        if (canHitFrom(selected, selected, here, this.tiles, this.cols, this.decorOverlay)) {
-          this.commitAttack(selected, here, { x: selected.x, y: selected.y });
+        if (this.attackFrom.get(here.id) || canHitFrom(selected, selected, here, this.tiles, this.cols, this.decorOverlay)) {
+          this.stageAttack(here, false);
           return;
         }
         if (shotKind(selected) && inWeaponRange(selected.x, selected.y, here.x, here.y, selected.minRange, effectiveMaxRange(selected, tileAt(this.tiles, this.cols, selected.x, selected.y)))) {
@@ -8865,6 +9059,53 @@ export class BattleEngine {
       this.attackFrom = this.visibleAttackTargets(unit);
       after?.();
     };
+  }
+
+  /** Clicking an enemy no longer attacks outright: it stages the attack on that foe, and the
+   * HUD shows its forecast (hit chance, damage, counter) with Confirmar/Cancelar —
+   * see confirmPendingAttack / cancelPendingAttack. `offHand`: the click resolved to the
+   * off-hand strike (dagger/katar/shield) rather than the main attack. */
+  private stageAttack(foe: Unit, offHand: boolean): void {
+    this.pendingFoeId = foe.id;
+    this.pendingAttackOffHand = offHand;
+    this.tip = null;
+    sfxPlay.ui();
+  }
+
+  /** Confirmar on the staged attack: runs exactly what the click used to run. */
+  confirmPendingAttack(): void {
+    const selected = this.units.find((u) => u.id === this.selectedId);
+    const foe = this.units.find((u) => u.id === this.pendingFoeId);
+    this.pendingFoeId = null;
+    if (!selected || !foe || !foe.alive || selected.acted || this.phase !== "player") return;
+    if (this.pendingAttackOffHand) {
+      this.commitOffHandAction(selected, foe, { x: selected.x, y: selected.y });
+      return;
+    }
+    const from = this.attackFrom.get(foe.id);
+    this.commitAttack(selected, foe, from ?? { x: selected.x, y: selected.y });
+  }
+
+  /** Cancelar on an aimed skill's confirm panel: the skill is put away and the unit is back to
+   * choosing — unlike cancel(), its movement this turn is kept, not rewound. */
+  cancelSkillConfirm(): void {
+    if (this.mode !== "awaitSpell") return;
+    const u = this.units.find((x) => x.id === this.selectedId);
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.spellKind = null;
+    this.missileTargets = [];
+    this.tip = null;
+    if (u) this.returnToSelected(u);
+    else this.deselect();
+    sfxPlay.ui();
+  }
+
+  /** Cancelar on the staged attack: nothing happens, the unit keeps its turn. */
+  cancelPendingAttack(): void {
+    if (!this.pendingFoeId) return;
+    this.pendingFoeId = null;
+    sfxPlay.ui();
   }
 
   private commitAttack(unit: Unit, foe: Unit, from: Point): void {
@@ -11160,6 +11401,10 @@ export class BattleEngine {
             }
           }
         }
+      } else if (selected && this.spellKind === "provoke") {
+        push(this.healRangeTiles(selected, provokePower(selected.level).range), "rgba(224,96,58,0.3)");
+        const cell = this.hover ?? this.spellAim;
+        if (cell && this.spellAimValid(selected, cell)) push(this.provokeArea(cell, selected.level), "rgba(235,96,58,0.55)");
       } else if (selected && (this.spellKind === "executionerStrike" || this.spellKind === "shieldBash")) {
         push(this.healRangeTiles(selected, selected.maxRange), "rgba(220,120,80,0.45)");
         const cell = this.hover ?? this.spellAim;
@@ -11172,6 +11417,7 @@ export class BattleEngine {
         const dir = ray && ray[0] ? axisDir(selected, ray[0]) : null;
         if (dir) push(coneSector(selected, dir, power.radius, this.cols, this.rows), this.spellKind === "poisonBreath" ? "rgba(100,200,60,0.55)" : "rgba(235,140,70,0.55)");
       }
+      if(selected&&this.spellKind==="frost"){const cell=this.hover??this.spellAim;if(cell)push(this.frostTiles(selected,cell),"rgba(160,220,255,0.5)");}
       if (selected && this.spellKind === "iceStorm") {
         const power = iceStormPower(selected.level);
         push(this.healRangeTiles(selected, power.range), "rgba(125,195,245,0.38)");
@@ -13146,4 +13392,3 @@ export class BattleEngine {
     }
   }
 }
-

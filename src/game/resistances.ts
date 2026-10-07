@@ -32,14 +32,64 @@ export function cleanResistances(raw: unknown): Resistances | undefined {
   }));
 }
 
-const SPELL_ELEMENTS: Partial<Record<SpellKind, ResistanceElement>> = {
-  fireball: "fire", iceStorm: "ice", burningHands: "fire",
-  lightning: "lightning", lightningTier3: "lightning", shock: "lightning",
-  magicMissile: "arcane", magicMissileV2: "arcane", phantasmalForce: "arcane", fantomForce: "arcane",
-  lifeDrain: "darkness", divineWrath: "holy", divineBolt: "holy",
-  causticVenom: "poison", minorVenom: "poison", poisonBreath: "poison",
+/** Every SpellKind must be classified here. Elemental attacks use their matching resistance;
+ * weapon techniques stay physical, and effects without a damage element stay utility. Keeping
+ * the full list exhaustive means a newly added spell cannot silently bypass this decision. */
+export type SpellClassification = ResistanceElement | "physical" | "utility";
+
+export const SPELL_CLASSIFICATION: Record<SpellKind, SpellClassification> = {
+  fireball: "fire",
+  iceStorm: "ice",
+  frost: "ice",
+  bless: "utility",
+  provoke: "utility",
+  cureMinor: "utility",
+  cureWounds: "utility",
+  cureLight: "utility",
+  longShot: "physical",
+  bloodyShot: "physical",
+  piercing: "physical",
+  lightning: "lightning",
+  lightningTier3: "lightning",
+  magicMissile: "arcane",
+  magicMissileV2: "arcane",
+  causticVenom: "poison",
+  divineBolt: "holy",
+  minorVenom: "poison",
+  doubleStrike: "physical",
+  cleave: "physical",
+  cureDisease: "utility",
+  piercingThrust: "physical",
+  sweep: "physical",
+  trip: "physical",
+  summonFamiliar: "utility",
+  phantasmalForce: "arcane",
+  fantomForce: "arcane",
+  summonFamiliar2: "utility",
+  summonFamiliar3: "utility",
+  summonFamiliar4: "utility",
+  summonZombieDog: "utility",
+  lifeDrain: "darkness",
+  webOfDreams: "arcane",
+  multiShot: "physical",
+  secondWind: "utility",
+  auraOfProtection: "utility",
+  divineWrath: "holy",
+  shoulderSmash: "physical",
+  intimidatingPresence: "utility",
+  stampede: "physical",
+  shock: "lightning",
+  bullRush: "physical",
+  executionerStrike: "physical",
+  shieldBash: "physical",
+  poisonBreath: "poison",
+  tendrilSwipe: "physical",
+  burningHands: "fire",
+  createFoodAndWater: "utility",
 };
 
 export function spellElement(kind: SpellKind | null): ResistanceElement | undefined {
-  return kind ? SPELL_ELEMENTS[kind] : undefined;
+  if (!kind) return undefined;
+  const classification = SPELL_CLASSIFICATION[kind];
+  return classification === "physical" || classification === "utility" ? undefined : classification;
 }

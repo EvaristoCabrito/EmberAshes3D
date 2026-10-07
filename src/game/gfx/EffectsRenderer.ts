@@ -1,3 +1,4 @@
+import { Frost2D, type Frost2DConfig } from "./Frost2D";
 import { Blizzard2D, type Blizzard2DConfig } from "./Blizzard2D";
 /** The WebGL2 elemental FX pipeline: SceneFBO (the existing Canvas2D battle frame, uploaded as
  * a texture) x LightMapFBO (multiplicative), plus an additive bloom pass, composited on top of
@@ -154,6 +155,7 @@ export class EffectsRenderer {
 
   private effects = new Map<number, EffectInstance>();
   private particleEmitters = new Map<number, ParticleEmitter>();
+  private readonly frosts = new Map<number,Frost2D>();
   private readonly blizzards = new Map<number, Blizzard2D>();
   private nextId = 1;
   private time = 0;
@@ -249,6 +251,7 @@ export class EffectsRenderer {
     resizeFbo(gl, this.blurFboB, bw, bh);
   }
 
+  spawnFrost(config:Frost2DConfig):number {const id=this.nextId++;this.frosts.set(id,new Frost2D(this.gl,config));return id;}
   spawnBlizzard(config: Blizzard2DConfig): number {
     const id=this.nextId++;this.blizzards.set(id,new Blizzard2D(this.gl,config));return id;
   }
@@ -291,7 +294,7 @@ export class EffectsRenderer {
   }
 
   hasEffects(): boolean {
-    return this.effects.size > 0 || this.blizzards.size > 0;
+    return this.effects.size > 0 || this.blizzards.size > 0 || this.frosts.size > 0;
   }
 
   private hasLightElements(): boolean {
@@ -525,6 +528,7 @@ export class EffectsRenderer {
       if(blizzard.finished)this.removeBlizzard(id);
     }
 
+    for(const[id,frost]of this.frosts){frost.draw(dt,this.effectsFbo.w,this.effectsFbo.h,cell=>{const a=getAnchor(cell.x,cell.y),scale=this.dpr*this.effectsFbo.w/this.fullW;return{x:a.x*scale,y:a.y*scale,tile:a.tile*scale};});if(frost.finished){frost.dispose();this.frosts.delete(id);}}
     // 4. Bright-pass + separable blur, all at reduced resolution.
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.brightFbo.fbo);
     gl.viewport(0, 0, this.brightFbo.w, this.brightFbo.h);
@@ -598,6 +602,7 @@ export class EffectsRenderer {
   }
 
   dispose(): void {
+    for(const frost of this.frosts.values())frost.dispose();this.frosts.clear();
     for (const blizzard of this.blizzards.values()) blizzard.dispose();
     this.blizzards.clear();
     const gl = this.gl;

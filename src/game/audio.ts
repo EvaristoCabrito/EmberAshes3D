@@ -194,6 +194,10 @@ if (typeof Audio !== "undefined") {
   for (const file of ["CultistV2Attack.mp3", "CultistV2Spellcast.mp3", "MinorHorrorATT001.mp3", "MinorHorrorCasting001.mp3"]) sfxTemplate(file);
 }
 
+/** Where NeeraBowRelease.mp3's string snap begins (measured: silence/draw until a sharp
+ * transient at 2.77 s, peaking at 2.774 s). */
+const NEERA_BOW_SNAP = 2.77;
+
 function playSfxFileExclusive(file: string, volume = 0.55, startAt = 0): void {
   if (muted || typeof Audio === "undefined") return;
   let el = exclusiveSfxEls.get(file);
@@ -313,7 +317,18 @@ export const sfxPlay = {
   cultistV2Spellcast: () => playSfxFile("CultistV2Spellcast.mp3", 0.55),
   cultistV2WalkLeft: () => playSfxFile("CultistV2WalkLeft.mp3", 0.45),
   cultistV2WalkRight: () => playSfxFile("CultistV2WalkRight.mp3", 0.45),
-  arrowAttack: (neera = false) => playSfxFileExclusive(neera ? "NeeraBowRelease.mp3" : "ShortArrowsDraw.mp3", 0.55),
+  // `releaseIn`: seconds from now until Neera's arrow actually leaves the bow (her full 3 s
+  // draw, or 0 with no wind-up). NeeraBowRelease.mp3's string snap starts NEERA_BOW_SNAP s
+  // into the file, so it is delayed (or started part-way in) to land the snap on the release.
+  arrowAttack: (neera = false, releaseIn = 0) => {
+    if (!neera) {
+      playSfxFileExclusive("ShortArrowsDraw.mp3", 0.55);
+      return;
+    }
+    const lead = releaseIn - NEERA_BOW_SNAP;
+    if (lead > 0) window.setTimeout(() => playSfxFileExclusive("NeeraBowRelease.mp3", 0.55), lead * 1000);
+    else playSfxFileExclusive("NeeraBowRelease.mp3", 0.55, -lead);
+  },
   arrowRelease: (neera = false) => { if (!neera) playSfxFileExclusive("ShortArrowsRelease.mp3", 0.55); },
   magicAttack: () => playSfxFileExclusive("Spellcast01.mp3", 0.55),
   heal: () => playSfxFileExclusive("Spellcast01.mp3", 0.55),

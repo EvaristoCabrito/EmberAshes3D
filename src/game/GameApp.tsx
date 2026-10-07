@@ -1,6 +1,8 @@
+import { FROST, frostPower } from "./frost";
+import { dexEscapeChance } from "./dexterity";
 import { trainedWeaponSkills, weaponTypesForClass, weaponModifiers } from "./weaponSkills";
-import { WEAPON_TYPE_LABELS } from "./weaponTypes";
-import { skillResistances, TRAVEL_TRAINING_HINT_FLAG } from "./skills";
+import { WEAPON_TYPE_LABELS, weaponSkillAccuracy, weaponSkillDamageMultiplier } from "./weaponTypes";
+import { skillGainChance, skillResistances, SKILL_CAP, SKILL_GAIN, TRAVEL_TRAINING_HINT_FLAG } from "./skills";
 import { sumResistances, RESISTANCE_ELEMENTS, RESISTANCE_LABELS } from "./resistances";
 import { isFloorConnector, floorConnectorDirection } from "./data";
 import { WISP_BOSS_ID, WISP_CROSSING_ID, wispCrossingCompleted, routeWispCrossing, completedAfterWispVictory } from "./wispCrossing";
@@ -37,7 +39,7 @@ import { resolveCompanionReply } from "./companionDialogues";
 import { AFFINITY_HEROES } from "./affinity";
 import { LIGHT_DEFS } from "./lighting";
 import { DialogEditor } from "./DialogEditor";
-import { BLESS, BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, SOLID_ROCK_DECOR_IDS, CAUSTIC_VENOM, DIVINE_BOLT, MINOR_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, FOREST_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, expToLevel, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, BLOODY_SHOT, bloodyShotMul, bloodyShotBleed, bloodyShotFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, placedBlockingFootprint, decorationImage, decorationImageWebp, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, heroRecruited, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, POISON_BREATH, poisonBreathPower, poisonBreathFormula, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
+import { BLESS, BARRICADE_LIKE_DECOR, BIG_HOUSE_DECOR_IDS, SOLID_HOUSE_DECOR_IDS, SOLID_ROCK_DECOR_IDS, CAUSTIC_VENOM, DIVINE_BOLT, MINOR_VENOM, CHEST_LOOT, CLASSES, DEADWOODS_DECOR_IDS, FOREST_DECOR_IDS, CLEAVE, cleaveFormula, CURE_DISEASE, CURES, DECORATIONS, DOUBLE_STRIKE, doubleStrikeFormula, EQUIPMENT, EXP_TO_LEVEL, expToLevel, FAMILIAR_SPELL, FIREBALL, formatSpellUseGains, LIFE_DRAIN, lifeDrainFormula, lifeDrainHealMul, HOUSE_DECOR_IDS, KILL_DROP_CHANCE, LIGHTNING, LIGHTNING_T3, LONG_SHOT, longShotFormula, BLOODY_SHOT, bloodyShotMul, bloodyShotBleed, bloodyShotFormula, PROVOKE, provokeFormula, MAGIC_MISSILE, PIERCING, piercingMul, PIERCING_THRUST, MAX_GRID, MAX_LEVEL, MIN_GRID, POTIONS, POTION_LOOT_WEIGHT, PROMOTE_LEVEL, PROMOTED_BASE, PROMOTIONS, rulesClass, SHOCK, STAT_POINTS_PER_LEVEL, SUMMON_FAMILIAR, PHANTASMAL_FORCE, PHANTASMAL_FORCE_UNLOCK_LEVEL, phantasmalForceFormula, SUMMON_FAMILIAR2, SUMMON_FAMILIAR2_UNLOCK_LEVEL, SUMMON_FAMILIAR3, SUMMON_FAMILIAR4, SUMMON_ZOMBIE_DOG, SWEEP, TRIP, TERRAIN, WEAPONS, WEAPON_MAX_ENH, WEB_OF_DREAMS, BAG_MAX, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_PRICE, barricadeDecor, decorationCells, placedFootprint, placedBlockingFootprint, decorationImage, decorationImageWebp, diceFormula, emberForKill, enemyLevelFor, equippedPouchId, fireballFormula, healFormula, heroRecruited, lightningFormula, lightningTier3Formula, dressMap, isSummonClass, MUSIC_TRACKS, SUMMON_CLASSES, parseLayout, potionLabel, potionTooltip, lockpickTooltip, partyBagHasRoom, pouchIcon, rangeLabel, rollPotion, sheetLine, spellFormula, spellIcon, spellTier, spellUseGains, startingBags, statsFor, terrainNote, tierKey, tierUses, weaponEnhCost, weaponSellValue, equipmentFitsSlot, gearStatBonus, MULTI_SHOT, multiShotFormula, SECOND_WIND, secondWindPct, auraPower, AURA_OF_PROTECTION, INTIMIDATING_PRESENCE, DIVINE_WRATH, divineWrathPower, SHOULDER_SMASH, shoulderSmashFormula, STAMPEDE, stampedeFormula, BULL_RUSH, BULL_RUSH_UNLOCK_LEVEL, EXECUTIONER_STRIKE, SHIELD_BASH, POISON_BREATH, poisonBreathPower, poisonBreathFormula, BURNING_HANDS, CREATE_FOOD_AND_WATER, createFoodAndWaterFormula, createFoodAndWaterPower, rollDice, type SpellTier } from "./data";
 import { QUESTS, activePickupsFor, questById, questProgress, questStatus, questsFor } from "./quests";
 import { advanceProgression, evaluate, isGatedMission, missionAccess, type MissionAccess, type ProgressExtras } from "./progression";
 import { BattleEngine, heroSpriteFor } from "./engine";
@@ -125,6 +127,7 @@ import {
   slotProgress,
   writeSlot,
   selectSlot,
+  dialogSeenKey,
 } from "./save";
 import type { Bag, BattleSnapshot, ClassId, DecorationPlacement, DialogAction, DialogTree, ElementalFxPlacement, EquipSlot, GameArt, GrowthLine, HudSnapshot, MapTimeOfDay, Mission, PoisonTier, PotionId, SaveBank, SaveData, ScreenId, SpellKind, Spawn, SpriteId, StatPointAllocation, StatPointAttribute, TerrainId, UnitPublic, WinCondition, WorldLocation } from "./types";
 import { footprint, hexDist, hexNeighbors, key as hexKey } from "./pathfinding";
@@ -321,6 +324,8 @@ function hudBlank(): HudSnapshot {
     inspected: null,
     pendingFoe: null,
     spellReady: false,
+    spellArmed: false,
+    spellHitChance: null,
     spellKind: null,
     turnQueue: [],
     log: [],
@@ -481,9 +486,10 @@ function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY, heroNam
   const base = ((): SpellKind[] => {
     switch (rulesClass(classId)) {
       case "swordsman":
-        return ["doubleStrike", "bullRush", "cleave", "shieldBash", "executionerStrike"];
+        return ["doubleStrike", "provoke", "bullRush", "cleave", "shieldBash", "executionerStrike"];
+      case "cultistV2": return ["frost", "magicMissile", "lightning"];
       case "mage":
-        return ["magicMissile", "poisonBreath", "lightning", "fireball", "iceStorm", "causticVenom"];
+        return ["magicMissile", "poisonBreath", "frost", "lightning", "fireball", "iceStorm", "causticVenom"];
       case "conjurer":
         // Summon Swarm (tiers 3-4) joins this list as it's built — see SPELL_TIER for the
         // intended tier assignment. Phantasmal Force is tier 1's own second spell (see
@@ -523,11 +529,13 @@ function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY, heroNam
   })();
   const salazarOnly: SpellKind[] = heroName === "Salazar" && rulesClass(classId) === "healer" ? ["divineBolt"] : [];
   const spells = [...base, ...salazarOnly, ...(PRESTIGE_SPELLS[classId] ?? [])].filter((spell) =>
+    (spell !== "frost" || classId === "cultistV2" || level >= FROST.unlockLevel) &&
     (spell !== "bullRush" || level >= BULL_RUSH_UNLOCK_LEVEL) &&
     (spell !== "bless" || level >= BLESS.unlockLevel) &&
     (spell !== "poisonBreath" || level >= POISON_BREATH.unlockLevel) &&
     (spell !== "burningHands" || level >= 5) &&
-    (spell !== "bloodyShot" || level >= BLOODY_SHOT.unlockLevel),
+    (spell !== "bloodyShot" || level >= BLOODY_SHOT.unlockLevel) &&
+    (spell !== "provoke" || level >= PROVOKE.unlockLevel),
   );
   return spells;
 }
@@ -574,6 +582,7 @@ function slotIcon(action: SlotAction): string {
       return spellIcon("cleave");
     case "fireball":
       return spellIcon("fireball");
+    case "frost": return spellIcon("frost");
     case "iceStorm":
       return spellIcon("ice-storm");
     case "causticVenom":
@@ -650,6 +659,8 @@ function slotIcon(action: SlotAction): string {
       return spellIcon("bull-rush");
     case "executionerStrike":
       return spellIcon("executioner-strike");
+    case "provoke":
+      return spellIcon("provoke");
     case "shieldBash":
       return spellIcon("shield-bash");
     case "poisonBreath":
@@ -673,6 +684,7 @@ function slotLabel(action: SlotAction): string {
       return CLEAVE.name;
     case "fireball":
       return FIREBALL.name;
+    case "frost": return FROST.name;
     case "iceStorm":
       return ICE_STORM.name;
     case "causticVenom":
@@ -748,6 +760,8 @@ function slotLabel(action: SlotAction): string {
       return BULL_RUSH.name;
     case "executionerStrike":
       return EXECUTIONER_STRIKE.name;
+    case "provoke":
+      return PROVOKE.name;
     case "shieldBash":
       return SHIELD_BASH.name;
     case "poisonBreath":
@@ -785,6 +799,7 @@ function slotCount(action: SlotAction, unit: UnitPublic): number {
   // BattleEngine.startPhantasmalForce/startSummonFamiliar2.
   if (action.spell === "phantasmalForce" && unit.level < PHANTASMAL_FORCE_UNLOCK_LEVEL) return 0;
   if (action.spell === "bless" && unit.level < BLESS.unlockLevel) return 0;
+  if(action.spell==="frost"){if(unit.side==="enemy")return unit.frostCharges??0;if(unit.level<FROST.unlockLevel)return 0;}
   if (action.spell === "poisonBreath" && unit.level < POISON_BREATH.unlockLevel) return 0;
   if (action.spell === "summonFamiliar2" && unit.level < SUMMON_FAMILIAR2_UNLOCK_LEVEL) return 0;
   const tier = spellTier(action.spell);
@@ -1376,6 +1391,8 @@ export function GameApp() {
       const questPickups = testMode ? undefined : activePickupsFor(save, m.id);
       const battle = new BattleEngine(m, art, { hp, levels, bags, xp, promotions, weapons, offHand, equipment, statPointAllocations, enemyLevels, neutralLevels, ownedWeaponIds, affinityScores: save.affinityScores, partyLeader: leaderName, spellSpent, hungerPenaltyPct, heroHunger, heroDiseases, heroPoisons, heroPoisonMag: save.heroPoisonMag, heroSkills: save.heroSkills, crossingDefeatedSpawns, questPickups }, Date.now() % 100000, testMode);
       battle.mapKey = mapKey;
+      // An intro conversation already played in this campaign never opens again (SaveData.dialogsSeen).
+      if (!testMode && !override && m.introDialog && (save.dialogsSeen ?? []).includes(dialogSeenKey("intro", m.id, m.introDialog.id))) battle.introDialogDone = true;
       if (resume && resume.missionId === m.id) battle.applySnapshot(resume);
       if (typeof window !== "undefined" && window.innerWidth < 720) battle.zoom = 0;
       // Sprites load per battle (see ensureSpriteArt): the board opens once this battle's own
@@ -1416,13 +1433,31 @@ export function GameApp() {
     setHud(next);
   }, []);
 
+  /** Records a scripted conversation in the save the moment it opens (SaveData.dialogsSeen),
+   * so it never opens by itself again in this campaign. Test mode and editor playtests
+   * don't record, so authors can replay their dialogs. */
+  const markDialogSeen = (key: string) => {
+    if (testMode || customMission) return;
+    const rec = readMapSave();
+    const seen = rec.dialogsSeen ?? [];
+    if (seen.includes(key)) return;
+    persistCurrent({ ...rec, dialogsSeen: [...seen, key] });
+  };
+  const dialogAlreadySeen = (key: string) => !testMode && !customMission && (readMapSave().dialogsSeen ?? []).includes(key);
+
   useEffect(() => {
     if (screen !== "battle" || !hud.result) return;
     // The outro dialog fires once, exactly when victory is confirmed — never on defeat,
-    // and never more than once even though hud.result stays "victory" afterward.
+    // and never more than once even though hud.result stays "victory" afterward — and never
+    // again in this campaign once it has played (SaveData.dialogsSeen).
     if (hud.result === "victory" && mission?.outroDialog && mission.outroDialogEnabled !== false && !outroDialogShownRef.current) {
-      setOutroDialogOpen(true);
-      return;
+      const key = dialogSeenKey("outro", mission.id, mission.outroDialog.id);
+      if (!dialogAlreadySeen(key)) {
+        markDialogSeen(key);
+        setOutroDialogOpen(true);
+        return;
+      }
+      outroDialogShownRef.current = true;
     }
     const t = window.setTimeout(() => {
       if (hud.result === "victory" && (missionId === "templo" || missionId === "portao")) {
@@ -1637,11 +1672,8 @@ export function GameApp() {
       setScreen("wispForestIntro");
       return;
     }
-    if (id === "vau" && !flowSave.completed.includes("vau")) {
-      setMissionId(id);
-      setScreen("vauIntro");
-      return;
-    }
+    // The vau-intro cutscene is the campaign's opening: it plays once, from New Game only
+    // (see the save-slot "new" pick). Opening O Vau itself never replays it.
     setWispForestNextMissionId(null);
     setCustomMission(null);
     setMissionId(id);
@@ -2627,6 +2659,9 @@ export function GameApp() {
           onAffinityChange={() => {
             if (!testMode && !customMission) persistCurrent({ ...readMapSave(), affinityScores: { ...engine.affinityScores } });
           }}
+          onIntroDialogShown={() => {
+            if (engine.mission.introDialog) markDialogSeen(dialogSeenKey("intro", engine.mission.id, engine.mission.introDialog.id));
+          }}
           onDialogAction={(action) => {
             if (action === "acceptSuspectHostageQuest") {
               if (testMode || customMission) return;
@@ -3298,12 +3333,14 @@ const POTION_LOOT_TOTAL = POTION_LOOT_ROWS.reduce((n, r) => n + r.weight, 0);
  * their base class's list, so this only ever needs the six base owners). */
 const SKILL_CLASS: Partial<Record<SpellKind, ClassId>> = {
   doubleStrike: "swordsman",
+  provoke: "swordsman",
   cleave: "swordsman",
   magicMissile: "mage",
   lightning: "mage",
   lightningTier3: "elementalist",
   fireball: "mage",
   iceStorm: "mage",
+  frost: "mage",
   causticVenom: "mage",
   divineBolt: "healer",
   poisonBreath: "mage",
@@ -3361,6 +3398,14 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     param: "level" as const,
     note: "Ataca duas vezes; cada acerto rola seu próprio bônus (não acumula).",
   },
+  {
+    name: PROVOKE.name,
+    cls: SKILL_CLASS.provoke!,
+    tier: spellTier("provoke")!,
+    formula: (level: number) => provokeFormula(level),
+    param: "level" as const,
+    note: "Aprendido no nível 3. Sem dano: os inimigos atingidos passam a mirar o guerreiro até alguém gerar mais inimizade. Vira área de raio 1 no nível 6, 2 no 9, 3 no 12 e 4 no 15; o alcance sobe de 4 até 8.",
+  },
   { name: PIERCING_THRUST.name, cls: SKILL_CLASS.piercingThrust!, tier: spellTier("piercingThrust")!, formula: `dano de arma, −${Math.round(PIERCING_THRUST.armorIgnore * 100)}% armadura`, note: "Acerta em linha; o segundo alvo recebe metade." },
   { name: SUMMON_FAMILIAR.name, cls: SKILL_CLASS.summonFamiliar!, tier: spellTier("summonFamiliar")!, formula: "—", note: `Invoca aliado com ${Math.round(SUMMON_FAMILIAR.statScale * 100)}% dos atributos atuais — pode lançar Míssil Mágico por conta própria.` },
   { name: SUMMON_FAMILIAR2.name, cls: SKILL_CLASS.summonFamiliar2!, tier: spellTier("summonFamiliar2")!, formula: "—", note: `Invoca aliado maior, com ${Math.round(SUMMON_FAMILIAR2.statScale * 100)}% dos atributos atuais — pode lançar Míssil Mágico ou Dreno de Vida por conta própria.` },
@@ -3414,6 +3459,7 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
     note: `Área de raio ${FIREBALL.size}.`,
   },
   { name: POISON_BREATH.name, cls: SKILL_CLASS.poisonBreath!, tier: spellTier("poisonBreath")!, formula: (mag: number) => poisonBreathFormula(POISON_BREATH.unlockLevel, mag), note: "Aprendido no nível 2; progressão começa no nível 2. Cone de raio 1–5. Progressão de dano de Mãos Flamejantes atrasada em 2 níveis. Veneno Menor: 1D4 por turno; atinge aliados também." },
+  { name: FROST.name, cls: "mage" as const, tier: 2 as const, formula: (mag:number)=>spellFormula(mag,FROST.mul,1,6,0), note:"Aprendido no nível 5. Linha de 2 hexes à frente; +1 hex a cada 4 níveis. Dano de Ice e fogo amigo. Cultist V2: 1 carga inicial, +1 nos níveis 5, 12 e 20." },
   { name: CURE_DISEASE.name, cls: SKILL_CLASS.cureDisease!, tier: spellTier("cureDisease")!, formula: "—", note: "Clériga T3. Cura doença e veneno. Luz teal." },
   {
     name: ICE_STORM.name,
@@ -3513,7 +3559,9 @@ const SKILL_DAMAGE_NOTES_EN: Record<string, string> = {
   [BLESS.name]: `Healer, level ${BLESS.unlockLevel}. Radius ${BLESS.radius}; +1% hit chance per level, up to +10% at level 13. Duration: 3 turns at level 3; 4 at 5; 5 at 7; 6 at 9; 7 at 12; 8 at 15.`,
   [MAGIC_MISSILE.name]: "Never misses. 1 missile, 2 at level 3, 3 at level 6 — each targets one unit.",
   [LONG_SHOT.name]: "Range 7. Damage die increases at levels 2, 3, 5, 7, 9, 12, and 14.",
+  [PROVOKE.name]: "Warrior Tier 1, learned at level 3. No damage: every enemy it reaches turns on the warrior until someone generates more enmity. Becomes an area of radius 1 at level 6, 2 at 9, 3 at 12 and 4 at 15; reach grows from 4 to 8.",
   [BLOODY_SHOT.name]: "Archer Tier 2, learned at level 5. Deals weapon damage with a level-based multiplier and causes 1D8 bleeding damage per action for 1D6 rounds (1D8 at level 8, 2D4 at level 12, 2D6 at level 15).",
+  [CURES.cureWounds.name]: "—",
   [CURES.cureMinor.name]: "—",
   [DOUBLE_STRIKE.name]: "Attacks twice; each hit rolls its own bonus (bonuses do not stack).",
   [PIERCING_THRUST.name]: "Hits in a line; the second target takes half damage.",
@@ -3530,8 +3578,12 @@ const SKILL_DAMAGE_NOTES_EN: Record<string, string> = {
   [WEB_OF_DREAMS.name]: `Range ${WEB_OF_DREAMS.range}. Radius ${WEB_OF_DREAMS.size} (2 at level 7, 3 at level 12). ${Math.round(WEB_OF_DREAMS.sleepChance * 100)}% chance to sleep for ${diceFormula(WEB_OF_DREAMS.sleepDice, WEB_OF_DREAMS.sleepFaces, 0)} turns (+${Math.round(WEB_OF_DREAMS.sleepBonusDamage * 100)}% damage when awakened); movement is limited to 1 hex in the area for ${WEB_OF_DREAMS.durationRounds} turns.`,
   [TRIP.name]: `Causes Bleeding (1D8 at the start of each action); −${Math.round(TRIP.statPenalty * 100)}% to stats for the rest of the battle.`,
   [FIREBALL.name]: `Area radius ${FIREBALL.size}.`,
+  [POISON_BREATH.name]: "Learned at level 2; progression begins at level 2. Cone radius 1–5. Burning Hands damage progression is delayed by 2 levels. Minor Poison deals 1D4 per turn; it can hit allies too.",
+  [FROST.name]: "Learned at level 5. A line of 2 hexes ahead, +1 hex every 4 levels. Ice damage; can hit allies. Cultist V2: 1 starting charge, +1 at levels 5, 12, and 20.",
   [CURE_DISEASE.name]: "Cleric T3. Cures disease and poison. Teal light.",
+  [ICE_STORM.name]: "At the start of each turn, units in the area take Ice damage reduced by Ice Resistance. It can hit allies. The area remains on the battlefield for the listed number of rounds.",
   [CAUSTIC_VENOM.name]: `Range ${CAUSTIC_VENOM.range}. Medium Poison: 1D10 at the start of each turn until cured. Radius ${CAUSTIC_VENOM.size}; affects both sides.`,
+  [DIVINE_BOLT.name]: `Salazar only. Range ${DIVINE_BOLT.range}; radius ${DIVINE_BOLT.size}; Holy damage, affecting up to six adjacent hexes.`,
   [MULTI_SHOT.name]: "2 targets (3 at level 11), range 6. Damage die increases at levels 8 and 13.",
   [SECOND_WIND.name]: `Passive: automatically heals when HP falls to ${Math.round(SECOND_WIND.badlyWoundedPct * 100)}% or lower. It is not an action-bar attack.`,
   [CURES.cureLight.name]: "Between Minor and Medium Heal; exclusive uses for the Paladin.",
@@ -3545,6 +3597,7 @@ const SKILL_DAMAGE_NOTES_EN: Record<string, string> = {
 function helpFormulaText(value: string): string {
   const english = value
     .replaceAll("dano de arma", "weapon damage")
+    .replaceAll("armadura", "armor")
     .replaceAll("arma", "weapon")
     .replaceAll("cura", "healing")
     .replaceAll("centro", "center")
@@ -3553,12 +3606,27 @@ function helpFormulaText(value: string): string {
     .replaceAll("% de DEX", "% DEX")
     .replaceAll("% dano", "% damage")
     .replaceAll("dano", "damage")
-    .replaceAll("armadura", "armor");
+    .replaceAll("alcance", "range")
+    .replaceAll("rodadas", "rounds")
+    .replaceAll("Veja a progressão completa ao lado.", "See the full progression beside it.");
   return uiText(value, { en: english });
 }
 
+const RESISTANCE_LABELS_PT: Record<(typeof RESISTANCE_ELEMENTS)[number], string> = {
+  fire: "Fogo",
+  lightning: "Relâmpago",
+  ice: "Gelo",
+  arcane: "Arcano",
+  darkness: "Escuridão",
+  holy: "Sagrado",
+  poison: "Veneno",
+  ember: "Brasa",
+};
+
 function HelpModal({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<"basicos" | "tabelas" | "loot" | "dano">("basicos");
+  const { uiLanguage } = useGamePreferences();
+  const numberLocale = uiLanguage === "en" ? "en-US" : "pt-BR";
+  const [tab, setTab] = useState<"basicos" | "tabelas" | "loot" | "dano" | "formulas">("basicos");
   return (
     <div className="absolute inset-0 z-20 ember-veil flex items-end sm:items-center justify-center p-4">
       {/* The framed panel stays put and only the inner area scrolls, so the panel's gold
@@ -3570,7 +3638,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             <X className="size-4" />
           </button>
         </div>
-        <div className="grid grid-cols-4 gap-1 mb-4 shrink-0">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-1 mb-4 shrink-0">
           <Button size="sm" variant={tab === "basicos" ? undefined : "quiet"} className={`ember-btn ember-btn-sm ${tab === "basicos" ? "ember-btn-primary" : "ember-btn-ghost"}`} onClick={() => setTab("basicos")}>
             {uiText("Básicos")}
           </Button>
@@ -3580,6 +3648,9 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <Button size="sm" variant={tab === "dano" ? undefined : "quiet"} className={`ember-btn ember-btn-sm ${tab === "dano" ? "ember-btn-primary" : "ember-btn-ghost"}`} onClick={() => setTab("dano")}>
             {uiText("Dano")}
           </Button>
+          <Button size="sm" variant={tab === "formulas" ? undefined : "quiet"} className={`ember-btn ember-btn-sm ${tab === "formulas" ? "ember-btn-primary" : "ember-btn-ghost"}`} onClick={() => setTab("formulas")}>
+            {uiText("Fórmulas", { en: "Formulas" })}
+          </Button>
           <Button size="sm" variant={tab === "loot" ? undefined : "quiet"} className={`ember-btn ember-btn-sm ${tab === "loot" ? "ember-btn-primary" : "ember-btn-ghost"}`} onClick={() => setTab("loot")}>
             {uiText("Loot")}
           </Button>
@@ -3587,20 +3658,20 @@ function HelpModal({ onClose }: { onClose: () => void }) {
         <div className="min-h-0 flex-1 overflow-y-auto ember-scrollbar pr-1">
         {tab === "basicos" ? (
           <ul className="space-y-3 text-sm text-muted leading-relaxed">
-            <li>{uiText("Toque numa aliada para ver movimento (azul) e ataque (vermelho).")}</li>
-            <li>{uiText("Toque num inimigo para ver HP, alcance e a área vermelha de perigo.")}</li>
-            <li>{uiText("Todo mundo tem AT, MAG, DF, DEX, Mov e Alc. Nada fica de fora da ficha.")}</li>
+            <li>{uiText("Toque numa aliada para ver movimento (azul) e ataque (vermelho).", { en: "Select an ally to see movement (blue) and attack (red) ranges." })}</li>
+            <li>{uiText("Toque num inimigo para ver HP, alcance e a área vermelha de perigo.", { en: "Select an enemy to see HP, range, and its red danger zone." })}</li>
+            <li>{uiText("Todo mundo tem AT, MAG, DF, DEX, Mov e Alc. Nada fica de fora da ficha.", { en: "Every unit has ATK, MAG, DEF, DEX, Move, and Range. All stats are shown on its card." })}</li>
             <li>{uiText("Terreno alto: +10% do ATK ou MAG (arredondado); armas de alcance ganham +1 de alcance. Flechas disparadas do alto passam por outro hex alto.", { en: "High ground: +10% ATK or MAG (rounded); ranged weapons gain +1 range. Arrows fired from high ground pass over another high hex." })}</li>
-            <li>{uiText("Barricada (estacas, 3 hexes): ninguém passa. De trás você atira. Projéteis não acertam quem está atrás.")}</li>
+            <li>{uiText("Barricada (estacas, 3 hexes): ninguém passa. De trás você atira. Projéteis não acertam quem está atrás.", { en: "Barricade (three hexes of stakes): units cannot pass through it. You can shoot from behind it, and projectiles do not hit units behind it." })}</li>
             <li>{uiText("Após um ataque, o alvo pode contra-atacar se estiver vivo, não estiver atordoado e conseguir alcançar quem atacou. A prévia mostra chance e dano do contra-ataque.", { en: "After an attack, the target can counter if alive, not stunned, and able to reach the attacker. The preview shows counter hit chance and damage." })}</li>
             <li>{uiText("Veneno causa dano no início do turno da vítima até ser curado. Sangramento causa 1D8 por ação; mover causa isso no máximo uma vez por turno. Doença reduz os atributos em 10%.", { en: "Poison deals damage at the start of the victim’s turn until cured. Bleeding deals 1D8 per action; movement triggers it at most once per turn. Disease reduces stats by 10%." })}</li>
             <li>{uiText("Atacar uma fera neutra acorda todas as feras vivas da mesma espécie; elas começam a agir na rodada seguinte.", { en: "Attacking a neutral beast provokes every living beast of the same species; they start acting next round." })}</li>
-            <li>{uiText("Depois de mover, dois cliques no personagem = Esperar e passa ao próximo.")}</li>
+            <li>{uiText("Depois de mover, dois cliques no personagem = Esperar e passa ao próximo.", { en: "After moving, click the unit twice to Wait and pass to the next unit." })}</li>
           </ul>
         ) : tab === "tabelas" ? (
           <div className="space-y-5">
             <p className="text-sm text-muted leading-relaxed">
-              {uiText("Cada classe tem uma velocidade de conjuração — ela decide quantos usos de cada tier (1 a 5) a classe tem em cada nível. As tabelas abaixo mostram os números exatos, nível a nível.")}
+              {uiText("Cada classe tem uma velocidade de conjuração — ela decide quantos usos de cada tier (1 a 5) a classe tem em cada nível. As tabelas abaixo mostram os números exatos, nível a nível.", { en: "Each class has a casting speed, which determines how many uses of each tier (1 to 5) it gets at each level. The tables below show the exact numbers for every level." })}
             </p>
             {SKILL_SPEED_GROUPS.map((g) => (
               <div key={g.label}>
@@ -3636,17 +3707,143 @@ function HelpModal({ onClose }: { onClose: () => void }) {
               </div>
             ))}
           </div>
+        ) : tab === "formulas" ? (
+          <div className="space-y-6 text-sm">
+            <section className="space-y-2">
+              <h3 className="font-display text-lg ember-title">{uiText("Proficiência com armas", { en: "Weapon Proficiency" })}</h3>
+              <p className="text-xs text-muted leading-relaxed">
+                {uiText("Cada personagem só treina os tipos de arma permitidos para sua classe. A proficiência vai de 0 a 100: cada ponto acrescenta 1 ponto percentual à precisão e 1% aos dados da arma.", { en: "Each character trains only weapon types allowed by their class. Proficiency ranges from 0 to 100: every point adds 1 percentage point to accuracy and 1% to the weapon dice." })}
+              </p>
+              <p className="rounded-md border border-border bg-bg px-2 py-2 text-xs tabular-nums leading-relaxed">
+                <span className="text-accent">{uiText("Precisão final", { en: "Final accuracy" })}</span>: {uiText("limite entre 0% e 100% de (75% + proficiência da arma + bônus de acerto − DEX do defensor)", { en: "Clamp (75% + weapon proficiency + hit bonus − defender DEX) to 0%–100%." })}<br />
+                <span className="text-accent">{uiText("Multiplicador dos dados", { en: "Weapon-dice multiplier" })}</span>: {uiText("1 + (proficiência da arma ÷ 100)", { en: "1 + (weapon proficiency ÷ 100)" })}
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs tabular-nums border-collapse">
+                  <thead><tr className="text-muted border-b border-border/60">
+                    <th className="text-left font-normal pr-2 py-1">{uiText("Proficiência", { en: "Proficiency" })}</th>
+                    <th className="text-right font-normal px-1.5 py-1">{uiText("Precisão base", { en: "Base accuracy" })}</th>
+                    <th className="text-right font-normal pl-1.5 py-1">{uiText("Multiplicador dos dados", { en: "Weapon-dice multiplier" })}</th>
+                  </tr></thead>
+                  <tbody>{[0, 1, 20, 50, 100].map((value) => (
+                    <tr key={value} className="border-t border-border/60">
+                      <td className="py-1 pr-2">{value}</td>
+                      <td className="text-right px-1.5 py-1">{weaponSkillAccuracy(value)}%</td>
+                      <td className="text-right pl-1.5 py-1">×{weaponSkillDamageMultiplier(value).toFixed(2)}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+              <p className="text-xs text-muted leading-relaxed">
+                {uiText("Exemplo de precisão: proficiência 20, bônus de acerto 0 e defensor com DEX 15 → 75 + 20 − 15 = 80% de chance. Em 100 pontos de proficiência, a precisão base chega a 175%; o limite final ainda é aplicado depois da DEX do defensor.", { en: "Accuracy example: proficiency 20, no hit bonus, defender DEX 15 → 75 + 20 − 15 = 80% chance. At 100 proficiency, base accuracy reaches 175%; the final cap is applied after subtracting defender DEX." })}
+              </p>
+            </section>
+
+            <section className="space-y-2">
+              <h3 className="font-display text-lg ember-title">{uiText("Destreza (DEX)", { en: "Dexterity (DEX)" })}</h3>
+              <p className="rounded-md border border-border bg-bg px-2 py-2 text-xs tabular-nums leading-relaxed">
+                <span className="text-accent">{uiText("Precisão contra você", { en: "Accuracy against you" })}</span>: {uiText("chance do ataque − sua DEX, limitado entre 0% e 100%.", { en: "attack chance − your DEX, clamped to 0%–100%." })}<br />
+                <span className="text-accent">{uiText("Fuga", { en: "Escape" })}</span>: {uiText("mínimo entre 100% e (60% + DEX ÷ 3)", { en: "the lower of 100% and (60% + DEX ÷ 3)" })}
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs tabular-nums border-collapse">
+                  <thead><tr className="text-muted border-b border-border/60">
+                    <th className="text-left font-normal pr-2 py-1">DEX</th>
+                    <th className="text-right font-normal pl-1.5 py-1">{uiText("Chance de fuga", { en: "Escape chance" })}</th>
+                  </tr></thead>
+                  <tbody>{[0, 1, 3, 15, 30, 60, 120].map((dex) => (
+                    <tr key={dex} className="border-t border-border/60">
+                      <td className="py-1 pr-2">{dex}</td>
+                      <td className="text-right pl-1.5 py-1">{Number(dexEscapeChance(dex).toFixed(2)).toLocaleString(numberLocale)}%</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+              <p className="text-xs text-muted leading-relaxed">
+                {uiText("Fugir exige que o personagem ativo alcance um hex da borda do campo. A chance é calculada pela DEX de quem tenta fugir; falhar consome o turno.", { en: "To flee, the active character must reach a battlefield edge hex. The chance uses the fleeing character's DEX; a failed attempt uses their turn." })}
+              </p>
+            </section>
+
+            <section className="space-y-2">
+              <h3 className="font-display text-lg ember-title">{uiText("Resistências elementais", { en: "Elemental Resistances" })}</h3>
+              <p className="rounded-md border border-border bg-bg px-2 py-2 text-xs tabular-nums leading-relaxed">
+                <span className="text-accent">{uiText("Resistência total", { en: "Total resistance" })}</span>: {uiText("bônus da classe + perícia de resistência + bônus de equipamento", { en: "class bonus + resistance skill + equipment bonus" })}<br />
+                <span className="text-accent">{uiText("Resistência efetiva", { en: "Effective resistance" })}</span>: {uiText("limite entre −50% e 100% de (resistência − penalidade do efeito − MAG do atacante ÷ 2)", { en: "Clamp (resistance − effect penalty − attacker MAG ÷ 2) to −50%–100%." })}<br />
+                <span className="text-accent">{uiText("Dano depois da resistência", { en: "Damage after resistance" })}</span>: {uiText("arredondar para baixo [dano base × (1 − resistência efetiva ÷ 100)]", { en: "floor [base damage × (1 − effective resistance ÷ 100)]" })}
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead><tr className="text-muted border-b border-border/60">
+                    <th className="text-left font-normal pr-2 py-1">{uiText("Perícia", { en: "Skill" })}</th>
+                    <th className="text-left font-normal pl-1.5 py-1">{uiText("Dano que reduz", { en: "Damage reduced" })}</th>
+                  </tr></thead>
+                  <tbody>{RESISTANCE_ELEMENTS.map((element) => (
+                    <tr key={element} className="border-t border-border/60">
+                      <td className="py-1 pr-2">{uiText(`${RESISTANCE_LABELS_PT[element]} Resistência`, { en: `${RESISTANCE_LABELS[element]} Resistance` })}</td>
+                      <td className="pl-1.5 py-1">{uiText(RESISTANCE_LABELS_PT[element], { en: RESISTANCE_LABELS[element] })}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+              <p className="text-xs text-muted leading-relaxed">
+                {uiText("Cada ponto de resistência reduz 1 ponto percentual do dano daquele elemento. MAG 40 penetra 20 pontos. Exemplo: resistência 70 − 20 = 50% efetiva; um golpe de 30 causa 15. Resistências são independentes: Resistência a Fogo não reduz Relâmpago, Gelo, Arcano, Escuridão, Sagrado, Veneno ou Brasa.", { en: "Each resistance point reduces damage from its element by 1 percentage point. MAG 40 penetrates 20 points. Example: resistance 70 − 20 = 50% effective; a 30-damage hit deals 15. Resistances are independent: Fire Resistance does not reduce Lightning, Ice, Arcane, Darkness, Holy, Poison, or Ember." })}
+              </p>
+            </section>
+
+            <section className="space-y-2">
+              <h3 className="font-display text-lg ember-title">{uiText("Veneno", { en: "Poison" })}</h3>
+              <p className="rounded-md border border-border bg-bg px-2 py-2 text-xs tabular-nums leading-relaxed">
+                <span className="text-accent">{uiText("Resistência efetiva a veneno", { en: "Effective Poison Resistance" })}</span>: {uiText("limite entre −50% e 100% de (Resistência a Veneno − penalidade do veneno − MAG do atacante ÷ 2)", { en: "Clamp (Poison Resistance − poison penalty − attacker MAG ÷ 2) to −50%–100%." })}<br />
+                <span className="text-accent">{uiText("Chance de aplicação após acertar", { en: "Application chance after a hit" })}</span>: {uiText("limite entre 0% e 100% de (100% − resistência efetiva)", { en: "Clamp (100% − effective resistance) to 0%–100%." })}<br />
+                <span className="text-accent">{uiText("Dano por turno", { en: "Damage per turn" })}</span>: {uiText("arredondar ao inteiro mais próximo [dano rolado × (1 − resistência efetiva ÷ 100)]", { en: "round to the nearest integer [rolled damage × (1 − effective resistance ÷ 100)]" })}
+              </p>
+              <p className="text-xs text-muted leading-relaxed">
+                {uiText("Exemplo: Resistência a Veneno 70, penalidade do veneno 20 e MAG atacante 40 → 70 − 20 − 20 = 30% efetiva. Uma rolagem de dano 30 causa 30 × 70% = 21. Com Resistência 71, a resistência efetiva é 31%; o dano antes do arredondamento é 20,7.", { en: "Example: Poison Resistance 70, poison penalty 20, attacker MAG 40 → 70 − 20 − 20 = 30% effective. A rolled tick of 30 deals 30 × 70% = 21. At Resistance 71, effective resistance is 31%; damage before rounding is 20.7." })}
+              </p>
+              <p className="text-xs text-muted leading-relaxed">
+                {uiText("A penalidade e os dados do tick dependem do veneno aplicado. Veneno causa dano no início do turno da vítima e permanece até ser curado. Dano acima do limite de resistência pode chegar a 150% do valor rolado; a chance de aplicação continua limitada a 100%.", { en: "The resistance penalty and tick dice depend on the applied poison. Poison ticks at the start of the victim's turn and remains until cured. Damage can reach 150% of the roll at the resistance floor; application chance remains capped at 100%." })}
+              </p>
+            </section>
+
+            <section className="space-y-2">
+              <h3 className="font-display text-lg ember-title">{uiText("Aprendizado das perícias", { en: "Skill Progression" })}</h3>
+              <p className="rounded-md border border-border bg-bg px-2 py-2 text-xs tabular-nums leading-relaxed">
+                <span className="text-accent">{uiText("Chance de ganhar perícia", { en: "Skill-gain chance" })}</span>: {uiText("(100 − valor atual da perícia) ÷ 100; máximo 100, mínimo 0.", { en: "(100 − current skill value) ÷ 100; minimum 0, maximum 100." })}<br />
+                <span className="text-accent">{uiText("Limite", { en: "Cap" })}</span>: 100. {uiText("Resistências ganham normalmente", { en: "Resistance skills normally gain" })} +{SKILL_GAIN.toLocaleString(numberLocale)} {uiText("por sucesso de treino.", { en: "per successful training attempt." })}
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs tabular-nums border-collapse">
+                  <thead><tr className="text-muted border-b border-border/60">
+                    <th className="text-left font-normal pr-2 py-1">{uiText("Valor atual", { en: "Current value" })}</th>
+                    <th className="text-right font-normal pl-1.5 py-1">{uiText("Chance de ganho", { en: "Gain chance" })}</th>
+                  </tr></thead>
+                  <tbody>{[0, 50, 90, 99, SKILL_CAP].map((value) => (
+                    <tr key={value} className="border-t border-border/60">
+                      <td className="py-1 pr-2">{value}</td>
+                      <td className="text-right pl-1.5 py-1">{skillGainChance(value) * 100}%</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+              <p className="text-xs text-muted leading-relaxed">
+                {uiText("Perícia de arma pode treinar ao atacar inimigos com aquele tipo de arma, inclusive quando erra. Resistência treina ao usar ou sofrer dano do elemento correspondente; em área, cada inimigo atingido permite uma tentativa. Magias dos familiares treinam a resistência correspondente do conjurador.", { en: "Weapon proficiency can train by attacking enemies with that weapon type, including misses. A resistance trains when you use or take damage from its element; each enemy hit by an area attack gives one gain attempt. Familiar spells train the summoner's matching resistance." })}
+              </p>
+              <p className="text-xs text-muted leading-relaxed">
+                {uiText("Contra inimigo 5 níveis abaixo: o ganho é +0,05. Com diferença de 10 níveis: não há ganho. No treino de estrada, escolha uma perícia por personagem: resistência recebe +0,1 a cada 12 horas; arma recebe +1 a cada 120 horas. A contagem restante é mantida ao trocar de perícia.", { en: "Against an enemy 5 levels below: gain is +0.05. At a 10-level difference: no gain. For road training, choose one skill per character: resistance gains +0.1 every 12 hours; weapon proficiency gains +1 every 120 hours. Remaining time carries over when switching skills." })}
+              </p>
+            </section>
+          </div>
         ) : tab === "dano" ? (
           <div className="space-y-5">
             <div className="space-y-2">
               <p className="text-sm leading-relaxed">
-                <span className="text-accent">{uiText("Ataque normal")}</span> = {uiText("metade do seu ATK (ou MAG, se for conjurador) + dados da arma + terreno − metade da DEF do alvo (resistência elemental, contra magia). Metades não contam: arredonda pra baixo. Mínimo 1 de dano.")}
+                <span className="text-accent">{uiText("Ataque normal", { en: "Normal attack" })}</span> = {uiText("metade do seu ATK (ou MAG, se for conjurador) + dados da arma + terreno − metade da DEF do alvo (resistência elemental, contra magia). Metades não contam: arredonda pra baixo. Mínimo 1 de dano.", { en: "half your ATK (or MAG for a caster) + weapon dice + terrain − half the target's DEF (elemental resistance against magic). Fractions round down. Minimum 1 damage." })}
               </p>
               <p className="text-sm leading-relaxed">
-                <span className="text-accent">{uiText("Magia")}</span> = {uiText("a mesma conta, com a sua metade de MAG multiplicada pelo peso da magia e os dados dela no lugar da arma. Todo peso é maior que 1, e o resultado nunca fica abaixo de um ataque normal — conjurar sempre vale mais que bater.")}
+                <span className="text-accent">{uiText("Magia", { en: "Spell" })}</span> = {uiText("a mesma conta, com a sua metade de MAG multiplicada pelo peso da magia e os dados dela no lugar da arma. Todo peso é maior que 1, e o resultado nunca fica abaixo de um ataque normal — conjurar sempre vale mais que bater.", { en: "Uses the same calculation, with half your MAG multiplied by the spell's multiplier and its dice in place of the weapon dice. Every multiplier is greater than 1, and the result is never lower than a normal attack." })}
               </p>
               <p className="text-xs text-muted leading-relaxed">
-                {uiText("As fórmulas mostram o dano pelo MAG do conjurador. Ice Storm ocupa 3 hexes nos níveis 8–11 e 7 hexes a partir do nível 12, sem novos aumentos de área. Alcance, duração e dano continuam a progredir; os valores aparecem em cada faixa de nível.")}
+                {uiText("As fórmulas mostram o dano pelo MAG do conjurador. Ice Storm ocupa 3 hexes nos níveis 8–11 e 7 hexes a partir do nível 12, sem novos aumentos de área. Alcance, duração e dano continuam a progredir; os valores aparecem em cada faixa de nível.", { en: "The formulas show damage by the caster's MAG. Ice Storm covers 3 hexes at levels 8–11 and 7 hexes from level 12 onward, with no further area increases. Range, duration, and damage continue to scale; values are shown for each level range." })}
               </p>
             </div>
             <div className="overflow-x-auto">
@@ -3671,7 +3868,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
                           <div className="space-y-1">
                             {row.progression.map((step) => (
                               <div key={step.levels}>
-                                {uiText(`Níveis ${step.levels}`)}: {uiText(`alcance ${step.range}`)}, {uiText(`área de ${step.size} hexes`)}, {uiText(`duração ${step.duration} rodadas`)}, {uiText(`dano ${step.damage}`)}
+                                {uiText("Níveis", { en: "Levels" })} {step.levels}: {uiText("alcance", { en: "range" })} {step.range}, {uiText("área de", { en: "area of" })} {step.size} {uiText("hexes", { en: "hexes" })}, {uiText("duração", { en: "duration" })} {step.duration} {uiText("rodadas", { en: "rounds" })}, {uiText("dano", { en: "damage" })} {step.damage}
                               </div>
                             ))}
                           </div>
@@ -7993,6 +8190,7 @@ function BattleScreen({
   fleeable = false,
   onDialogAction,
   onAffinityChange,
+  onIntroDialogShown,
 }: {
   engine: BattleEngine;
   onUseRation: (hero: string) => void;
@@ -8024,6 +8222,8 @@ function BattleScreen({
   /** An NPC reply that opens one of the Inn's menus (Brue's tavern, Vargan's smith). */
   onDialogAction?: (action: DialogAction) => void;
   onAffinityChange?: () => void;
+  /** The intro conversation just opened: record it in the save so it never opens again. */
+  onIntroDialogShown?: () => void;
 }) {
   const [showStatus, setShowStatus] = useState(false);
   const [showCombatGuide, setShowCombatGuide] = useState(false);
@@ -8090,10 +8290,17 @@ function BattleScreen({
   // The mission's intro dialog — lazy-init so it only ever opens once, right as this screen
   // first mounts (a fresh mount happens per battle: see BattleEngine construction in
   // startBattle), never on a re-render.
-  const [introDialogOpen, setIntroDialogOpen] = useState(() => !introDialogShown.has(engine) && !!engine.mission.introDialog && engine.mission.introDialogEnabled !== false);
+  // engine.introDialogDone: already played in this fight (restored from a save) or earlier in
+  // this campaign (SaveData.dialogsSeen, applied in startBattle) — it never opens again.
+  const [introDialogOpen, setIntroDialogOpen] = useState(() => !introDialogShown.has(engine) && !engine.introDialogDone && !!engine.mission.introDialog && engine.mission.introDialogEnabled !== false);
   useEffect(() => {
-    if (introDialogOpen) introDialogShown.add(engine);
-  }, [introDialogOpen, engine]);
+    if (!introDialogOpen) return;
+    introDialogShown.add(engine);
+    if (!engine.introDialogDone) {
+      engine.introDialogDone = true;
+      onIntroDialogShown?.();
+    }
+  }, [introDialogOpen, engine, onIntroDialogShown]);
   const wasWinAvailable = useRef(false);
   const previousExitKey = useRef<string | null>(null);
   useEffect(() => {
@@ -8260,6 +8467,7 @@ function BattleScreen({
       case "fireball":
         engine.startFireball();
         break;
+      case "frost": engine.startFrost(); break;
       case "iceStorm":
         engine.startIceStorm();
         break;
@@ -8367,6 +8575,9 @@ function BattleScreen({
         break;
       case "executionerStrike":
         engine.startExecutionerStrike();
+        break;
+      case "provoke":
+        engine.startProvoke();
         break;
       case "shieldBash":
         engine.startShieldBash();
@@ -8651,6 +8862,44 @@ function BattleScreen({
             </div>
           </div>
         )}
+        {/* Clicking an enemy stages the attack (engine.stageAttack): show the hit chance, then
+            the player confirms or cancels. Damage is a dice roll, so no damage is predicted. */}
+        {hud.pendingFoe && hud.forecast && !hud.result && (
+          <div className="pointer-events-none absolute inset-x-2 bottom-2 z-30 flex justify-center">
+            <div data-attack-confirm className="pointer-events-auto ember-plate is-accent px-4 py-3 flex flex-col items-center gap-1.5 text-center">
+              <p className="text-xs ember-kicker">Atacar {hud.pendingFoe.name}</p>
+              <p className="font-display text-2xl leading-none ember-title tabular-nums">{hud.forecast.hitOut}% de acerto</p>
+              <div className="mt-1 flex items-center gap-2">
+                <Button size="sm" className="ember-btn ember-btn-sm ember-btn-primary" onClick={() => engine.confirmPendingAttack()}>
+                  Confirmar
+                </Button>
+                <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm ember-btn-ghost" onClick={() => engine.cancelPendingAttack()}>
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* An aimed skill waits here for Confirmar/Cancelar (engine.handleCell arms every click).
+            Weapon skills on an enemy show their hit chance; no damage is predicted. */}
+        {hud.spellArmed && hud.spellKind && !hud.result && !hud.pendingFoe && (
+          <div className="pointer-events-none absolute inset-x-2 bottom-2 z-30 flex justify-center">
+            <div data-skill-confirm className="pointer-events-auto ember-plate is-accent px-4 py-3 flex flex-col items-center gap-1.5 text-center">
+              <p className="text-xs ember-kicker">{uiText(slotLabel({ kind: "spell", spell: hud.spellKind } as SlotAction))}</p>
+              {hud.spellHitChance != null && (
+                <p className="font-display text-2xl leading-none ember-title tabular-nums">{hud.spellHitChance}% de acerto</p>
+              )}
+              <div className="mt-1 flex items-center gap-2">
+                <Button size="sm" className="ember-btn ember-btn-sm ember-btn-primary" disabled={!hud.spellReady || hud.busy} onClick={() => engine.confirmSpell()}>
+                  Confirmar
+                </Button>
+                <Button size="sm" variant="quiet" className="ember-btn ember-btn-sm ember-btn-ghost" onClick={() => engine.cancelSkillConfirm()}>
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         {hud.chestLoot && (
           <div className="absolute inset-0 z-50 ember-veil flex items-center justify-center p-4">
             <div className="relative w-full max-w-sm ember-panel p-5">
@@ -8783,7 +9032,7 @@ function BattleScreen({
                     </div>
                     <p className="text-[11px] tabular-nums text-muted leading-snug">
                       {hud.forecast && foe
-                        ? `${hud.forecast.hitOut}% · ${hud.forecast.dmgOut} em ${foe.name}${hud.forecast.canCounter ? ` · contra ${hud.forecast.hitBack}% · ${hud.forecast.dmgBack}` : " · sem contra"}${hud.forecast.kill ? " · abate" : ""}`
+                        ? `${hud.forecast.hitOut}% em ${foe.name}${hud.forecast.canCounter ? ` · contra ${hud.forecast.hitBack}%` : " · sem contra"}`
                         : sheetLine(unit)}
                     </p>
                   </>
@@ -9682,6 +9931,7 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                       {spellStatusRow("bullRush", BULL_RUSH.name)}
                       {spellStatusRow("shieldBash", SHIELD_BASH.name)}
                       {spellStatusRow("executionerStrike", EXECUTIONER_STRIKE.name)}
+                      {unit.level >= PROVOKE.unlockLevel && spellStatusRow("provoke", `${PROVOKE.name} ${provokeFormula(unit.level)}`)}
                     </>
                   )}
                   {mage && (

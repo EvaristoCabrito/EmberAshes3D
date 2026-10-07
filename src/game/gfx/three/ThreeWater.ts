@@ -7,18 +7,22 @@ export type WaterPatch = { x: number; y: number; level: number; size: number; sh
 type WaterFootprint = { size: number; shape: "round" | "square" } | null;
 
 /** Rounded overlapping brush footprints sampled on a rectangular mesh, independent of tile art. */
-export function sampleWater(x: number, y: number, cols: number, rows: number, levels: readonly (number | null)[], footprints: readonly WaterFootprint[] = []): { coverage: number; level: number } {
+export function sampleWater(x: number, y: number, cols: number, rows: number, levels: readonly (number | null)[], footprints: readonly WaterFootprint[] = [], extendEdges = false): { coverage: number; level: number } {
   const row0 = Math.round((y - PAD - 1) / 1.5);
   let coverage = 0, weighted = 0, total = 0;
   for (let row = row0 - 1; row <= row0 + 1; row++) {
-    if (row < 0 || row >= rows) continue;
+    if (!extendEdges && (row < 0 || row >= rows)) continue;
+    // Straight-border maps: a hex just outside the board repeats its nearest edge cell, so
+    // edge water reaches all the way to the straight cut instead of leaving half-hex notches.
+    const sourceRow = Math.max(0, Math.min(rows - 1, row));
     const col0 = Math.round(x / SQRT3 - 0.5 * (row & 1) - 0.5);
     for (let col = col0 - 1; col <= col0 + 1; col++) {
-      if (col < 0 || col >= cols) continue;
-      const level = levels[row * cols + col];
+      if (!extendEdges && (col < 0 || col >= cols)) continue;
+      const sourceCol = Math.max(0, Math.min(cols - 1, col));
+      const level = levels[sourceRow * cols + sourceCol];
       if (level == null || !Number.isFinite(level)) continue;
       const cx = SQRT3 * (col + 0.5 * (row & 1) + 0.5), cy = PAD + 1.5 * row + 1;
-      const footprint = footprints[row * cols + col];
+      const footprint = footprints[sourceRow * cols + sourceCol];
       const size = Math.max(0.25, Math.min(1, footprint?.size ?? 1));
       const distance = (footprint?.shape === "square" ? Math.max(Math.abs(x - cx), Math.abs(y - cy)) : Math.hypot(x - cx, y - cy)) / size;
       // Keep the level defined beyond the visible edge so boundary triangles stay flat.
@@ -204,8 +208,11 @@ export class ThreeWater {
     this.material.needsUpdate = true;
   }
 
+  /** `board` (tile units, Y down): set on straight-border maps only. Water then fills edge
+   * hexes out to that rectangle and is cut exactly on it, like the ground's straight edge. */
   rebuild(cols: number, rows: number, tile: number, levels: readonly (number | null)[], allowed: (col: number, row: number) => boolean,
-    ground: (x: number, y: number) => number = () => 0, footprints: readonly WaterFootprint[] = [], patches: readonly WaterPatch[] = []): void {
+    ground: (x: number, y: number) => number = () => 0, footprints: readonly WaterFootprint[] = [], patches: readonly WaterPatch[] = [],
+    board?: { minX: number; maxX: number; minY: number; maxY: number }): void {
     this.scale.value = tile;
     if (!patches.length && !levels.some(level => level != null && Number.isFinite(level))) {
       this.mesh.geometry.dispose(); this.mesh.geometry = new THREE.BufferGeometry();
@@ -213,12 +220,14 @@ export class ThreeWater {
     }
     const positions: number[] = [], uvs: number[] = [], coverage: number[] = [], depths: number[] = [], indices: number[] = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    // Edge cells extend a hex outward on a straight-border map, so reach one hex further.
+    const reach = board ? 1.4 + SQRT3 : 1.4;
     for (let row = 0; row < rows; row++) for (let col = 0; col < cols; col++) {
       const level = levels[row * cols + col];
       if (level == null || !Number.isFinite(level) || !allowed(col, row)) continue;
       const x = SQRT3 * (col + 0.5 * (row & 1) + 0.5), y = PAD + 1.5 * row + 1;
-      minX = Math.min(minX, x - 1.4); maxX = Math.max(maxX, x + 1.4);
-      minY = Math.min(minY, y - 1.4); maxY = Math.max(maxY, y + 1.4);
+      minX = Math.min(minX, x - reach); maxX = Math.max(maxX, x + reach);
+      minY = Math.min(minY, y - reach); maxY = Math.max(maxY, y + reach);
     }
     const buckets = new Map<string, WaterPatch[]>();
     for (const patch of patches) {
@@ -228,11 +237,17 @@ export class ThreeWater {
       const key = Math.floor(patch.x/2) + ":" + Math.floor(patch.y/2);
       const list = buckets.get(key) ?? []; list.push(patch); buckets.set(key, list);
     }
-    if (!Number.isFinite(minX)) { this.mesh.geometry.dispose(); this.mesh.geometry = new THREE.BufferGeometry(); return; }
+    if (board) {
+      minX = Math.max(minX, board.minX); maxX = Math.min(maxX, board.maxX);
+      minY = Math.max(minY, board.minY); maxY = Math.min(maxY, board.maxY);
+    }
+    if (!Number.isFinite(minX) || minX >= maxX || minY >= maxY) { this.mesh.geometry.dispose(); this.mesh.geometry = new THREE.BufferGeometry(); return; }
     const nx = Math.ceil((maxX - minX) / STEP), ny = Math.ceil((maxY - minY) / STEP);
     for (let iy = 0; iy <= ny; iy++) for (let ix = 0; ix <= nx; ix++) {
-      const x = minX + ix * STEP, y = minY + iy * STEP;
-      const sample = sampleWater(x, y, cols, rows, levels, footprints);
+      // On a straight-border map the last row/column of vertices sits exactly on the cut.
+      const x = board ? Math.min(maxX, minX + ix * STEP) : minX + ix * STEP;
+      const y = board ? Math.min(maxY, minY + iy * STEP) : minY + iy * STEP;
+      const sample = sampleWater(x, y, cols, rows, levels, footprints, !!board);
       const nearby: WaterPatch[] = [];
       const bx = Math.floor(x/2), by = Math.floor(y/2);
       for (let dy=-1; dy<=1; dy++) for (let dx=-1; dx<=1; dx++) nearby.push(...(buckets.get((bx+dx)+":"+(by+dy)) ?? []));
@@ -247,7 +262,11 @@ export class ThreeWater {
           if (distance < best) { best = distance; bc = col; br = row; }
         }
       }
-      const valid = bc >= 0 && br >= 0 && bc < cols && br < rows && allowed(bc, br);
+      // Inside a straight-border board every point belongs to the board, even where its
+      // nearest hex center lies just outside (the half-hex strips along the straight edges).
+      const valid = board
+        ? allowed(Math.max(0, Math.min(cols - 1, bc)), Math.max(0, Math.min(rows - 1, br)))
+        : bc >= 0 && br >= 0 && bc < cols && br < rows && allowed(bc, br);
       const z = (sample.level * 0.65 + 0.035) * tile;
       positions.push(x * tile, -y * tile, z);
       // A texture repeat spans four world tiles; brush edges sample continuously.

@@ -5,6 +5,7 @@ import { EffectsRenderer } from "./gfx/EffectsRenderer";
 import { WebGL2DRenderer } from "./gfx/WebGL2DRenderer";
 import { ThreeBattleRenderer } from "./gfx/three/ThreeBattleRenderer";
 import { getDevGfx, subscribeDevGfx } from "./gfx/three/devGfx";
+import { hasSquareMapBorder } from "./mapFloor";
 import type { HudSnapshot } from "./types";
 
 /** Three.js is now the default ground/terrain renderer (see ThreeBattleRenderer's module
@@ -104,8 +105,12 @@ export function BattleCanvas({
     // parked far off-screen otherwise, so a placement or spell in the dark shows nothing —
     // neither over the black of unexplored ground nor as a hint of what is happening there.
     const OFFSCREEN_ANCHOR = { x: -1e6, y: -1e6, tile: 0, worldX: -1e6, worldY: -1e6 };
+    // An edge copy sits one hex outside the board (see the straight-border water below); its
+    // sight follows the board cell it extends.
     const fxAnchorRaw = (col: number, row: number) =>
-      engine.fogged && !engine.visible(col, row) ? OFFSCREEN_ANCHOR : engine.effectAnchor(col, row);
+      engine.fogged && !engine.visible(Math.max(0, Math.min(engine.cols - 1, col)), Math.max(0, Math.min(engine.rows - 1, row)))
+        ? OFFSCREEN_ANCHOR
+        : engine.effectAnchor(col, row);
     const fxAnchor = (col: number, row: number) => {
       const anchor = fxAnchorRaw(col, row);
       if (!rendererThree || anchor === OFFSCREEN_ANCHOR) return anchor;
@@ -116,11 +121,24 @@ export function BattleCanvas({
     if (fxCanvas) {
       try {
         fx = new EffectsRenderer(fxCanvas);
+        // Straight-border maps cut the ground on a rectangle, but hex rows are staggered: edge
+        // water/shore would leave half-hex notches against the cut. Each one on the board's edge
+        // also gets a copy one hex outside it; the effects mask (architectureFxMaskDataUri) clips
+        // everything to the board rectangle, so the river runs flush to the straight edge.
+        const squareBorder = !!rendererThree && hasSquareMapBorder(engine.tiles, engine.cols, engine.rows);
         for (const p of engine.elementalFxPlacements) if (p.family !== "procedural_pixel") {
           const water = p.kind === "water" || p.kind === "water2" || p.kind === "water3" || p.kind === "water4" || p.kind === "water5" || p.kind === "shore" || p.kind === "shore2";
           const radius = p.radiusTiles ?? (p.kind === "water2" ? 1.7 : 1);
           if (water && engine.tacticsCamera && rendererThree?.waterFxTouchesArchitecture(p.x, p.y, radius)) continue;
           fx.spawnEffect(p.kind, p.x, p.y, { radiusTiles: p.radiusTiles, rotation: p.rotation });
+          if (water && squareBorder) {
+            const outside: [number, number][] = [];
+            if (p.x === 0) outside.push([-1, p.y]);
+            if (p.x === engine.cols - 1) outside.push([engine.cols, p.y]);
+            if (p.y === 0) outside.push([p.x, -1]);
+            if (p.y === engine.rows - 1) outside.push([p.x, engine.rows]);
+            for (const [x, y] of outside) fx.spawnEffect(p.kind, x, y, { radiusTiles: p.radiusTiles, rotation: p.rotation });
+          }
         }
       } catch {
         fx = null;
@@ -332,6 +350,7 @@ export function BattleCanvas({
       }
       const spellEffects = spellFx ?? fx;
       if (spellEffects) {
+        for(const request of engine.frostVfxRequests.splice(0))spellEffects.spawnFrost({...request,onImpact:cell=>rendererThree?.pulseBlizzardLight(cell.x,cell.y,0,0,.55)});
         {
           const live=new Set(engine.iceStormZones.map(zone=>zone.createdAt));
           for(const[key,id]of blizzardIds)if(!live.has(key)){spellEffects.removeBlizzard(id);blizzardIds.delete(key);}
@@ -471,6 +490,8 @@ export function BattleCanvas({
         hud.speedMode,
         hud.winAvailable,
         hud.spellReady,
+        hud.spellArmed,
+        hud.spellHitChance,
         hud.turnQueue.find((q) => q.active)?.id,
         hud.turnQueue.map((q) => (q.acted ? "1" : "0")).join(""),
         // Which enemies are listed changes as fog reveals/hides them.

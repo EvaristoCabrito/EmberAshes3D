@@ -1360,9 +1360,14 @@ export class ThreeBattleRenderer {
     this.water.setVersion(engine.mission.waterVersion ?? "v2");
     const key = JSON.stringify([tile, engine.cols, engine.rows, engine.mission.waterLevels, engine.mission.waterPatches, engine.mission.waterFootprints, engine.tiles, this.terrainSolidKey, engine.fogged ? engine.visVersion : "clear"]);
     if (key !== this.waterKey) {
+      // Straight-border maps cut the ground on a rectangle (see syncTerrainHeight's bounds);
+      // the water is cut on that same rectangle and fills edge hexes out to it.
+      const board = hasSquareMapBorder(engine.tiles, engine.cols, engine.rows)
+        ? { minX: 0, maxX: SQRT3 * engine.cols, minY: BOARD_PAD_MUL + 0.25, maxY: BOARD_PAD_MUL + 0.25 + engine.rows * 1.5 }
+        : undefined;
       this.water.rebuild(engine.cols, engine.rows, tile, engine.mission.waterLevels ?? [], (col, row) =>
         tileAt(engine.tiles, engine.cols, col, row) !== "void" && (!engine.fogged || engine.explored(col, row) || engine.visible(col, row)),
-        (x, y) => this.landscape?.heightAt(x, y) ?? 0, engine.mission.waterFootprints, engine.mission.waterPatches);
+        (x, y) => this.landscape?.heightAt(x, y) ?? 0, engine.mission.waterFootprints, engine.mission.waterPatches, board);
       this.scene.add(this.water.mesh);
       this.waterKey = key;
     }
@@ -3175,7 +3180,10 @@ export class ThreeBattleRenderer {
       ...this.wallEntries.map((entry) => entry.mesh),
       ...this.decorEntries.filter((entry) => entry.mesh.userData.tacticsArchitecture || !!DECORATIONS[entry.placement.id]?.model3d).map((entry) => entry.mesh),
     ].filter((mesh) => mesh.visible && mesh.geometry.getAttribute("position"));
-    if (!meshes.length && !cards.length) {
+    // Straight-border maps: map-placed FX (water/shore laid out per hex) is clipped to the
+    // same rectangle the ground is cut on, so it never pokes past the straight edge.
+    const squareBoard = hasSquareMapBorder(this.engine.tiles, this.engine.cols, this.engine.rows) && this.builtTile > 0;
+    if (!meshes.length && !cards.length && !squareBoard) {
       this.architectureFxMaskKey = "";
       this.architectureFxMaskUri = null;
       return null;
@@ -3183,12 +3191,22 @@ export class ThreeBattleRenderer {
 
     this.scene.updateMatrixWorld(true);
     this.camera.updateMatrixWorld(true);
+    const point = new THREE.Vector3();
+    let boardClip = "";
+    if (squareBoard) {
+      const tile = this.builtTile;
+      const top = BOARD_PAD_MUL + 0.25, bottom = top + this.engine.rows * 1.5, right = SQRT3 * this.engine.cols;
+      const corners = [[0, top], [right, top], [right, bottom], [0, bottom]].map(([x, y]) => {
+        point.set(x! * tile, -y! * tile, 0).project(this.camera);
+        return `${(((point.x + 1) * cssW) / 2).toFixed(1)},${(((1 - point.y) * cssH) / 2).toFixed(1)}`;
+      });
+      boardClip = `M${corners.join("L")}Z`;
+    }
     const matrixKey = (matrix: THREE.Matrix4) => matrix.elements.map((n) => n.toFixed(3)).join(",");
-    const key = `${cssW}x${cssH}:${matrixKey(this.camera.matrixWorld)}:${matrixKey(this.camera.projectionMatrix)}:${meshes.map((mesh) => `${mesh.geometry.id}:${mesh.geometry.getAttribute("position").count}:${matrixKey(mesh.matrixWorld)}`).join(";")}:${cards.map(({ mesh }) => `${mesh.id}:${matrixKey(mesh.matrixWorld)}`).join(";")}`;
+    const key = `${cssW}x${cssH}:${boardClip}:${matrixKey(this.camera.matrixWorld)}:${matrixKey(this.camera.projectionMatrix)}:${meshes.map((mesh) => `${mesh.geometry.id}:${mesh.geometry.getAttribute("position").count}:${matrixKey(mesh.matrixWorld)}`).join(";")}:${cards.map(({ mesh }) => `${mesh.id}:${matrixKey(mesh.matrixWorld)}`).join(";")}`;
     if (key === this.architectureFxMaskKey) return this.architectureFxMaskUri;
 
     const paths: string[] = [];
-    const point = new THREE.Vector3();
     for (const mesh of meshes) {
       const geometry = mesh.geometry;
       const positions = geometry.getAttribute("position");
@@ -3246,7 +3264,7 @@ export class ThreeBattleRenderer {
       if (!transform.every(Number.isFinite)) continue;
       silhouettes.push(`<image href="${texture.userData.fxMaskImage}" width="1" height="1" preserveAspectRatio="none" transform="matrix(${transform.join(" ")})" filter="url(#black)"/>`);
     }
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${cssW}" height="${cssH}" viewBox="0 0 ${cssW} ${cssH}"><defs><filter id="black" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"/></filter><mask id="a" x="0" y="0" width="${cssW}" height="${cssH}" maskUnits="userSpaceOnUse"><rect width="${cssW}" height="${cssH}" fill="white"/><path d="${paths.join("")}" fill="black"/>${silhouettes.join("")}</mask></defs><rect width="${cssW}" height="${cssH}" fill="white" mask="url(#a)"/></svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${cssW}" height="${cssH}" viewBox="0 0 ${cssW} ${cssH}"><defs><filter id="black" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"/></filter><mask id="a" x="0" y="0" width="${cssW}" height="${cssH}" maskUnits="userSpaceOnUse">${boardClip ? `<path d="${boardClip}" fill="white"/>` : `<rect width="${cssW}" height="${cssH}" fill="white"/>`}<path d="${paths.join("")}" fill="black"/>${silhouettes.join("")}</mask></defs><rect width="${cssW}" height="${cssH}" fill="white" mask="url(#a)"/></svg>`;
     this.architectureFxMaskKey = key;
     this.architectureFxMaskUri = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
     return this.architectureFxMaskUri;
@@ -4341,3 +4359,4 @@ export class ThreeBattleRenderer {
     }
   }
 }
+

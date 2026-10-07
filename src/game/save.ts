@@ -8,6 +8,7 @@ import { ALL_MISSIONS } from "./mapstore";
 import { OVERWORLD_START_HEX, locationAt, worldToHex } from "./overworld";
 import { cleanHunger, fullness } from "./hunger";
 import { cleanAffinityScores } from "./affinity";
+import { enmityFromSnapshot, enmityToSnapshot } from "./enmity";
 import { cleanConversationMemory } from "./companionDialogues";
 import { poisonTierOf } from "./poison";
 import { cleanHeroSkills, cleanTravelTraining, SKILL_CAP, TRAVEL_TRAINING_HOURS } from "./skills";
@@ -54,6 +55,18 @@ const LATE_HERO_BASE_CLASS: Record<string, ClassId> = {
 function cleanQuestList(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return [...new Set(raw.filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 80))].slice(0, 200);
+}
+
+/** SaveData.dialogsSeen — unlike the quest lists, not capped at 200: every conversation in
+ * the campaign must stay recorded once played. */
+function cleanDialogsSeen(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 240))];
+}
+
+/** The one key a scripted conversation is recorded under in SaveData.dialogsSeen. */
+export function dialogSeenKey(kind: "intro" | "outro", missionId: string, treeId: string): string {
+  return `${kind}:${missionId}:${treeId}`;
 }
 
 function clampInt(value: unknown, min: number, max: number): number {
@@ -478,6 +491,8 @@ function cleanBattle(raw: unknown, pendingMission: string | null, roundLegacyWea
   return {
     missionId,
     mapKey: typeof b.mapKey === "string" ? b.mapKey : undefined,
+    introDialogDone: typeof b.introDialogDone === "boolean" ? b.introDialogDone : undefined,
+    enmity: b.enmity && typeof b.enmity === "object" ? enmityToSnapshot(enmityFromSnapshot(b.enmity)) : undefined,
     affinityScores: b.affinityScores == null ? undefined : cleanAffinityScores(b.affinityScores),
     heroSkills: b.heroSkills == null ? undefined : cleanHeroSkills(b.heroSkills, [...HEROES, ...Object.keys(LATE_HERO_BASE_CLASS)], (hero, type) => weaponTypesForClass(units.find(unit => unit.name === hero)?.classId ?? ({ ...HERO_BASE_CLASS, ...LATE_HERO_BASE_CLASS } as Record<string, ClassId>)[hero]).includes(type), roundLegacyWeaponFractions),
     turn: clampInt(b.turn, 1, 999),
@@ -743,6 +758,7 @@ function migrateRecord(raw: Record<string, unknown>, muted: boolean): SaveData {
     questsDiscovered: cleanQuestList(raw.questsDiscovered),
     chapter: clampInt(raw.chapter ?? 1, 1, 99),
     flags: cleanQuestList(raw.flags),
+    dialogsSeen: cleanDialogsSeen(raw.dialogsSeen),
     npcTalked: cleanQuestList(raw.npcTalked),
     questItems: cleanQuestList(raw.questItems),
     questKills: cleanQuestList(raw.questKills),

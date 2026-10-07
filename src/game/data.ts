@@ -2981,8 +2981,12 @@ export function weaponIcon(id: string): string {
 /** Dark-fantasy spell sprites live in their own black-backed atlas slice set so every
  * combat surface uses one cohesive visual family. */
 export function spellIcon(id: string): string {
+  if (id === "frost") return "/game/icons/frost.jpg";
+  if (id === "ice-storm") return "/game/icons/ice-storm.jpg";
   if (id === "divine-bolt") return "/game/icons/divine-bolt.jpg";
   if (id === "bloody-shot") return "/game/icons/bloody-shot.jpg";
+  // No art yet: drop public/game/icons/provoke.png in and the slot picks it up.
+  if (id === "provoke") return "/game/icons/provoke.png";
   if (id === "summon-familiar2") return "/game/icons/summon-familiar2.png";
   if (id === "summon-familiar3") return "/game/icons/summon-familiar3.png";
   if (id === "summon-familiar4") return "/game/icons/summon-familiar4.png";
@@ -3826,6 +3830,27 @@ export const LONG_SHOT = {
   name: "Tiro Longo",
   range: 7,
 };
+
+/** Warrior Tier 1, learned at level 3: no damage — piles volatile enmity (enmity.ts) onto
+ * every enemy it reaches, so they turn on the warrior until someone out-generates him. */
+export const PROVOKE = {
+  name: "Provoke",
+  unlockLevel: 3,
+};
+
+/** Provoke grows from one target into wider and wider areas, reaching further each step. */
+export function provokePower(level: number): { range: number; radius: number } {
+  if (level >= 15) return { range: 8, radius: 4 };
+  if (level >= 12) return { range: 7, radius: 3 };
+  if (level >= 9) return { range: 6, radius: 2 };
+  if (level >= 6) return { range: 5, radius: 1 };
+  return { range: 4, radius: 0 };
+}
+
+export function provokeFormula(level: number): string {
+  const p = provokePower(level);
+  return p.radius === 0 ? `um inimigo, alcance ${p.range}` : `inimigos em raio ${p.radius}, alcance ${p.range}`;
+}
 
 export const BLOODY_SHOT = {
   name: "Bloody Shot",
@@ -4875,6 +4900,7 @@ export const SPELL_TIER: Partial<Record<SpellKind, SpellTier>> = {
   magicMissile: 1,
   longShot: 1,
   bloodyShot: 2,
+  provoke: 1,
   cureMinor: 1,
   doubleStrike: 1,
   piercingThrust: 1,
@@ -4893,6 +4919,7 @@ export const SPELL_TIER: Partial<Record<SpellKind, SpellTier>> = {
   webOfDreams: 2,
   fireball: 3,
   iceStorm: 4,
+  frost: 2,
   lightningTier3: 5,
   cureDisease: 3,
   causticVenom: 5,
