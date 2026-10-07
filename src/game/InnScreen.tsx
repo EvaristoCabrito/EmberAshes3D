@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CUTSCENE_SUBTITLES, syncEnglishSubtitles } from "./cutsceneSubtitles";
+import { CUTSCENE_SUBTITLES, syncSubtitles } from "./cutsceneSubtitles";
 import { ChevronLeft, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ALL_HERO_NAMES, BAG_MAX, CLASSES, EQUIPMENT, LOCKPICK_PRICE, POTION_CARRY_MAX, POTION_PRICE, RATION_STACK_MAX, RATIONS_ICON, RATIONS_PRICE, WEAPON_MAX_ENH, WEAPONS, equipmentIcon, equipmentTooltip, equipmentTypeSlotName, heroRecruited, isPlayableClassForDisplay, isPouch, lockpickTooltip, partyBagHasRoom, partyPouchId, potionTooltip, pouchIcon, weaponDiceLabel, weaponEnhCost, weaponIcon, weaponPower, weaponRangeLabel, weaponSellValue, weaponTooltip, potionLabel } from "./data";
@@ -1264,9 +1264,11 @@ function SmithPanel({
 function SmithIntroScreen({ muted, onMute, onSkip }: { muted: boolean; onMute: () => void; onSkip: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
   const prefs = useGamePreferences();
+  const subtitleTracks = CUTSCENE_SUBTITLES["/game/smith-intro.mp4"];
+  const selectedSubtitle = prefs.subtitles ? subtitleTracks?.[prefs.subtitleLanguage] : undefined;
   useEffect(() => {
-    syncEnglishSubtitles(ref.current?.textTracks, prefs.subtitles);
-  }, [prefs.subtitles]);
+    syncSubtitles(ref.current?.textTracks, prefs.subtitles, prefs.subtitleLanguage);
+  }, [prefs.subtitles, prefs.subtitleLanguage, selectedSubtitle]);
   const [portrait, setPortrait] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 720px) and (orientation: portrait)").matches,
   );
@@ -1299,7 +1301,7 @@ function SmithIntroScreen({ muted, onMute, onSkip }: { muted: boolean; onMute: (
     <section className="relative h-dvh w-dvw bg-black overflow-hidden">
       <div className="cutscene-stage">
         <video ref={ref} src="/game/smith-intro.mp4" playsInline autoPlay preload="auto" onEnded={onSkip} onError={onSkip}>
-          <track kind="subtitles" src={CUTSCENE_SUBTITLES["/game/smith-intro.mp4"]} srcLang="en" label="English" default={prefs.subtitles} onLoad={() => syncEnglishSubtitles(ref.current?.textTracks, prefs.subtitles)} />
+          {selectedSubtitle && <track key={selectedSubtitle} kind="subtitles" src={selectedSubtitle} srcLang={prefs.subtitleLanguage === "pt" ? "pt-BR" : "en"} label={prefs.subtitleLanguage === "pt" ? "Português (Brasil)" : "English"} default onLoad={() => syncSubtitles(ref.current?.textTracks, prefs.subtitles, prefs.subtitleLanguage)} />}
         </video>
       </div>
       {portrait && (

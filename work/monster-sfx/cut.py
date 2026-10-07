@@ -33,9 +33,16 @@ PLAN = {
     'EmberedWraith': ('EmberedWraith', {'atk-': ('attack', 'melee', 3), 'cast-': ('cast', 'uniform', 3), 'move-': ('walk', 'walk', 1.5), 'death-': ('death', 'uniform', 3)}),
     'zombie': ('Zombie', {'atk-': ('attack', 'melee', 3), 'move-': ('walk', 'walk', 1.5)}),
 }
+# Sheets re-matched against the right video only (the batch picked a wrong one).
+OVERRIDES = {('EmberedWraith', 'move-'): 'rerun-wraith.json'}
+# Sheets whose frames match none of the monster's clean videos: they keep the generic cue.
+SKIP = {('RoccoTheBird', 'atk-'), ('BirolhoLegs2', 'atk-')}
+# Birolho Legs' cast (and its attack, a resampled copy) play forward, then fold back in reverse:
+# sync the forward frames, then let the video's own sound run on at natural speed.
+FORWARD = {('BirolhoLegs', 'atk-'): 24, ('BirolhoLegs', 'cast-'): 36}
 STEM = {'attack': 'ATT', 'cast': 'Cast', 'walk': 'Walk', 'hit': 'Hit', 'death': 'Death', 'death2': 'Death2'}
 
-def knots_for(src, fps, model, T):
+def knots_for(src, fps, model, T, forward=None):
     """(game seconds, source seconds) knots for a sheet whose frame k came from video frame src[k]."""
     n = len(src)
     if model == 'melee':
@@ -52,11 +59,16 @@ def knots_for(src, fps, model, T):
     frames = sorted({0, n, *[s[0] for s in stage], *range(0, n, max(1, n // 4))})
     tail = float(np.mean(np.diff(src[-6:]))) if n > 6 else 1.0
     srcf = lambda f: (src[f] if f < n else src[-1] + max(tail, 0.5)) / fps
+    if forward:
+        frames = sorted({f for f in frames if f < forward} | {forward})
+        srcf = lambda f: src[min(f, forward - 1)] / fps + (1 / fps if f >= forward else 0)
     out = []
     for f in frames:
         t, s = pts[f], srcf(f)
         if out and s <= out[-1][1] + 1e-3: s = out[-1][1] + 0.02  # never run backwards / zero length
         out.append((t, s))
+    if forward and out[-1][0] < T:
+        out.append((T, out[-1][1] + (T - out[-1][0])))  # natural speed through the fold-back
     return out
 
 def atempo_chain(r):
@@ -96,8 +108,11 @@ def main():
     for line in (ROOT / 'work/monster-sfx/matches.jsonl').read_text().splitlines():
         m = json.loads(line)
         if m['sprite'] not in PLAN or m['pool'] not in PLAN[m['sprite']][1]: continue
+        if (m['sprite'], m['pool']) in SKIP: continue
+        if (m['sprite'], m['pool']) in OVERRIDES:
+            m = json.loads((ROOT / 'work/monster-sfx' / OVERRIDES[(m['sprite'], m['pool'])]).read_text())
         stem = PLAN[m['sprite']][0]; kind, model, T = PLAN[m['sprite']][1][m['pool']]
-        jobs.append((m['sprite'], stem, kind, model, T, D / m['video'], m['src'], m['fps'], m['meanScore']))
+        jobs.append((m['sprite'], stem, kind, model, T, D / m['video'], m['src'], m['fps'], m['meanScore'], FORWARD.get((m['sprite'], m['pool']))))
     # Big Blue Ox: its manifest records every frame's source frame.
     ox = json.loads((ROOT / 'public/game/sprites/big-blue-ox-ai-006/manifest.json').read_text())
     pace = 0.75
@@ -105,11 +120,11 @@ def main():
     for e in ox:
         if e['animation'] in ox_plan:
             kind, model, T = ox_plan[e['animation']]
-            jobs.append(('big-blue-ox-002', 'BigBlueOx', kind, model, T, Path(e['source']), [f['sourceFrame'] for f in e['frames']], 24.0, 1.0))
+            jobs.append(('big-blue-ox-002', 'BigBlueOx', kind, model, T, Path(e['source']), [f['sourceFrame'] for f in e['frames']], 24.0, 1.0, None))
     # Plague Bearing Cattle attack: re-cut with the melee stage timing (same file name).
     pc = {m['animation']: m for m in json.loads((ROOT / 'work/plague-cattle/raw/manifest.json').read_text())}
-    jobs.append(('plague-bearing-cattle', 'PlagueCattle', 'attack', 'melee', 3, Path(pc['attack']['video']), pc['attack']['sourceFrames'], 24.0, 1.0))
-    for sprite, stem, kind, model, T, video, src, fps, score in jobs:
+    jobs.append(('plague-bearing-cattle', 'PlagueCattle', 'attack', 'melee', 3, Path(pc['attack']['video']), pc['attack']['sourceFrames'], 24.0, 1.0, None))
+    for sprite, stem, kind, model, T, video, src, fps, score, forward in jobs:
         name = f'{stem}{STEM[kind]}001.mp3'
         if any(k in video.name for k in MUSIC):
             results.append(dict(sprite=sprite, kind=kind, file=None, skipped=f'music-bed video {video.name}')); continue
@@ -119,7 +134,7 @@ def main():
             # Loop: the sheet's frames plus one more step closes the cycle; two passes.
             knots = knots_for(src, fps, 'uniform', T); loops = 2
         else:
-            knots = knots_for(src, fps, model, T); loops = 1
+            knots = knots_for(src, fps, model, T, forward); loops = 1
         lufs, gain = render(video, knots, T, loops, SFX / name, -26 if kind == 'walk' else -20)
         results.append(dict(sprite=sprite, kind=kind, file=name, video=video.name, score=score,
                             source=f'{knots[0][1]:.2f}-{knots[-1][1]:.2f}s', seconds=round(T * loops, 3), lufs=lufs, gain=round(gain, 1)))

@@ -1,12 +1,20 @@
-/** English-first subtitle release. Original Portuguese and English assets are preserved. */
-export const CUTSCENE_SUBTITLES: Record<string, string> = Object.fromEntries([
-  "aldeia-intro", "asherah-rite", "temple-aftermath", "wisp-entrance", "inn-arrival", "smith-intro",
-].map(name => [`/game/${name}.mp4`, `/game/subtitles/${name}.en-v2.vtt`]));
+import type { Translations } from "./gamePreferences";
 
-/** Always disable other tracks, including browser-selected tracks from an earlier video. */
-export function syncEnglishSubtitles(tracks: TextTrackList | undefined, enabled: boolean) {
+/** Portuguese (Brazil) and English subtitle tracks for every cutscene. */
+export const CUTSCENE_SUBTITLES: Record<string, Translations> = Object.fromEntries([
+  "aldeia-intro", "asherah-rite", "temple-aftermath", "wisp-entrance", "inn-arrival", "smith-intro",
+].map(name => [
+  `/game/${name}.mp4`,
+  {
+    pt: `/game/subtitles/${name}.pt-BR.vtt`,
+    en: `/game/subtitles/${name}.en-v2.vtt`,
+  },
+])) as Record<string, Translations>;
+
+/** Show only the selected language track; disable browser-selected tracks from earlier videos. */
+export function syncSubtitles(tracks: TextTrackList | undefined, enabled: boolean, language: "pt" | "en") {
   if (!tracks) return;
   for (const track of Array.from(tracks)) {
-    track.mode = enabled && track.language === "en" ? "showing" : "disabled";
+    track.mode = enabled && track.language.toLowerCase().startsWith(language) ? "showing" : "disabled";
   }
 }

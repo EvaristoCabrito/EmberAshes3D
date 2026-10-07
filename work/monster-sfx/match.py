@@ -61,7 +61,7 @@ def main():
     for name, (frames, fps) in videos.items():
         H = frames[0].shape[0]
         samples = frames[::max(1, len(frames) // 16)]
-        for mirror in (False, True):
+        for mirror in ((False, True) if 'FORCE_MIRROR' not in __import__('os').environ else (__import__('os').environ['FORCE_MIRROR'] == '1',)):
             for f in np.geomspace(0.2 * H / probe[1][0].shape[0], 1.0 * H / probe[1][0].shape[0], 22):
                 tot = 0
                 for g0, m0 in probe:

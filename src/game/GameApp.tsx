@@ -3,7 +3,7 @@ import { WISP_BOSS_ID, WISP_CROSSING_ID, wispCrossingCompleted, routeWispCrossin
 import { removeWallsUnderWatchtowerEntrances } from "./watchtowerDungeon";
 import { applyPartyFormation, cleanPartyFormation, cleanPartyLeader, partyLeaderOf } from "./partyFormation";
 import { OptionsButton } from "./OptionsMenu";
-import { CUTSCENE_SUBTITLES, syncEnglishSubtitles } from "./cutsceneSubtitles";
+import { CUTSCENE_SUBTITLES, syncSubtitles } from "./cutsceneSubtitles";
 import { uiText, useGamePreferences, type Translations } from "./gamePreferences";
 import { GraphicsQualityControl } from "./GraphicsQualityControl";
 import { type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -1635,6 +1635,11 @@ export function GameApp() {
     // Only the actual inn opens the InnScreen. A user-authored map may retain an old hub flag.
     // It must still launch its own battle when selected from the campaign.
     if (missionId === "estalagem") {
+      // Debug should be able to view the first-visit tavern arrival and smith cutscenes too.
+      if (testMode && !readMapSave().seenInnArrivalIntro) {
+        setScreen("innArrivalIntro");
+        return;
+      }
       if (missionById(missionId)?.explore) {
         startBattle(missionId);
         return;
@@ -2930,10 +2935,11 @@ export function CutsceneScreen({
   const prefs = useGamePreferences();
   const ref = useRef<HTMLVideoElement>(null);
   const [soundOn, setSoundOn] = useState(() => !isMuted());
-  const englishSubtitles = CUTSCENE_SUBTITLES[src] ?? subtitles?.en;
+  const subtitleTracks = CUTSCENE_SUBTITLES[src] ?? subtitles;
+  const selectedSubtitle = prefs.subtitles ? subtitleTracks?.[prefs.subtitleLanguage] : undefined;
   useEffect(() => {
-    syncEnglishSubtitles(ref.current?.textTracks, prefs.subtitles);
-  }, [prefs.subtitles, englishSubtitles]);
+    syncSubtitles(ref.current?.textTracks, prefs.subtitles, prefs.subtitleLanguage);
+  }, [prefs.subtitles, prefs.subtitleLanguage, selectedSubtitle]);
   const [portrait, setPortrait] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 720px) and (orientation: portrait)").matches,
   );
@@ -3000,7 +3006,7 @@ export function CutsceneScreen({
     <section className="relative h-dvh w-dvw bg-black overflow-hidden">
       <div className="cutscene-stage">
         <video ref={ref} src={src} playsInline autoPlay preload="auto" onEnded={onSkip} onError={onSkip}>
-          {englishSubtitles && <track key={englishSubtitles} kind="subtitles" src={englishSubtitles} srcLang="en" label="English" default={prefs.subtitles} onLoad={() => syncEnglishSubtitles(ref.current?.textTracks, prefs.subtitles)} />}
+          {selectedSubtitle && <track key={selectedSubtitle} kind="subtitles" src={selectedSubtitle} srcLang={prefs.subtitleLanguage === "pt" ? "pt-BR" : "en"} label={prefs.subtitleLanguage === "pt" ? "Português (Brasil)" : "English"} default onLoad={() => syncSubtitles(ref.current?.textTracks, prefs.subtitles, prefs.subtitleLanguage)} />}
         </video>
       </div>
       {portrait && (

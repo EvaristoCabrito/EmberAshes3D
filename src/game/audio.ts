@@ -215,7 +215,19 @@ function playSfxFileExclusive(file: string, volume = 0.55, startAt = 0): void {
  * the sheet's first frame. Only videos without a music bed were used; idle never has sound.
  * Keyed by sprite id. A sprite/kind absent here keeps the game's generic cue. */
 export type MonsterSfxKind = "attack" | "cast" | "walk" | "hit" | "death" | "death2";
-const MONSTER_SFX: Record<string, Partial<Record<MonsterSfxKind, string>>> = {};
+const MONSTER_SFX: Record<string, Partial<Record<MonsterSfxKind, string>>> = {
+  undeadOx: { attack: "UndeadOxATT001.mp3", cast: "UndeadOxCast001.mp3", walk: "UndeadOxWalk001.mp3", hit: "UndeadOxHit001.mp3", death: "UndeadOxDeath001.mp3" },
+  wardog2: { attack: "WarDog2ATT001.mp3", walk: "WarDog2Walk001.mp3", death: "WarDog2Death001.mp3" },
+  zombieDog: { attack: "ZombieDogATT001.mp3", cast: "ZombieDogCast001.mp3", walk: "ZombieDogWalk001.mp3", hit: "ZombieDogHit001.mp3", death: "ZombieDogDeath001.mp3", death2: "ZombieDogDeath2001.mp3" },
+  RoccoTheBird: { cast: "RoccoTheBirdCast001.mp3", walk: "RoccoTheBirdWalk001.mp3" },
+  "mordavian-wolf-final": { attack: "MordavianWolfFinalATT001.mp3", hit: "MordavianWolfFinalHit001.mp3", death: "MordavianWolfFinalDeath001.mp3" },
+  troll2: { attack: "CaveTroll2ATT001.mp3", walk: "CaveTroll2Walk001.mp3" },
+  BirolhoLegs: { attack: "BirolhoLegsATT001.mp3", cast: "BirolhoLegsCast001.mp3" },
+  BirolhoLegs2: { cast: "BirolhoLegs2Cast001.mp3", walk: "BirolhoLegs2Walk001.mp3" },
+  EmberedWraith: { attack: "EmberedWraithATT001.mp3", cast: "EmberedWraithCast001.mp3", walk: "EmberedWraithWalk001.mp3" },
+  zombie: { attack: "ZombieATT001.mp3" },
+  "big-blue-ox-002": { attack: "BigBlueOxATT001.mp3", walk: "BigBlueOxWalk001.mp3", hit: "BigBlueOxHit001.mp3", death: "BigBlueOxDeath001.mp3" },
+};
 for (const cues of Object.values(MONSTER_SFX)) for (const file of Object.values(cues)) preloadExclusiveSfx(file);
 
 /** Whether a sprite has its own cue of this kind (see MONSTER_SFX). */

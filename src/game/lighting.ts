@@ -54,6 +54,8 @@ export const LIGHT_DEFS: Record<string, LightDef> = {
   // Marco's marker lantern gives a local pool of light without the wide reach of a full
   // street lantern or a brazier.
   "wilds-lantern-signpost": { color: LANTERN, intensity: 4, radius: 1.35, flicker: 0.35 },
+  // Bioluminescent Wisp Forest mushrooms cast a compact, steady blue pool.
+  "wilds-wisp-mushrooms": { color: [0.34, 0.62, 1.0], intensity: 2.2, radius: 2.2, flicker: 0.12 },
   lamppost: NORMAL_LANTERN,
   // Wall torches and bowls share normal-fire reach; the fireplace has extra intensity only.
   "light-wall-torch": { ...NORMAL_FIRE, intensity: 11 },
