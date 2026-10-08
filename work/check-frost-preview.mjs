@@ -1,0 +1,3 @@
+import {chromium} from 'playwright';const b=await chromium.launch({channel:'msedge',headless:true,args:['--no-proxy-server']});try{const p=await b.newPage({viewport:{width:1100,height:800}});const errors=[];p.on('pageerror',e=>errors.push(e.message));p.on('console',m=>{if(m.type()==='error')errors.push(m.text().slice(0,250))});await p.goto('http://127.0.0.1:8138/work/frost-preview.html');await p.waitForTimeout(400);await p.screenshot({path:'work/frost-preview-5.png'});await p.locator('#level').fill('30');await p.waitForTimeout(400);await p.screenshot({path:'work/frost-preview-30.png'});console.log({errors,area:await p.evaluate(()=>window.__frost)});}finally{await b.close();}
+
+

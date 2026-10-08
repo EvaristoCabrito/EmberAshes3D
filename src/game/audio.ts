@@ -186,7 +186,7 @@ function preloadExclusiveSfx(file: string): void {
 // start of her attack so its timing stays aligned with her animation.
 for (const file of ["ShortArrowsDraw.mp3", "ShortArrowsRelease.mp3", "NeeraBowRelease.mp3"]) preloadExclusiveSfx(file);
 // Every other attack/cast cue is warmed too, so none of them loads on its first use.
-for (const file of ["ATT01Blunt.mp3", "BladeSlash1Dagger.mp3", "Spellcast01.mp3"]) preloadExclusiveSfx(file);
+for (const file of ["ATT01Blunt.mp3", "BladeSlash1Dagger.mp3", "Blade3.mp3", "Attack2.mp3", "Spellcast01.mp3", "ShieldBash.mp3"]) preloadExclusiveSfx(file);
 for (const file of ["CarnivorousPlantATT001.mp3", "CarnivorousPlantCast001.mp3", "CarnivorousPlantHit001.mp3", "CarnivorousPlantDeath001.mp3"]) preloadExclusiveSfx(file);
 for (const file of ["SaplingATT001.mp3", "SaplingCast001.mp3", "SaplingHit001.mp3", "SaplingDeath001.mp3", "SaplingWalk001.mp3"]) preloadExclusiveSfx(file);
 for (const file of ["PlagueCattleATT001.mp3", "PlagueCattleCast001.mp3", "PlagueCattleDeath001.mp3", "PlagueCattleWalk001.mp3"]) preloadExclusiveSfx(file);
@@ -231,6 +231,11 @@ const MONSTER_SFX: Record<string, Partial<Record<MonsterSfxKind, string>>> = {
   EmberedWraith: { attack: "EmberedWraithATT001.mp3", cast: "EmberedWraithCast001.mp3", walk: "EmberedWraithWalk001.mp3" },
   zombie: { attack: "ZombieATT001.mp3" },
   "big-blue-ox-002": { attack: "BigBlueOxATT001.mp3", walk: "BigBlueOxWalk001.mp3", hit: "BigBlueOxHit001.mp3", death: "BigBlueOxDeath001.mp3" },
+  // Milícia V2: the sounds supplied with his sheets (Attachments/MilitiaV2), file names kept.
+  // Apparition: her videos' own audio, each the same 3 s window as its sheet. The hit cue is cut
+  // from hit react 2's video and plays for both of her hit reacts (as asked); death has none.
+  apparition: { cast: "ApparitionCast001.mp3", hit: "ApparitionHit001.mp3" },
+  "militia-v2": { attack: "FootmanLameSword.mp3", walk: "FootSteps1.mp3", hit: "HitreactArmor.mp3", death: "DeadArmor.mp3" },
 };
 for (const cues of Object.values(MONSTER_SFX)) for (const file of Object.values(cues)) preloadExclusiveSfx(file);
 
@@ -273,6 +278,9 @@ export const sfxPlay = {
   // bladeStartAt: seconds into the blade recording to start from (Kael's long swing skips its
   // silent lead-in so the swoosh lands on his slash). The blunt cue always starts at 0.
   meleeAttack: (blade = false, bladeStartAt = 0) => playSfxFileExclusive(blade ? "BladeSlash1Dagger.mp3" : "ATT01Blunt.mp3", 0.55, blade ? bladeStartAt : 0),
+  daggerAttack: () => playSfxFileExclusive("Blade3.mp3", 0.55),
+  kaelBladeSkill: () => playSfxFileExclusive("Attack2.mp3", 0.55),
+  shieldBash: () => playSfxFileExclusive("ShieldBash.mp3", 0.55),
   // Cultist V2's own authored cues (see attachments/Cultist-V2), one per animation set —
   // played instead of the (now silent) generic attack/cast/move cues whenever the acting
   // unit's sprite is "cultist-v2" (see stepCombat/stepSpell/startSeq in engine.ts).

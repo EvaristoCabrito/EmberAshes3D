@@ -2254,14 +2254,14 @@
       },
       {
         "name": "Guarda da Torre",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 7,
         "y": 7,
         "level": 10
       },
       {
         "name": "Guarda da Torre",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 18,
         "y": 7,
         "level": 10

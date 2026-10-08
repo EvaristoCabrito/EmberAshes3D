@@ -1,0 +1,122 @@
+[
+  {
+    "kind": "fantomForce",
+    "queue": 1
+  },
+  {
+    "kind": "lifeDrain",
+    "queue": 1
+  },
+  {
+    "kind": "shock",
+    "queue": 1
+  },
+  {
+    "kind": "magicMissileV2",
+    "queue": 1
+  },
+  {
+    "kind": "fireball",
+    "queue": 1
+  },
+  {
+    "kind": "causticVenom",
+    "queue": 1
+  },
+  {
+    "kind": "phantasmalForce",
+    "queue": 1
+  },
+  {
+    "kind": "bless",
+    "queue": 1
+  },
+  {
+    "kind": "divineBolt",
+    "queue": 1
+  },
+  {
+    "kind": "minorVenom",
+    "queue": 1
+  },
+  {
+    "kind": "lightning",
+    "queue": 1
+  },
+  {
+    "kind": "lightningTier3",
+    "queue": 1
+  },
+  {
+    "kind": "burningHands",
+    "queue": 1
+  },
+  {
+    "kind": "poisonBreath",
+    "queue": 1
+  },
+  {
+    "kind": "sweep",
+    "queue": 1
+  },
+  {
+    "kind": "cleave",
+    "queue": 1
+  },
+  {
+    "kind": "cureMinor",
+    "queue": 1
+  },
+  {
+    "kind": "cureWounds",
+    "queue": 1
+  },
+  {
+    "kind": "cureLight",
+    "queue": 1
+  },
+  {
+    "kind": "cureDisease",
+    "queue": 1
+  },
+  {
+    "kind": "bullRush",
+    "queue": 1
+  },
+  {
+    "kind": "executionerStrike",
+    "queue": 1
+  },
+  {
+    "kind": "shieldBash",
+    "queue": 1
+  },
+  {
+    "kind": "doubleStrike",
+    "queue": 1
+  },
+  {
+    "kind": "trip",
+    "queue": 1
+  },
+  {
+    "kind": "piercingThrust",
+    "queue": 1
+  },
+  {
+    "kind": "divineWrath",
+    "queue": 1
+  },
+  {
+    "kind": "shoulderSmash",
+    "queue": 1
+  },
+  {
+    "kind": "stampede",
+    "queue": 1
+  },
+  {
+    "kind": "tendrilSwipe",
+    "queue": 1
+  }
+]

@@ -2382,7 +2382,7 @@
       },
       {
         "name": "Carcereiro",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 7,
         "y": 9,
         "level": 10,

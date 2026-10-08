@@ -583,7 +583,7 @@
     "enemySpawns": [
       {
         "name": "Soldado",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 8,
         "y": 6,
         "level": 9

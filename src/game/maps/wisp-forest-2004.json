@@ -6813,7 +6813,7 @@
       },
       {
         "name": "Soldado",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 20,
         "y": 26,
         "level": 2
@@ -6921,14 +6921,14 @@
       },
       {
         "name": "Inimigo 24",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 25,
         "y": 5,
         "level": 2
       },
       {
         "name": "Inimigo 25",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 21,
         "y": 27,
         "level": 2

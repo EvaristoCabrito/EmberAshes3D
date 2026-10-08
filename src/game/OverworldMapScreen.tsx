@@ -162,8 +162,8 @@ export function OverworldMapScreen({
   save: SaveData;
   onUseRation: (hero: string) => void;
   onUseRationAll?: (heroes: string[]) => number;
-  /** World-map cast of Create Food and Water (Healer tier 1) — returns false (and does
-   * nothing) when the hero isn't a healer, has no tier-1 charges left, or is already at the
+  /** World-map cast of Create Food and Water (Healer tier 4) — returns false (and does
+   * nothing) when the hero isn't a healer, has no tier-4 charges left, or is already at the
    * spell's own fullness target. See GameApp.tsx's castCreateFoodAndWater. */
   onCastCreateFoodAndWater?: (hero: string) => boolean;
   /** Wired into the Mochila/Paperdoll's own equip picker — omitted for a while, which left
@@ -530,8 +530,8 @@ export function OverworldMapScreen({
                   return healers.map((name) => {
                     const level = save.levels[name] ?? 1;
                     const classId = save.promotions[name] ?? "healer";
-                    const spent = save.spellUses[name]?.tier3 ?? 0;
-                    const remaining = Math.max(0, tierUses(classId, 3, level) - spent);
+                    const spent = save.spellUses[name]?.tier4 ?? 0;
+                    const remaining = Math.max(0, tierUses(classId, 4, level) - spent);
                     const power = createFoodAndWaterPower(level);
                     const alreadyFull = fullness(save.heroHunger[name]) >= power.fullness;
                     const disabled = remaining <= 0 || alreadyFull;

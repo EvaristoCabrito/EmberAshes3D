@@ -1672,14 +1672,14 @@
       },
       {
         "name": "Soldado",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 4,
         "y": 6,
         "level": 4
       },
       {
         "name": "Soldado",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 20,
         "y": 6,
         "level": 4

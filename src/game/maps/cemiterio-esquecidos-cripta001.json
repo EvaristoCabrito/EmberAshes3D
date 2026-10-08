@@ -1192,7 +1192,7 @@
       },
       {
         "name": "Sentinela Ossuária",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 17,
         "y": 4,
         "level": 11

@@ -219,7 +219,7 @@
     "enemySpawns": [
       {
         "level": 8,
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "y": 2,
         "name": "Guarda da Ponte",
         "x": 4

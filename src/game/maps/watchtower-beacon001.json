@@ -3116,7 +3116,7 @@
       },
       {
         "name": "Sentinela do Farol",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 6,
         "y": 14,
         "level": 10

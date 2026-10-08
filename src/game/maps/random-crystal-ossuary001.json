@@ -1066,7 +1066,7 @@
     "enemySpawns": [
       {
         "name": "Guarda do ossário",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 14,
         "y": 4,
         "level": 8

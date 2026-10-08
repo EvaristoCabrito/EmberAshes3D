@@ -10189,7 +10189,7 @@
       },
       {
         "name": "Saqueador de Covas",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 16,
         "y": 16,
         "level": 4

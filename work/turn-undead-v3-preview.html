@@ -1,0 +1,7421 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Turn Undead · Divine Flash V3 Preview</title><style>body{margin:0;background:#0b1016;color:#e9e3d1;font:15px system-ui}main{max-width:1050px;margin:auto;padding:25px}h1{font:30px Georgia;color:#ffe3a1;margin-bottom:8px}p{color:#aeb6ba}button,select{padding:9px 14px;background:#263239;border:1px solid #556268;color:#ffe6ae;border-radius:5px;margin-right:8px}canvas{width:100%;height:auto;border-radius:8px;margin:18px 0}table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:11px 12px;text-align:left;border-bottom:1px solid #354044}th{color:#ffe6ae}#area{margin-left:10px;color:#ffe6ae}</style></head><body><main><h1>Turn Undead · Divine Flash V3</h1><p>Tier 3 priest spell · Holy damage · Undead retreat for 2 own turns · Other creatures are unaffected</p><label>Area radius <select id="radius"><option value="1">1 hex · 7 cells</option><option value="2" selected>2 hexes · 19 cells</option><option value="3">3 hexes · 37 cells</option></select></label><button id="replay">Cast flash once</button><button id="pause">Pause / Resume</button><span id="area"></span><canvas width="940" height="670"></canvas><table><thead><tr><th>Level</th><th>Reach</th><th>Radius</th><th>Area</th><th>Holy damage</th><th>Fear</th></tr></thead><tbody></tbody></table><p>One cast: a brief flash, gone completely within half a second. Uses the existing healing light palette and potion burst's aura, orbiting motes, and rising particles. Standalone preview using the game's 2D WebGL renderer. This new effect is waiting for your acceptance before combat integration.</p></main><script>(function() {
+	//#region src/game/gfx/glutil.ts
+	/** Minimal WebGL2 plumbing shared by the elemental FX pipeline. No dependency on any
+	* particular pass — just shader/program/FBO/texture creation helpers. */
+	function compileShader(gl, type, source) {
+		const shader = gl.createShader(type);
+		if (!shader) throw new Error("gl.createShader failed");
+		gl.shaderSource(shader, source);
+		gl.compileShader(shader);
+		if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+			const log = gl.getShaderInfoLog(shader);
+			gl.deleteShader(shader);
+			throw new Error(`Shader compile failed: ${log}\n${source}`);
+		}
+		return shader;
+	}
+	function createProgram(gl, vertSrc, fragSrc) {
+		const vert = compileShader(gl, gl.VERTEX_SHADER, vertSrc);
+		const frag = compileShader(gl, gl.FRAGMENT_SHADER, fragSrc);
+		const program = gl.createProgram();
+		if (!program) throw new Error("gl.createProgram failed");
+		gl.attachShader(program, vert);
+		gl.attachShader(program, frag);
+		gl.linkProgram(program);
+		gl.deleteShader(vert);
+		gl.deleteShader(frag);
+		if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+			const log = gl.getProgramInfoLog(program);
+			gl.deleteProgram(program);
+			throw new Error(`Program link failed: ${log}`);
+		}
+		return program;
+	}
+	function bindAttrib(gl, buf, location, size = 2) {
+		gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+		gl.enableVertexAttribArray(location);
+		gl.vertexAttribPointer(location, size, gl.FLOAT, false, 0, 0);
+	}
+	//#endregion
+	//#region src/game/gfx/WebGL2DRenderer.ts
+	/** A from-scratch WebGL2 stand-in for CanvasRenderingContext2D, built to cover exactly the
+	* subset of the Canvas2D API that engine.ts's renderGround/renderUnitsAndOverlays actually
+	* call (audited directly against that file, not the full spec):
+	*
+	*  - path building: beginPath/moveTo/lineTo/closePath/arc/quadraticCurveTo/rect
+	*  - fill()/stroke(), including the one Path2D-argument case (blade-sweep crescent)
+	*  - one clip() use (per-hex tile-art masking) via a stencil mask, scoped to save()/restore()
+	*  - createLinearGradient/createRadialGradient + addColorStop (always same-center circles
+	*    for the radial case — every call site in engine.ts uses that form)
+	*  - globalCompositeOperation, but only ever "source-over" or "lighter" in this codebase
+	*  - shadowColor/shadowBlur (approximated as a soft multi-ring glow — cheap, no offscreen
+	*    blur pass, and this codebase never sets shadowOffsetX/Y so every shadow here really is
+	*    a centered glow, not an offset drop-shadow)
+	*  - filter, but only ever "none" or "brightness(x)" here
+	*  - fillText honoring ctx.font/fillStyle/textAlign/textBaseline (cached as textures, keyed
+	*    by their own content, instead of re-rasterizing every frame)
+	*  - drawImage(img, x, y, w, h) — the only signature used here (no source-rect slicing)
+	*
+	* Deliberately NOT a general Canvas2D polyfill: lineCap/lineJoin are always "round" in this
+	* codebase so stroke() always renders round joins/caps, strokeStyle is always a flat color
+	* (never a gradient) here, and gradients/clip never nest beyond what's audited above.
+	*/
+	const VERT_LOCAL = `#version 300 es
+precision highp float;
+layout(location = 0) in vec2 a_pos;
+uniform mat4 u_matrix;
+out vec2 v_local;
+void main() {
+  v_local = a_pos;
+  gl_Position = u_matrix * vec4(a_pos, 0.0, 1.0);
+}
+`;
+	const VERT_UNIT_QUAD = `#version 300 es
+precision highp float;
+layout(location = 0) in vec2 a_pos;
+uniform mat4 u_matrix;
+uniform vec4 u_rect; // x, y, w, h in local space
+out vec2 v_uv;
+void main() {
+  v_uv = a_pos * 0.5 + 0.5;
+  vec2 local = u_rect.xy + v_uv * u_rect.zw;
+  gl_Position = u_matrix * vec4(local, 0.0, 1.0);
+}
+`;
+	const FRAG_FILL = `#version 300 es
+precision highp float;
+in vec2 v_local;
+uniform int u_mode; // 0 = solid, 1 = linear gradient, 2 = radial gradient
+uniform vec4 u_color;
+uniform sampler2D u_gradTex;
+uniform vec4 u_gradP; // linear: p0.xy, p1.xy | radial: center.xy, r0, r1
+uniform float u_alpha;
+out vec4 FragColor;
+void main() {
+  vec4 c;
+  if (u_mode == 0) {
+    c = u_color;
+  } else if (u_mode == 1) {
+    vec2 axis = u_gradP.zw - u_gradP.xy;
+    float len2 = max(dot(axis, axis), 1e-6);
+    float t = dot(v_local - u_gradP.xy, axis) / len2;
+    c = texture(u_gradTex, vec2(clamp(t, 0.0, 1.0), 0.5));
+  } else {
+    float d = distance(v_local, u_gradP.xy);
+    float t = (d - u_gradP.z) / max(u_gradP.w - u_gradP.z, 1e-6);
+    c = texture(u_gradTex, vec2(clamp(t, 0.0, 1.0), 0.5));
+  }
+  FragColor = vec4(c.rgb, c.a * u_alpha);
+}
+`;
+	const FRAG_TEX = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_tex;
+uniform float u_alpha;
+uniform float u_brightness;
+uniform int u_tintMode; // 0 = normal texture color, 1 = flat tint using texture's alpha
+uniform vec3 u_tint;
+out vec4 FragColor;
+void main() {
+  vec4 t = texture(u_tex, v_uv);
+  vec3 rgb = u_tintMode == 1 ? u_tint : t.rgb * u_brightness;
+  FragColor = vec4(rgb, t.a * u_alpha);
+}
+`;
+	/** Same contract as FRAG_TEX (drawImage's plain textured quad), plus a cheap directional relight
+	* for flat sprite billboards — no real geometry/normals to light, so this leans on the two
+	* things a flat cutout actually has: where a pixel sits within the sprite's own silhouette
+	* (top vs. feet), and which way its alpha edge faces (dFdx/dFdy of alpha, free in GLSL ES 300,
+	* same trick as shaders.ts's relief()). The alpha gradient at a silhouette edge points outward
+	* away from the shape, so comparing -gradient to u_lightDir tells us whether that bit of edge
+	* catches the key light (a bright rim) or falls into its own shadow — plus a soft top-to-feet
+	* wash so the whole cutout, not just its outline, leans toward "lit from up there," and a
+	* contact-AO darkening at the very bottom so the sprite doesn't look like it's floating a hair
+	* above the shadow blob engine.ts draws under it. Deliberately gentle (see u_lightStrength) —
+	* this is meant to sit on top of hand-painted character art, not fight it with a full relight. */
+	const FRAG_TEX_LIT = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_tex;
+uniform float u_alpha;
+uniform float u_brightness;
+uniform vec2 u_lightDir; // normalized, screen-space (x right, y down), points TOWARD the light
+uniform float u_lightStrength; // 0 = identical to plain drawImage, ~0.3-0.5 is a tasteful amount
+out vec4 FragColor;
+void main() {
+  vec4 t = texture(u_tex, v_uv);
+  vec3 rgb = t.rgb * u_brightness;
+
+  // No early discard on low alpha here, deliberately: dFdx/dFdy below need every fragment in a
+  // hardware 2x2 pixel quad to still be "live" right at the silhouette edge — a discard on the
+  // transparent side of that same boundary is exactly where it would make the derivative
+  // undefined, which is exactly where the rim term below needs it most. Fully transparent
+  // pixels still cost a few ALU ops instead of an early-out, but they already contribute
+  // nothing once alpha-blended (t.a * u_alpha is ~0), same as plain FRAG_TEX with no discard.
+  vec2 edge = vec2(dFdx(t.a), dFdy(t.a));
+  float edgeLen = length(edge);
+  vec2 outward = edgeLen > 1e-5 ? -edge / edgeLen : vec2(0.0);
+  // Second attempt: the first pass boosted weak signal with pow(rim, 0.5) (a sqrt), which
+  // pushes even a small, barely-facing-the-light dot product way up — since a rounded
+  // silhouette has SOME positive dot product across most of its perimeter, that boost lit up
+  // almost the entire outline instead of just the side actually facing the light, which is
+  // exactly what read as "a yellow glow around the sprite" rather than directional lighting.
+  // Squaring instead of sqrt-ing does the opposite: it suppresses everything except edges
+  // that face close to straight at the light, so the highlight stays on one side.
+  float facing = clamp(dot(outward, u_lightDir), 0.0, 1.0);
+  float rim = facing * facing * smoothstep(0.0, 0.6, edgeLen);
+
+  // v_uv.y runs 0 (top of the sprite box) to 1 (its feet) — see VERT_UNIT_QUAD. Same fix as
+  // rim above: the old +/-0.5 range collapsed to a few percent of brightness once multiplied
+  // through — full +/-1.0 range here so "top of sprite catches the key light, feet sit in its
+  // own shadow" is something you can actually see, not just something true in the math.
+  float wash = clamp(1.0 - v_uv.y, 0.0, 1.0) * 2.0 - 1.0;
+  float lit = clamp(wash + rim, -1.0, 1.0) * u_lightStrength;
+
+  // Wider tint spread than before (was ~0.8-1.1, barely off-white) — a real warm/cool swing so
+  // the direction of the light is legible on the sprite itself, not just in its shadow.
+  vec3 keyTint = vec3(1.5, 1.28, 0.95);
+  vec3 shadeTint = vec3(0.45, 0.5, 0.72);
+  vec3 graded = rgb * mix(shadeTint, keyTint, clamp(lit * 0.5 + 0.5, 0.0, 1.0));
+  // Toned down and less yellow than the first pass (was a warm cream added at 0.9 strength,
+  // which read as a colored outline glow on its own regardless of the fix above) — closer to
+  // a neutral bright highlight, added more gently now that it's actually confined to the
+  // light-facing edge instead of spread around the whole silhouette.
+  vec3 finalRgb = mix(rgb, graded, u_lightStrength) + vec3(1.0, 0.97, 0.9) * rim * u_lightStrength * 0.4;
+
+  float ao = smoothstep(0.82, 1.0, v_uv.y);
+  finalRgb *= mix(1.0, 0.62, ao * u_lightStrength);
+
+  FragColor = vec4(finalRgb, t.a * u_alpha);
+}
+`;
+	function sweepDelta(a0, a1, ccw) {
+		const TWO_PI = Math.PI * 2;
+		let delta = a1 - a0;
+		if (!ccw) {
+			while (delta < 0) delta += TWO_PI;
+			delta = Math.min(delta, TWO_PI);
+		} else {
+			while (delta > 0) delta -= TWO_PI;
+			delta = Math.max(delta, -TWO_PI);
+		}
+		return delta;
+	}
+	function tessellateArc(cx, cy, r, a0, a1, ccw) {
+		const delta = sweepDelta(a0, a1, ccw);
+		const segs = Math.max(6, Math.ceil(Math.abs(delta) * Math.max(r, 1) / 6));
+		const pts = [];
+		for (let i = 0; i <= segs; i++) {
+			const a = a0 + delta * i / segs;
+			pts.push(cx + r * Math.cos(a), cy + r * Math.sin(a));
+		}
+		return pts;
+	}
+	function tessellateEllipse(cx, cy, rx, ry, rotation, a0, a1, ccw) {
+		const delta = sweepDelta(a0, a1, ccw);
+		const segs = Math.max(6, Math.ceil(Math.abs(delta) * Math.max(rx, ry, 1) / 6));
+		const cosR = Math.cos(rotation), sinR = Math.sin(rotation);
+		const pts = [];
+		for (let i = 0; i <= segs; i++) {
+			const a = a0 + delta * i / segs;
+			const ex = rx * Math.cos(a), ey = ry * Math.sin(a);
+			pts.push(cx + ex * cosR - ey * sinR, cy + ex * sinR + ey * cosR);
+		}
+		return pts;
+	}
+	function tessellateQuadratic(x0, y0, cx, cy, x1, y1) {
+		const segs = 12;
+		const pts = [];
+		for (let i = 1; i <= segs; i++) {
+			const t = i / segs;
+			const mt = 1 - t;
+			const x = mt * mt * x0 + 2 * mt * t * cx + t * t * x1;
+			const y = mt * mt * y0 + 2 * mt * t * cy + t * t * y1;
+			pts.push(x, y);
+		}
+		return pts;
+	}
+	/** Shared by the renderer's own implicit path and the exported Path2D shim below — both just
+	* record subpaths the same way. */
+	var PathRecorder = class {
+		subpaths = [];
+		cur = null;
+		moveTo(x, y) {
+			this.cur = {
+				pts: [x, y],
+				closed: false
+			};
+			this.subpaths.push(this.cur);
+		}
+		lineTo(x, y) {
+			if (!this.cur) this.moveTo(x, y);
+			else this.cur.pts.push(x, y);
+		}
+		closePath() {
+			if (this.cur) this.cur.closed = true;
+		}
+		arc(x, y, r, startAngle, endAngle, ccw = false) {
+			const pts = tessellateArc(x, y, r, startAngle, endAngle, ccw);
+			if (!this.cur) this.moveTo(pts[0], pts[1]);
+			else this.cur.pts.push(pts[0], pts[1]);
+			if (this.cur) this.cur.pts.push(...pts.slice(2));
+		}
+		ellipse(x, y, rx, ry, rotation, startAngle, endAngle, ccw = false) {
+			const pts = tessellateEllipse(x, y, rx, ry, rotation, startAngle, endAngle, ccw);
+			if (!this.cur) this.moveTo(pts[0], pts[1]);
+			else this.cur.pts.push(pts[0], pts[1]);
+			if (this.cur) this.cur.pts.push(...pts.slice(2));
+		}
+		quadraticCurveTo(cx, cy, x, y) {
+			if (!this.cur) this.moveTo(cx, cy);
+			const last = this.cur;
+			const x0 = last.pts[last.pts.length - 2];
+			const y0 = last.pts[last.pts.length - 1];
+			last.pts.push(...tessellateQuadratic(x0, y0, cx, cy, x, y));
+		}
+		rect(x, y, w, h) {
+			this.cur = {
+				pts: [
+					x,
+					y,
+					x + w,
+					y,
+					x + w,
+					y + h,
+					x,
+					y + h
+				],
+				closed: true
+			};
+			this.subpaths.push(this.cur);
+		}
+	};
+	var GLGradient = class {
+		kind;
+		x0;
+		y0;
+		r0;
+		x1;
+		y1;
+		r1;
+		tex = null;
+		dirty = true;
+		stops = [];
+		constructor(kind, x0, y0, r0, x1, y1, r1) {
+			this.kind = kind;
+			this.x0 = x0;
+			this.y0 = y0;
+			this.r0 = r0;
+			this.x1 = x1;
+			this.y1 = y1;
+			this.r1 = r1;
+		}
+		addColorStop(offset, color) {
+			this.stops.push({
+				offset,
+				rgba: parseColorCached(color)
+			});
+			this.dirty = true;
+		}
+		/** [mode, gradX, gradY, gradZW...] uniform payload for FRAG_FILL. */
+		uniformParams() {
+			if (this.kind === "linear") return {
+				mode: 1,
+				p: [
+					this.x0,
+					this.y0,
+					this.x1,
+					this.y1
+				]
+			};
+			return {
+				mode: 2,
+				p: [
+					this.x0,
+					this.y0,
+					this.r0,
+					this.r1
+				]
+			};
+		}
+		getTexture(gl) {
+			if (!this.tex) {
+				const tex = gl.createTexture();
+				if (!tex) throw new Error("gradient texture creation failed");
+				this.tex = tex;
+			}
+			if (this.dirty) {
+				const N = 64;
+				const data = /* @__PURE__ */ new Uint8Array(256);
+				const sorted = [...this.stops].sort((a, b) => a.offset - b.offset);
+				for (let i = 0; i < N; i++) {
+					const t = i / 63;
+					let lo = sorted[0];
+					let hi = sorted[sorted.length - 1];
+					for (let s = 0; s < sorted.length - 1; s++) if (t >= sorted[s].offset && t <= sorted[s + 1].offset) {
+						lo = sorted[s];
+						hi = sorted[s + 1];
+						break;
+					}
+					const span = hi.offset - lo.offset;
+					const localT = span > 1e-6 ? (t - lo.offset) / span : 0;
+					for (let c = 0; c < 4; c++) {
+						const v = lo.rgba[c] + (hi.rgba[c] - lo.rgba[c]) * localT;
+						data[i * 4 + c] = Math.round(c === 3 ? v * 255 : v * 255);
+					}
+				}
+				gl.bindTexture(gl.TEXTURE_2D, this.tex);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, N, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+				this.dirty = false;
+			}
+			return this.tex;
+		}
+	};
+	const colorCache = /* @__PURE__ */ new Map();
+	let colorProbeCtx = null;
+	/** Parses any CSS color string (#hex, rgb()/rgba(), hsl(), named colors, ...) by letting the
+	* browser do it via a 1x1 canvas, then caches the result — this codebase reuses the same
+	* handful of color strings on every frame. */
+	function parseColorCached(style) {
+		const hit = colorCache.get(style);
+		if (hit) return hit;
+		if (!colorProbeCtx) {
+			const c = document.createElement("canvas");
+			c.width = 1;
+			c.height = 1;
+			colorProbeCtx = c.getContext("2d", { willReadFrequently: true });
+		}
+		let rgba = [
+			0,
+			0,
+			0,
+			1
+		];
+		if (colorProbeCtx) {
+			colorProbeCtx.clearRect(0, 0, 1, 1);
+			colorProbeCtx.fillStyle = style;
+			colorProbeCtx.fillRect(0, 0, 1, 1);
+			const d = colorProbeCtx.getImageData(0, 0, 1, 1).data;
+			rgba = [
+				d[0] / 255,
+				d[1] / 255,
+				d[2] / 255,
+				d[3] / 255
+			];
+		}
+		colorCache.set(style, rgba);
+		return rgba;
+	}
+	function pathBounds(subpaths) {
+		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+		for (const sp of subpaths) for (let i = 0; i < sp.pts.length; i += 2) {
+			const x = sp.pts[i], y = sp.pts[i + 1];
+			if (x < minX) minX = x;
+			if (x > maxX) maxX = x;
+			if (y < minY) minY = y;
+			if (y > maxY) maxY = y;
+		}
+		if (!Number.isFinite(minX)) return {
+			x: 0,
+			y: 0,
+			w: 0,
+			h: 0
+		};
+		return {
+			x: minX,
+			y: minY,
+			w: maxX - minX,
+			h: maxY - minY
+		};
+	}
+	function scalePointsAboutCenter(subpaths, scale) {
+		if (scale === 1) return subpaths;
+		const b = pathBounds(subpaths);
+		const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+		return subpaths.map((sp) => ({
+			closed: sp.closed,
+			pts: sp.pts.map((v, i) => i % 2 === 0 ? cx + (v - cx) * scale : cy + (v - cy) * scale)
+		}));
+	}
+	var WebGL2DRenderer = class {
+		gl;
+		progFill;
+		progTex;
+		progTexLit;
+		polyBuf;
+		quadBuf;
+		width;
+		height;
+		matrix = /* @__PURE__ */ new Float32Array(16);
+		stateStack = [];
+		textureCache = /* @__PURE__ */ new Map();
+		textTextureCache = /* @__PURE__ */ new Map();
+		path = new PathRecorder();
+		activeClip = null;
+		fillStyle = "#000000";
+		strokeStyle = "#000000";
+		lineWidth = 1;
+		lineCap = "round";
+		lineJoin = "round";
+		globalAlpha = 1;
+		globalCompositeOperation = "source-over";
+		shadowColor = "rgba(0,0,0,0)";
+		shadowBlur = 0;
+		filter = "none";
+		font = "12px sans-serif";
+		textAlign = "left";
+		textBaseline = "alphabetic";
+		lightDirX = -.6;
+		lightDirY = -.8;
+		lightStrength = 0;
+		setLightDirection(dx, dy) {
+			const len = Math.hypot(dx, dy) || 1;
+			this.lightDirX = dx / len;
+			this.lightDirY = dy / len;
+		}
+		constructor(canvas) {
+			const gl = canvas.getContext("webgl2", {
+				antialias: true,
+				alpha: true,
+				stencil: true
+			});
+			if (!gl) throw new Error("WebGL2 context failed");
+			this.gl = gl;
+			this.width = canvas.width;
+			this.height = canvas.height;
+			this.quadBuf = this.createBuffer(new Float32Array([
+				-1,
+				-1,
+				1,
+				-1,
+				-1,
+				1,
+				-1,
+				1,
+				1,
+				-1,
+				1,
+				1
+			]));
+			this.polyBuf = gl.createBuffer();
+			this.progFill = createProgram(gl, VERT_LOCAL, FRAG_FILL);
+			this.progTex = createProgram(gl, VERT_UNIT_QUAD, FRAG_TEX);
+			this.progTexLit = createProgram(gl, VERT_UNIT_QUAD, FRAG_TEX_LIT);
+			this.ortho(0, this.width, this.height, 0);
+			gl.viewport(0, 0, this.width, this.height);
+			gl.clearColor(0, 0, 0, 0);
+			gl.clearStencil(0);
+			gl.enable(gl.BLEND);
+			gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+		}
+		createBuffer(data) {
+			const buf = this.gl.createBuffer();
+			if (!buf) throw new Error("gl.createBuffer failed");
+			this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buf);
+			this.gl.bufferData(this.gl.ARRAY_BUFFER, data, this.gl.STATIC_DRAW);
+			return buf;
+		}
+		ortho(left, right, bottom, top) {
+			const m = this.matrix;
+			m.fill(0);
+			m[0] = 2 / (right - left);
+			m[5] = 2 / (top - bottom);
+			m[10] = -1;
+			m[15] = 1;
+			m[12] = -(right + left) / (right - left);
+			m[13] = -(top + bottom) / (top - bottom);
+		}
+		clear() {
+			this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.STENCIL_BUFFER_BIT);
+		}
+		setSize(w, h) {
+			this.width = w;
+			this.height = h;
+			this.gl.viewport(0, 0, w, h);
+			this.ortho(0, w, h, 0);
+		}
+		save() {
+			this.stateStack.push({
+				matrix: new Float32Array(this.matrix),
+				fillStyle: this.fillStyle,
+				strokeStyle: this.strokeStyle,
+				lineWidth: this.lineWidth,
+				globalAlpha: this.globalAlpha,
+				globalCompositeOperation: this.globalCompositeOperation,
+				shadowColor: this.shadowColor,
+				shadowBlur: this.shadowBlur,
+				filter: this.filter,
+				font: this.font,
+				textAlign: this.textAlign,
+				textBaseline: this.textBaseline,
+				clip: this.activeClip
+			});
+		}
+		restore() {
+			const s = this.stateStack.pop();
+			if (!s) return;
+			this.matrix.set(s.matrix);
+			this.fillStyle = s.fillStyle;
+			this.strokeStyle = s.strokeStyle;
+			this.lineWidth = s.lineWidth;
+			this.globalAlpha = s.globalAlpha;
+			this.globalCompositeOperation = s.globalCompositeOperation;
+			this.shadowColor = s.shadowColor;
+			this.shadowBlur = s.shadowBlur;
+			this.filter = s.filter;
+			this.font = s.font;
+			this.textAlign = s.textAlign;
+			this.textBaseline = s.textBaseline;
+			this.activeClip = s.clip;
+		}
+		setTransform(a, b, c, d, e, f) {
+			this.ortho(0, this.width, this.height, 0);
+			const ortho = new Float32Array(this.matrix);
+			const m = /* @__PURE__ */ new Float32Array(16);
+			m[0] = a;
+			m[1] = b;
+			m[4] = c;
+			m[5] = d;
+			m[10] = 1;
+			m[12] = e;
+			m[13] = f;
+			m[15] = 1;
+			this.matrix = multiplyMat4(ortho, m);
+		}
+		translate(x, y) {
+			const t = identity();
+			t[12] = x;
+			t[13] = y;
+			this.matrix = multiplyMat4(this.matrix, t);
+		}
+		scale(sx, sy) {
+			const s = identity();
+			s[0] = sx;
+			s[5] = sy;
+			this.matrix = multiplyMat4(this.matrix, s);
+		}
+		rotate(angle) {
+			const c = Math.cos(angle), sn = Math.sin(angle);
+			const r = identity();
+			r[0] = c;
+			r[1] = sn;
+			r[4] = -sn;
+			r[5] = c;
+			this.matrix = multiplyMat4(this.matrix, r);
+		}
+		beginPath() {
+			this.path = new PathRecorder();
+		}
+		moveTo(x, y) {
+			this.path.moveTo(x, y);
+		}
+		lineTo(x, y) {
+			this.path.lineTo(x, y);
+		}
+		closePath() {
+			this.path.closePath();
+		}
+		arc(x, y, r, a0, a1, ccw = false) {
+			this.path.arc(x, y, r, a0, a1, ccw);
+		}
+		ellipse(x, y, rx, ry, rotation, a0, a1, ccw = false) {
+			this.path.ellipse(x, y, rx, ry, rotation, a0, a1, ccw);
+		}
+		quadraticCurveTo(cx, cy, x, y) {
+			this.path.quadraticCurveTo(cx, cy, x, y);
+		}
+		rect(x, y, w, h) {
+			this.path.rect(x, y, w, h);
+		}
+		createLinearGradient(x0, y0, x1, y1) {
+			return new GLGradient("linear", x0, y0, 0, x1, y1, 0);
+		}
+		createRadialGradient(x0, y0, r0, x1, y1, r1) {
+			return new GLGradient("radial", x0, y0, r0, x1, y1, r1);
+		}
+		applyBlend() {
+			const gl = this.gl;
+			if (this.globalCompositeOperation === "lighter") gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+			else gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+		}
+		styleToFillUniforms(style) {
+			if (typeof style === "string") return {
+				mode: 0,
+				color: parseColorCached(style),
+				gradTex: null,
+				gradP: [
+					0,
+					0,
+					0,
+					0
+				]
+			};
+			const { mode, p } = style.uniformParams();
+			return {
+				mode,
+				color: [
+					1,
+					1,
+					1,
+					1
+				],
+				gradTex: style.getTexture(this.gl),
+				gradP: p
+			};
+		}
+		drawTriangleFill(verts, style, alphaMul, tint) {
+			if (verts.length < 6) return;
+			const gl = this.gl;
+			this.applyBlend();
+			gl.useProgram(this.progFill);
+			bindAttrib(gl, this.polyBuf, 0, 2);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.DYNAMIC_DRAW);
+			const u = tint ? {
+				mode: 0,
+				color: [
+					tint[0],
+					tint[1],
+					tint[2],
+					tint[3]
+				],
+				gradTex: null,
+				gradP: [
+					0,
+					0,
+					0,
+					0
+				]
+			} : this.styleToFillUniforms(style);
+			gl.uniform1i(gl.getUniformLocation(this.progFill, "u_mode"), u.mode);
+			gl.uniform4f(gl.getUniformLocation(this.progFill, "u_color"), u.color[0], u.color[1], u.color[2], u.color[3]);
+			gl.uniform4f(gl.getUniformLocation(this.progFill, "u_gradP"), u.gradP[0], u.gradP[1], u.gradP[2], u.gradP[3]);
+			gl.uniform1f(gl.getUniformLocation(this.progFill, "u_alpha"), this.globalAlpha * alphaMul);
+			if (u.gradTex) {
+				gl.activeTexture(gl.TEXTURE0);
+				gl.bindTexture(gl.TEXTURE_2D, u.gradTex);
+				gl.uniform1i(gl.getUniformLocation(this.progFill, "u_gradTex"), 0);
+			}
+			gl.uniformMatrix4fv(gl.getUniformLocation(this.progFill, "u_matrix"), false, this.matrix);
+			gl.drawArrays(gl.TRIANGLES, 0, verts.length / 2);
+		}
+		/** Stencil-then-cover fill of a single simple polygon (fan-from-first-point + INVERT, an
+		* even-odd fill that's exact for every shape this codebase draws — plain convex polygons,
+		* full circles, and the one concave annular-sector Path2D crescent). Handles concave/
+		* non-star shapes correctly, unlike a plain fan-triangulate-and-draw. */
+		fillPolygonStencil(sp, style, alphaMul, tint) {
+			const pts = sp.pts;
+			if (pts.length < 6) return;
+			const gl = this.gl;
+			this.applyBlend();
+			gl.enable(gl.STENCIL_TEST);
+			const fan = [];
+			const x0 = pts[0], y0 = pts[1];
+			for (let i = 2; i + 2 < pts.length + 2; i += 2) {
+				const x1 = pts[i % pts.length], y1 = pts[(i + 1) % pts.length];
+				const x2 = pts[(i + 2) % pts.length], y2 = pts[(i + 3) % pts.length];
+				fan.push(x0, y0, x1, y1, x2, y2);
+			}
+			gl.colorMask(false, false, false, false);
+			gl.stencilMask(1);
+			gl.stencilFunc(gl.ALWAYS, 1, 1);
+			gl.stencilOp(gl.KEEP, gl.KEEP, gl.INVERT);
+			gl.useProgram(this.progFill);
+			bindAttrib(gl, this.polyBuf, 0, 2);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(fan), gl.DYNAMIC_DRAW);
+			gl.uniformMatrix4fv(gl.getUniformLocation(this.progFill, "u_matrix"), false, this.matrix);
+			gl.uniform1i(gl.getUniformLocation(this.progFill, "u_mode"), 0);
+			gl.uniform4f(gl.getUniformLocation(this.progFill, "u_color"), 0, 0, 0, 0);
+			gl.uniform1f(gl.getUniformLocation(this.progFill, "u_alpha"), 0);
+			gl.drawArrays(gl.TRIANGLES, 0, fan.length / 2);
+			gl.colorMask(true, true, true, true);
+			gl.stencilFunc(gl.EQUAL, 1, 1);
+			gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+			const b = pathBounds([sp]);
+			const pad = Math.max(b.w, b.h) * .02 + 1;
+			const cover = [
+				b.x - pad,
+				b.y - pad,
+				b.x + b.w + pad,
+				b.y - pad,
+				b.x - pad,
+				b.y + b.h + pad,
+				b.x - pad,
+				b.y + b.h + pad,
+				b.x + b.w + pad,
+				b.y - pad,
+				b.x + b.w + pad,
+				b.y + b.h + pad
+			];
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cover), gl.DYNAMIC_DRAW);
+			const u = tint ? {
+				mode: 0,
+				color: tint,
+				gradTex: null,
+				gradP: [
+					0,
+					0,
+					0,
+					0
+				]
+			} : this.styleToFillUniforms(style);
+			gl.uniform1i(gl.getUniformLocation(this.progFill, "u_mode"), u.mode);
+			gl.uniform4f(gl.getUniformLocation(this.progFill, "u_color"), u.color[0], u.color[1], u.color[2], u.color[3]);
+			gl.uniform4f(gl.getUniformLocation(this.progFill, "u_gradP"), u.gradP[0], u.gradP[1], u.gradP[2], u.gradP[3]);
+			gl.uniform1f(gl.getUniformLocation(this.progFill, "u_alpha"), this.globalAlpha * alphaMul);
+			if (u.gradTex) {
+				gl.activeTexture(gl.TEXTURE0);
+				gl.bindTexture(gl.TEXTURE_2D, u.gradTex);
+				gl.uniform1i(gl.getUniformLocation(this.progFill, "u_gradTex"), 0);
+			}
+			gl.drawArrays(gl.TRIANGLES, 0, 6);
+			gl.colorMask(false, false, false, false);
+			gl.stencilMask(1);
+			gl.stencilFunc(gl.ALWAYS, 0, 1);
+			gl.stencilOp(gl.ZERO, gl.ZERO, gl.ZERO);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(fan), gl.DYNAMIC_DRAW);
+			gl.drawArrays(gl.TRIANGLES, 0, fan.length / 2);
+			gl.colorMask(true, true, true, true);
+			gl.stencilMask(255);
+			gl.disable(gl.STENCIL_TEST);
+		}
+		withGlow(bounds, draw) {
+			if (this.shadowBlur > 0) {
+				const [r, g, b, a] = parseColorCached(this.shadowColor);
+				if (a > .004) {
+					const ref = Math.max(bounds.w, bounds.h, 1);
+					const spread = Math.min(this.shadowBlur / ref, .35);
+					const rings = [
+						[1 + spread * .25, .03],
+						[1 + spread * .12, .06],
+						[1 + spread * .05, .1]
+					];
+					for (const [scaleMul, weight] of rings) draw(scaleMul, [
+						r,
+						g,
+						b,
+						1
+					], a * weight);
+				}
+			}
+			draw(1, null, 1);
+		}
+		/** Renders the active clip's mask into stencil bit 2 and enables the stencil test against
+		* it, ahead of one masked draw call; call restoreAfterClipDraw() right after. Cheap and
+		* correct for the single-hex-at-a-time usage this codebase actually has. */
+		applyClipMaskIfAny() {
+			if (!this.activeClip) return false;
+			const gl = this.gl;
+			const sp = this.activeClip.subpaths[0];
+			if (!sp) return false;
+			const savedMatrix = new Float32Array(this.matrix);
+			this.matrix = new Float32Array(this.activeClip.matrix);
+			gl.enable(gl.STENCIL_TEST);
+			gl.colorMask(false, false, false, false);
+			gl.stencilMask(2);
+			gl.stencilFunc(gl.ALWAYS, 2, 2);
+			gl.stencilOp(gl.KEEP, gl.KEEP, gl.INVERT);
+			const fan = [];
+			const pts = sp.pts;
+			const x0 = pts[0], y0 = pts[1];
+			for (let i = 2; i + 2 < pts.length + 2; i += 2) {
+				const x1 = pts[i % pts.length], y1 = pts[(i + 1) % pts.length];
+				const x2 = pts[(i + 2) % pts.length], y2 = pts[(i + 3) % pts.length];
+				fan.push(x0, y0, x1, y1, x2, y2);
+			}
+			gl.useProgram(this.progFill);
+			bindAttrib(gl, this.polyBuf, 0, 2);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(fan), gl.DYNAMIC_DRAW);
+			gl.uniformMatrix4fv(gl.getUniformLocation(this.progFill, "u_matrix"), false, this.matrix);
+			gl.uniform1i(gl.getUniformLocation(this.progFill, "u_mode"), 0);
+			gl.uniform4f(gl.getUniformLocation(this.progFill, "u_color"), 0, 0, 0, 0);
+			gl.uniform1f(gl.getUniformLocation(this.progFill, "u_alpha"), 0);
+			gl.drawArrays(gl.TRIANGLES, 0, fan.length / 2);
+			gl.colorMask(true, true, true, true);
+			gl.stencilFunc(gl.EQUAL, 2, 2);
+			gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+			this.matrix = savedMatrix;
+			return true;
+		}
+		clearClipMask() {
+			const gl = this.gl;
+			if (!this.activeClip) return;
+			const sp = this.activeClip.subpaths[0];
+			if (!sp) return;
+			const savedMatrix = new Float32Array(this.matrix);
+			this.matrix = new Float32Array(this.activeClip.matrix);
+			gl.useProgram(this.progFill);
+			gl.colorMask(false, false, false, false);
+			gl.stencilMask(2);
+			gl.stencilFunc(gl.ALWAYS, 0, 2);
+			gl.stencilOp(gl.ZERO, gl.ZERO, gl.ZERO);
+			const fan = [];
+			const pts = sp.pts;
+			const x0 = pts[0], y0 = pts[1];
+			for (let i = 2; i + 2 < pts.length + 2; i += 2) {
+				const x1 = pts[i % pts.length], y1 = pts[(i + 1) % pts.length];
+				const x2 = pts[(i + 2) % pts.length], y2 = pts[(i + 3) % pts.length];
+				fan.push(x0, y0, x1, y1, x2, y2);
+			}
+			bindAttrib(this.gl, this.polyBuf, 0, 2);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(fan), gl.DYNAMIC_DRAW);
+			gl.uniformMatrix4fv(gl.getUniformLocation(this.progFill, "u_matrix"), false, this.matrix);
+			gl.drawArrays(gl.TRIANGLES, 0, fan.length / 2);
+			gl.colorMask(true, true, true, true);
+			gl.stencilMask(255);
+			gl.disable(gl.STENCIL_TEST);
+			this.matrix = savedMatrix;
+		}
+		fill(path) {
+			const subpaths = (path ?? this.path).subpaths;
+			if (subpaths.length === 0) return;
+			const bounds = pathBounds(subpaths);
+			const hadClip = this.applyClipMaskIfAny();
+			this.withGlow(bounds, (scaleMul, tint, alphaMul) => {
+				const scaled = scalePointsAboutCenter(subpaths, scaleMul);
+				for (const sp of scaled) this.fillPolygonStencil(sp, this.fillStyle, alphaMul, tint);
+			});
+			if (hadClip) this.clearClipMask();
+		}
+		stroke(path) {
+			const subpaths = (path ?? this.path).subpaths;
+			if (subpaths.length === 0) return;
+			const bounds = pathBounds(subpaths);
+			const hw = this.lineWidth / 2;
+			const build = (sps) => {
+				const verts = [];
+				for (const sp of sps) {
+					const pts = sp.pts;
+					const n = pts.length / 2;
+					const segCount = sp.closed ? n : n - 1;
+					for (let i = 0; i < segCount; i++) {
+						const x0 = pts[i * 2 % pts.length], y0 = pts[(i * 2 + 1) % pts.length];
+						const x1 = pts[(i + 1) * 2 % pts.length], y1 = pts[((i + 1) * 2 + 1) % pts.length];
+						const dx = x1 - x0, dy = y1 - y0;
+						const len = Math.hypot(dx, dy) || 1;
+						const nx = -dy / len * hw, ny = dx / len * hw;
+						verts.push(x0 - nx, y0 - ny, x1 - nx, y1 - ny, x1 + nx, y1 + ny);
+						verts.push(x0 - nx, y0 - ny, x1 + nx, y1 + ny, x0 + nx, y0 + ny);
+					}
+					const jointCount = sp.closed ? n : n;
+					for (let i = 0; i < jointCount; i++) {
+						const cx = pts[i * 2], cy = pts[i * 2 + 1];
+						const segs = 10;
+						for (let s = 0; s < segs; s++) {
+							const a0 = s / segs * Math.PI * 2, a1 = (s + 1) / segs * Math.PI * 2;
+							verts.push(cx, cy, cx + hw * Math.cos(a0), cy + hw * Math.sin(a0), cx + hw * Math.cos(a1), cy + hw * Math.sin(a1));
+						}
+					}
+				}
+				return verts;
+			};
+			const hadClip = this.applyClipMaskIfAny();
+			this.withGlow(bounds, (scaleMul, tint, alphaMul) => {
+				const scaled = scalePointsAboutCenter(subpaths, scaleMul);
+				this.drawTriangleFill(build(scaled), this.strokeStyle, alphaMul, tint);
+			});
+			if (hadClip) this.clearClipMask();
+		}
+		clip() {
+			this.activeClip = {
+				subpaths: this.path.subpaths.map((sp) => ({
+					pts: [...sp.pts],
+					closed: sp.closed
+				})),
+				matrix: new Float32Array(this.matrix)
+			};
+		}
+		fillRect(x, y, w, h) {
+			const hadClip = this.applyClipMaskIfAny();
+			this.withGlow({
+				x,
+				y,
+				w,
+				h
+			}, (scaleMul, tint, alphaMul) => {
+				const scaled = scalePointsAboutCenter([{
+					pts: [
+						x,
+						y,
+						x + w,
+						y,
+						x + w,
+						y + h,
+						x,
+						y + h
+					],
+					closed: true
+				}], scaleMul);
+				this.fillPolygonStencil(scaled[0], this.fillStyle, alphaMul, tint);
+			});
+			if (hadClip) this.clearClipMask();
+		}
+		/** Real Canvas2D clearRect erases to transparent regardless of blend mode — plain
+		* alpha-blended drawing can't do that, so this draws with blending disabled instead of
+		* routing through fillRect. */
+		clearRect(x, y, w, h) {
+			const gl = this.gl;
+			gl.disable(gl.BLEND);
+			this.drawTriangleFill([
+				x,
+				y,
+				x + w,
+				y,
+				x + w,
+				y + h,
+				x,
+				y,
+				x + w,
+				y + h,
+				x,
+				y + h
+			], "#000000", 1, [
+				0,
+				0,
+				0,
+				0
+			]);
+			gl.enable(gl.BLEND);
+		}
+		getTexture(img) {
+			let tex = this.textureCache.get(img);
+			if (!tex) {
+				const gl = this.gl;
+				tex = gl.createTexture();
+				if (!tex) throw new Error("Texture creation failed");
+				gl.bindTexture(gl.TEXTURE_2D, tex);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+				this.textureCache.set(img, tex);
+			}
+			return tex;
+		}
+		parseBrightness() {
+			const m = /brightness\(([\d.]+)\)/.exec(this.filter);
+			return m ? parseFloat(m[1]) : 1;
+		}
+		drawTexturedQuad(tex, x, y, w, h, alphaMul, tint) {
+			const gl = this.gl;
+			this.applyBlend();
+			gl.useProgram(this.progTex);
+			bindAttrib(gl, this.quadBuf, 0, 2);
+			gl.activeTexture(gl.TEXTURE0);
+			gl.bindTexture(gl.TEXTURE_2D, tex);
+			gl.uniform1i(gl.getUniformLocation(this.progTex, "u_tex"), 0);
+			gl.uniform4f(gl.getUniformLocation(this.progTex, "u_rect"), x, y, w, h);
+			gl.uniform1f(gl.getUniformLocation(this.progTex, "u_alpha"), this.globalAlpha * alphaMul);
+			gl.uniform1f(gl.getUniformLocation(this.progTex, "u_brightness"), tint ? 1 : this.parseBrightness());
+			gl.uniform1i(gl.getUniformLocation(this.progTex, "u_tintMode"), tint ? 1 : 0);
+			if (tint) gl.uniform3f(gl.getUniformLocation(this.progTex, "u_tint"), tint[0], tint[1], tint[2]);
+			gl.uniformMatrix4fv(gl.getUniformLocation(this.progTex, "u_matrix"), false, this.matrix);
+			gl.drawArrays(gl.TRIANGLES, 0, 6);
+		}
+		drawImage(img, x, y, w, h) {
+			const tex = this.getTexture(img);
+			const hadClip = this.applyClipMaskIfAny();
+			this.withGlow({
+				x,
+				y,
+				w,
+				h
+			}, (scaleMul, tint, alphaMul) => {
+				const cx = x + w / 2, cy = y + h / 2;
+				const sw = w * scaleMul, sh = h * scaleMul;
+				this.drawTexturedQuad(tex, cx - sw / 2, cy - sh / 2, sw, sh, alphaMul, tint);
+			});
+			if (hadClip) this.clearClipMask();
+		}
+		drawTexturedQuadLit(tex, x, y, w, h, alphaMul) {
+			const gl = this.gl;
+			this.applyBlend();
+			gl.useProgram(this.progTexLit);
+			bindAttrib(gl, this.quadBuf, 0, 2);
+			gl.activeTexture(gl.TEXTURE0);
+			gl.bindTexture(gl.TEXTURE_2D, tex);
+			gl.uniform1i(gl.getUniformLocation(this.progTexLit, "u_tex"), 0);
+			gl.uniform4f(gl.getUniformLocation(this.progTexLit, "u_rect"), x, y, w, h);
+			gl.uniform1f(gl.getUniformLocation(this.progTexLit, "u_alpha"), this.globalAlpha * alphaMul);
+			gl.uniform1f(gl.getUniformLocation(this.progTexLit, "u_brightness"), this.parseBrightness());
+			gl.uniform2f(gl.getUniformLocation(this.progTexLit, "u_lightDir"), this.lightDirX, this.lightDirY);
+			gl.uniform1f(gl.getUniformLocation(this.progTexLit, "u_lightStrength"), this.lightStrength);
+			gl.uniformMatrix4fv(gl.getUniformLocation(this.progTexLit, "u_matrix"), false, this.matrix);
+			gl.drawArrays(gl.TRIANGLES, 0, 6);
+		}
+		/** Same contract as drawImage, but relit with the scene's directional key light + rim (see
+		* FRAG_TEX_LIT) instead of drawn flat — for sprites that should read as sitting IN the
+		* diorama's lighting (units, ground decorations) rather than pasted-on cutouts. Shares
+		* save()/restore(), globalAlpha, filter brightness and the active clip mask with plain
+		* drawImage. Glow-ring copies (shadowBlur) still draw through the flat path — a colored ring
+		* doesn't need relighting, only the real sprite on top does. */
+		drawImageLit(img, x, y, w, h) {
+			const tex = this.getTexture(img);
+			const hadClip = this.applyClipMaskIfAny();
+			this.withGlow({
+				x,
+				y,
+				w,
+				h
+			}, (scaleMul, tint, alphaMul) => {
+				const cx = x + w / 2, cy = y + h / 2;
+				const sw = w * scaleMul, sh = h * scaleMul;
+				if (tint) this.drawTexturedQuad(tex, cx - sw / 2, cy - sh / 2, sw, sh, alphaMul, tint);
+				else this.drawTexturedQuadLit(tex, cx - sw / 2, cy - sh / 2, sw, sh, alphaMul);
+			});
+			if (hadClip) this.clearClipMask();
+		}
+		/** The current transform's scale factor — always the devicePixelRatio in this codebase
+		* (engine.ts opens every render with ctx.setTransform(dpr,0,0,dpr,0,0)), but derived from
+		* the matrix rather than assumed. Needed to rasterize text at native resolution: text is
+		* baked to a fixed-size offscreen canvas once and reused as a texture, so unlike vector
+		* fills it doesn't get sharper for free when the transform scales it up — without this it
+		* stayed CSS-pixel-resolution and came out visibly blurry on any HiDPI display. */
+		currentScale() {
+			return Math.max(1, Math.hypot(this.matrix[0], this.matrix[1]));
+		}
+		textKey(text, stroke, scale) {
+			const styleKey = stroke ? `stroke|${this.strokeStyle}|${this.lineWidth}` : `fill|${typeof this.fillStyle === "string" ? this.fillStyle : "grad"}`;
+			return `${this.font}|${this.textAlign}|${this.textBaseline}|${styleKey}|${Math.round(scale * 4)}|${text}`;
+		}
+		getTextTexture(text, stroke) {
+			const scale = this.currentScale();
+			const key = this.textKey(text, stroke, scale);
+			const hit = this.textTextureCache.get(key);
+			if (hit) return hit;
+			const mctx = document.createElement("canvas").getContext("2d");
+			mctx.font = this.font;
+			const metrics = mctx.measureText(text);
+			const pad = stroke ? this.lineWidth + 4 : 4;
+			const w = Math.max(1, Math.ceil(metrics.width) + pad * 2);
+			const fontSizeMatch = /(\d+(?:\.\d+)?)px/.exec(this.font);
+			const fontSize = fontSizeMatch ? parseFloat(fontSizeMatch[1]) : 16;
+			const h = Math.max(1, Math.ceil(fontSize * 1.6 + pad));
+			const canvas = document.createElement("canvas");
+			canvas.width = Math.ceil(w * scale);
+			canvas.height = Math.ceil(h * scale);
+			const ctx = canvas.getContext("2d");
+			ctx.scale(scale, scale);
+			ctx.font = this.font;
+			ctx.textAlign = "left";
+			ctx.textBaseline = "top";
+			if (stroke) {
+				ctx.lineJoin = "round";
+				ctx.lineWidth = this.lineWidth;
+				ctx.strokeStyle = this.strokeStyle;
+				ctx.strokeText(text, pad, h * .12);
+			} else {
+				ctx.fillStyle = typeof this.fillStyle === "string" ? this.fillStyle : "#ffffff";
+				ctx.fillText(text, pad, h * .12);
+			}
+			const gl = this.gl;
+			const tex = gl.createTexture();
+			if (!tex) throw new Error("text texture creation failed");
+			gl.bindTexture(gl.TEXTURE_2D, tex);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+			const entry = {
+				tex,
+				w,
+				h
+			};
+			this.textTextureCache.set(key, entry);
+			return entry;
+		}
+		drawTextTexture(text, x, y, stroke) {
+			if (!text) return;
+			const { tex, w, h } = this.getTextTexture(text, stroke);
+			let dx = x;
+			if (this.textAlign === "center") dx = x - w / 2;
+			else if (this.textAlign === "right") dx = x - w;
+			let dy = y;
+			if (this.textBaseline === "middle") dy = y - h / 2;
+			else if (this.textBaseline === "bottom") dy = y - h * .85;
+			else if (this.textBaseline === "top") dy = y - h * .1;
+			else dy = y - h * .72;
+			const hadClip = this.applyClipMaskIfAny();
+			this.withGlow({
+				x: dx,
+				y: dy,
+				w,
+				h
+			}, (scaleMul, tint, alphaMul) => {
+				const cx = dx + w / 2, cy = dy + h / 2;
+				const sw = w * scaleMul, sh = h * scaleMul;
+				this.drawTexturedQuad(tex, cx - sw / 2, cy - sh / 2, sw, sh, alphaMul, tint);
+			});
+			if (hadClip) this.clearClipMask();
+		}
+		fillText(text, x, y) {
+			this.drawTextTexture(text, x, y, false);
+		}
+		strokeText(text, x, y) {
+			this.drawTextTexture(text, x, y, true);
+		}
+	};
+	function identity() {
+		const m = /* @__PURE__ */ new Float32Array(16);
+		m[0] = 1;
+		m[5] = 1;
+		m[10] = 1;
+		m[15] = 1;
+		return m;
+	}
+	function multiplyMat4(a, b) {
+		const out = /* @__PURE__ */ new Float32Array(16);
+		for (let col = 0; col < 4; col++) for (let row = 0; row < 4; row++) {
+			let sum = 0;
+			for (let k = 0; k < 4; k++) sum += a[k * 4 + row] * b[col * 4 + k];
+			out[col * 4 + row] = sum;
+		}
+		return out;
+	}
+	//#endregion
+	//#region src/game/gfx/TurnUndeadV3.ts
+	const TURN_UNDEAD_V3_DURATION = .5;
+	function hexPath(ctx, cell, scale = 1) {
+		ctx.beginPath();
+		cell.corners.forEach(([x, y], i) => {
+			const px = cell.x + (x - cell.x) * scale, py = cell.y + (y - cell.y) * scale;
+			i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+		});
+		ctx.closePath();
+	}
+	/** Separate, unapproved V3 flash preview. Uses drawPotionBurst's soft additive aura,
+	* orbiting motes and rising particles, with the healing FX's cream/gold palette.
+	* The area is masked by real hex cells; original healing/potion FX remain untouched. */
+	function drawTurnUndeadV3(ctx, cells, elapsed) {
+		if (elapsed < 0 || elapsed >= .5) return;
+		const k = elapsed / TURN_UNDEAD_V3_DURATION;
+		const fade = Math.min(1, elapsed / .025) * Math.pow(Math.max(0, 1 - elapsed / .32), 1.5);
+		if (fade <= 0) return;
+		ctx.save();
+		ctx.globalCompositeOperation = "lighter";
+		for (let index = 0; index < cells.length; index++) {
+			const cell = cells[index];
+			const cx = cell.x, cy = cell.y;
+			const tile = Math.max(...cell.corners.map(([x, y]) => Math.hypot(x - cx, y - cy)));
+			const seed = index * 1.791;
+			const pulse = .88 + .12 * Math.abs(Math.sin(elapsed * 7 + seed));
+			ctx.save();
+			hexPath(ctx, cell);
+			ctx.clip();
+			const aura = ctx.createRadialGradient(cx, cy - tile * .12, 0, cx, cy - tile * .12, tile * 1.45);
+			aura.addColorStop(0, `rgba(255,250,220,${.72 * fade * pulse})`);
+			aura.addColorStop(.35, `rgba(255,210,90,${.38 * fade})`);
+			aura.addColorStop(1, "rgba(255,210,90,0)");
+			ctx.fillStyle = aura;
+			hexPath(ctx, cell);
+			ctx.fill();
+			for (let i = 0; i < 12; i++) {
+				const ang = seed + i * .52 + elapsed * (2.8 + i % 3 * .4);
+				const rad = tile * (.18 + i % 4 * .06) * (.85 + Math.sin(elapsed * 6 + i) * .12);
+				const px = cx + Math.cos(ang) * rad, py = cy + Math.sin(ang) * rad * .72 - tile * .08 * Math.sin(elapsed * 5 + i);
+				const r = tile * (.04 + i % 3 * .012) * fade;
+				ctx.fillStyle = i % 3 === 0 ? `rgba(255,250,220,${.9 * fade})` : `rgba(255,210,90,${.75 * fade})`;
+				ctx.shadowColor = `rgba(255,220,140,${.8 * fade})`;
+				ctx.shadowBlur = tile * .14;
+				ctx.beginPath();
+				ctx.arc(px, py, Math.max(.8, r), 0, Math.PI * 2);
+				ctx.fill();
+			}
+			ctx.shadowBlur = 0;
+			const ground = ctx.createRadialGradient(cx, cy, 0, cx, cy, tile);
+			ground.addColorStop(0, `rgba(255,248,220,${.4 * fade})`);
+			ground.addColorStop(1, "rgba(255,210,90,0)");
+			ctx.fillStyle = ground;
+			hexPath(ctx, cell, Math.min(1, .28 + k * .9));
+			ctx.fill();
+			for (let i = 0; i < 8; i++) {
+				const rise = (seed + i * .21 + k * 1.2) % 1;
+				ctx.fillStyle = `rgba(255,250,220,${(.7 - rise * .4) * fade})`;
+				ctx.beginPath();
+				ctx.arc(cx + Math.sin(seed + i * 2) * tile * .22, cy + tile * .4 - rise * tile * 1.05, Math.max(.5, tile * .028 * fade), 0, Math.PI * 2);
+				ctx.fill();
+			}
+			ctx.restore();
+		}
+		ctx.restore();
+	}
+	//#endregion
+	//#region src/game/encounter-npcs.ts
+	const ENCOUNTER_NPC_CLASSES = {
+		roadCartographer: {
+			id: "roadCartographer",
+			name: "Nara, Cartógrafa das Trilhas",
+			role: "Cartógrafa itinerante",
+			hp: 12,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "roadCartographer",
+			size: 1,
+			init: 8
+		},
+		mushroomForager: {
+			id: "mushroomForager",
+			name: "Bento, Catador de Cogumelos",
+			role: "Coletor desconfiado",
+			hp: 12,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "mushroomForager",
+			size: 1,
+			init: 8
+		},
+		bellCollector: {
+			id: "bellCollector",
+			name: "Baltasar, Colecionador de Sinos",
+			role: "Excêntrico — ouvinte do invisível",
+			hp: 12,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "bellCollector",
+			size: 1,
+			init: 8
+		},
+		mothKeeper: {
+			id: "mothKeeper",
+			name: "Ofélia, Guardiã das Mariposas",
+			role: "Excêntrica — guardiã noturna",
+			hp: 12,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "mothKeeper",
+			size: 1,
+			init: 8
+		},
+		charcoalBurner: {
+			id: "charcoalBurner",
+			name: "Dário, Carvoeiro",
+			role: "Trabalhador da floresta",
+			hp: 12,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "charcoalBurner",
+			size: 1,
+			init: 8
+		},
+		wanderingTinker: {
+			id: "wanderingTinker",
+			name: "Ada, Funileira Ambulante",
+			role: "Artesã de estrada",
+			hp: 12,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "wanderingTinker",
+			size: 1,
+			init: 8
+		},
+		marshTrapper: {
+			id: "marshTrapper",
+			name: "Gaspar, Caçador dos Brejos",
+			role: "Armadilheiro de estrada",
+			hp: 12,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "marshTrapper",
+			size: 1,
+			init: 8
+		},
+		ratCatcher: {
+			id: "ratCatcher",
+			name: "Tereza, Caça-Ratos",
+			role: "Excêntrica — exterminadora itinerante",
+			hp: 12,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "ratCatcher",
+			size: 1,
+			init: 8
+		},
+		maskedPhysician: {
+			id: "maskedPhysician",
+			name: "Severino, Médico da Máscara",
+			role: "Excêntrico — médico da peste",
+			hp: 12,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "maskedPhysician",
+			size: 1,
+			init: 8
+		},
+		shadowScholar: {
+			id: "shadowScholar",
+			name: "Erasmo, Estudioso da Própria Sombra",
+			role: "Excêntrico — erudito errante",
+			hp: 12,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "shadowScholar",
+			size: 1,
+			init: 8
+		},
+		swampFerryman: {
+			id: "swampFerryman",
+			name: "Rúben, Barqueiro do Brejo",
+			role: "Guia de travessias",
+			hp: 12,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "swampFerryman",
+			size: 1,
+			init: 8
+		},
+		lostCourier: {
+			id: "lostCourier",
+			name: "Lia, Mensageira Perdida",
+			role: "Mensageira obstinada",
+			hp: 12,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "lostCourier",
+			size: 1,
+			init: 8
+		}
+	};
+	const ENCOUNTER_NPC_GROWTH = {
+		roadCartographer: {
+			hp: 2,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1
+		},
+		mushroomForager: {
+			hp: 2,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1
+		},
+		bellCollector: {
+			hp: 2,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1
+		},
+		mothKeeper: {
+			hp: 2,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1
+		},
+		charcoalBurner: {
+			hp: 2,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1
+		},
+		wanderingTinker: {
+			hp: 2,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1
+		},
+		marshTrapper: {
+			hp: 2,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1
+		},
+		ratCatcher: {
+			hp: 2,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1
+		},
+		maskedPhysician: {
+			hp: 2,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1
+		},
+		shadowScholar: {
+			hp: 2,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1
+		},
+		swampFerryman: {
+			hp: 2,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1
+		},
+		lostCourier: {
+			hp: 2,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1
+		}
+	};
+	//#endregion
+	//#region src/game/data.ts
+	const TERRAIN = {
+		plains: {
+			id: "plains",
+			name: "Planície",
+			moveCost: 1,
+			def: 0,
+			atk: 0,
+			passable: true
+		},
+		woods: {
+			id: "woods",
+			name: "Bosque",
+			moveCost: 2,
+			def: 1,
+			atk: 0,
+			passable: true
+		},
+		ruins: {
+			id: "ruins",
+			name: "Ruínas",
+			moveCost: 1,
+			def: 2,
+			atk: 0,
+			passable: true
+		},
+		water: {
+			id: "water",
+			name: "Água",
+			moveCost: 99,
+			def: 0,
+			atk: 0,
+			passable: false
+		},
+		ember: {
+			id: "ember",
+			name: "Brasa",
+			moveCost: 2,
+			def: 0,
+			atk: 0,
+			passable: true,
+			hazardDice: 1,
+			hazardFaces: 6
+		},
+		hill: {
+			id: "hill",
+			name: "Colina",
+			moveCost: 2,
+			def: 1,
+			atk: 2,
+			passable: true,
+			height: 1
+		},
+		flame: {
+			id: "flame",
+			name: "Chama",
+			moveCost: 3,
+			def: 0,
+			atk: 0,
+			passable: true,
+			hazardDice: 1,
+			hazardFaces: 8
+		},
+		column: {
+			id: "column",
+			name: "Coluna",
+			moveCost: 99,
+			def: 0,
+			atk: 0,
+			passable: false,
+			blocksShot: true
+		},
+		nave: {
+			id: "nave",
+			name: "Laje",
+			moveCost: 1,
+			def: 0,
+			atk: 0,
+			passable: true
+		},
+		barricade: {
+			id: "barricade",
+			name: "Barricada",
+			moveCost: 99,
+			def: 0,
+			atk: 0,
+			passable: false,
+			blocksShot: true
+		},
+		door: {
+			id: "door",
+			name: "Porta trancada",
+			moveCost: 99,
+			def: 0,
+			atk: 0,
+			passable: false,
+			blocksShot: true
+		},
+		snow: {
+			id: "snow",
+			name: "Neve",
+			moveCost: 1,
+			def: 0,
+			atk: 0,
+			passable: true
+		},
+		/** Pure void — a building block for closed/indoor maps: apaga o terreno e nem se atravessa, nem se vê através. */
+		void: {
+			id: "void",
+			name: "Vazio",
+			moveCost: 99,
+			def: 0,
+			atk: 0,
+			passable: false,
+			blocksShot: true
+		}
+	};
+	/** Tipo 2 — a plain side-by-side pair, no hex behind (e.g. o Lobo Morveniano). */
+	const FOOTPRINT_TYPE_2 = [{
+		dx: 0,
+		dy: 0
+	}, {
+		dx: 1,
+		dy: 0
+	}];
+	/** Tipo 4 — two hexes at the legs/front row and two above under the torso/head. */
+	const FOOTPRINT_TYPE_4 = [
+		{
+			dx: 0,
+			dy: 0
+		},
+		{
+			dx: 1,
+			dy: 0
+		},
+		{
+			dx: 0,
+			dy: -1
+		},
+		{
+			dx: 1,
+			dy: -1
+		}
+	];
+	/** Tipo 3 — a normal side-by-side pair plus one hex behind, on the creature's back (e.g. o Cão de guerra). */
+	const FOOTPRINT_TYPE_3 = [
+		{
+			dx: 0,
+			dy: 0
+		},
+		{
+			dx: 1,
+			dy: 0
+		},
+		{
+			dx: 0,
+			dy: -1
+		}
+	];
+	/** Tipo 8 — a 2-wide/3-tall block plus one hex above the head and one at the arms row (Troll, Asherah).
+	* Exported so the renderer can key its "big creature" draw-size correction off the footprint
+	* shape itself (reference equality) instead of a hardcoded classId, the same size correction
+	* applying to every Type 8 creature by default rather than needing a one-off per class. */
+	const FOOTPRINT_TYPE_8 = [
+		{
+			dx: 0,
+			dy: 0
+		},
+		{
+			dx: 1,
+			dy: 0
+		},
+		{
+			dx: -1,
+			dy: -1
+		},
+		{
+			dx: 0,
+			dy: -1
+		},
+		{
+			dx: 1,
+			dy: -1
+		},
+		{
+			dx: 0,
+			dy: -2
+		},
+		{
+			dx: 1,
+			dy: -2
+		},
+		{
+			dx: 0,
+			dy: -3
+		}
+	];
+	/** Tipo 7 — Type 8 without hex 8 (the lone hex above the head, which sat on empty ground for
+	* the Horror's sprite). Its own constant, not a mutation of FOOTPRINT_TYPE_8 — that shape stays
+	* exactly as defined for every creature still using it. Hex 3 (the left-arm hex) is still under
+	* review; do not move it without explicit confirmation of its target cell. */
+	const FOOTPRINT_TYPE_7 = [
+		{
+			dx: 0,
+			dy: 0
+		},
+		{
+			dx: 1,
+			dy: 0
+		},
+		{
+			dx: -1,
+			dy: -1
+		},
+		{
+			dx: 0,
+			dy: -1
+		},
+		{
+			dx: 1,
+			dy: -1
+		},
+		{
+			dx: 0,
+			dy: -2
+		},
+		{
+			dx: 1,
+			dy: -2
+		}
+	];
+	/** Tipo 6 — Familiar Titã: a broad 3–3 body. The rear row is shifted one hex left so the
+	* upper-right outer body cell sits toward the tail-side instead of tapering to a single tail. */
+	const FOOTPRINT_TYPE_6 = [
+		{
+			dx: -1,
+			dy: 0
+		},
+		{
+			dx: 0,
+			dy: 0
+		},
+		{
+			dx: 1,
+			dy: 0
+		},
+		{
+			dx: -2,
+			dy: -1
+		},
+		{
+			dx: -1,
+			dy: -1
+		},
+		{
+			dx: 0,
+			dy: -1
+		}
+	];
+	const DECO_PAIR = [{
+		dx: 0,
+		dy: 0
+	}, {
+		dx: 1,
+		dy: 0
+	}];
+	const DECO_TRIO = [
+		{
+			dx: 0,
+			dy: 0
+		},
+		{
+			dx: 1,
+			dy: 0
+		},
+		{
+			dx: 0,
+			dy: -1
+		}
+	];
+	const DECO_ROW_FIVE = [
+		{
+			dx: 0,
+			dy: 0
+		},
+		{
+			dx: 1,
+			dy: 0
+		},
+		{
+			dx: 2,
+			dy: 0
+		},
+		{
+			dx: 3,
+			dy: 0
+		},
+		{
+			dx: 4,
+			dy: 0
+		}
+	];
+	const DECO_QUAD = [
+		{
+			dx: 0,
+			dy: 0
+		},
+		{
+			dx: 1,
+			dy: 0
+		},
+		{
+			dx: 2,
+			dy: 0
+		},
+		{
+			dx: 3,
+			dy: 0
+		}
+	];
+	const DECO_ONE = [{
+		dx: 0,
+		dy: 0
+	}];
+	const DECO_BLOCK_5 = [
+		{
+			dx: 0,
+			dy: 0
+		},
+		{
+			dx: 1,
+			dy: 0
+		},
+		{
+			dx: -1,
+			dy: -1
+		},
+		{
+			dx: 0,
+			dy: -1
+		},
+		{
+			dx: 1,
+			dy: -1
+		}
+	];
+	const HOUSE_GROUND_FOOTPRINT = [
+		...DECO_BLOCK_5,
+		{
+			dx: -1,
+			dy: -2
+		},
+		{
+			dx: 0,
+			dy: -2
+		},
+		{
+			dx: 1,
+			dy: -2
+		},
+		{
+			dx: 0,
+			dy: -3
+		}
+	];
+	const BURNT_HOUSE_GROUND_FOOTPRINT = [
+		...FOOTPRINT_TYPE_6,
+		{
+			dx: -2,
+			dy: -2
+		},
+		{
+			dx: -1,
+			dy: -2
+		},
+		{
+			dx: 0,
+			dy: -2
+		},
+		{
+			dx: -2,
+			dy: -3
+		},
+		{
+			dx: -1,
+			dy: -3
+		}
+	];
+	const DECO_BLOCK_3X3 = [
+		0,
+		1,
+		2
+	].flatMap((dy) => [
+		0,
+		1,
+		2
+	].map((dx) => ({
+		dx,
+		dy: dy - 1
+	})));
+	/** Props from the two supplied Wilds sheets. They remain manually placed editor art. */
+	function decorationSet(entries, pairIds = /* @__PURE__ */ new Set()) {
+		return Object.fromEntries(entries.map(([id, name]) => [id, {
+			id,
+			name,
+			footprint: pairIds.has(id) ? DECO_PAIR : DECO_ONE
+		}]));
+	}
+	const WILDS_DECORATIONS = decorationSet([
+		["wilds-twisted-tree", "Árvore retorcida"],
+		["wilds-mossy-shrine", "Oratório musgoso"],
+		["wilds-lantern-post", "Poste com lanterna"],
+		["wilds-ivy-arch", "Arco coberto de hera"],
+		["wilds-palisade", "Paliçada antiga"],
+		["wilds-ancient-boulder", "Pedra ancestral"],
+		["wilds-fallen-log", "Tronco caído selvagem"],
+		["wilds-campfire-cauldron", "Caldeirão de acampamento"],
+		["wilds-broken-wheel", "Roda quebrada"],
+		["wilds-ruined-wayside-shrine", "Santuário de estrada"],
+		["wilds-weathered-signpost", "Placa de caminho"],
+		["wilds-rope-bridge", "Ponte de corda"],
+		["wilds-root-arch", "Arco de raízes"],
+		["wilds-stone-steps", "Escadaria musgosa"],
+		["wilds-wishing-well", "Poço antigo"],
+		["wilds-gibbet-tree", "Árvore com gaiola"],
+		["wilds-dead-oak", "Carvalho morto"],
+		["wilds-wisp-waystone", "Marco dos Wisps"],
+		["wilds-wisp-shrine", "Altar Esquecido"],
+		["wilds-wisp-lantern-marker", "Lanterna dos Wisps"],
+		["wilds-wisp-mushrooms", "Cogumelos Luminosos dos Wisps"],
+		["wilds-hollow-tree-001", "Árvore oca — arco profundo"],
+		["wilds-hollow-tree-002", "Árvore oca — tronco duplo"],
+		["wilds-hollow-tree-003", "Árvore oca — tronco inclinado"],
+		["wilds-gothic-arch", "Arco gótico em ruínas"],
+		["wilds-lantern-signpost", "Marco com lanterna"],
+		["wilds-lichen-boulder", "Rochedo com líquen"],
+		["wilds-ivy-statue", "Estátua coberta de hera"],
+		["wilds-abandoned-cart", "Carroça abandonada"],
+		["wilds-candle-menhir", "Menir das velas"],
+		["wilds-moss-bridge", "Ponte musgosa"]
+	], /* @__PURE__ */ new Set([
+		"wilds-abandoned-cart",
+		"wilds-ancient-boulder",
+		"wilds-lichen-boulder",
+		"wilds-candle-menhir"
+	]));
+	WILDS_DECORATIONS["wilds-twisted-tree"] = {
+		...WILDS_DECORATIONS["wilds-twisted-tree"],
+		artScale: 1.4,
+		artOffsetX: .0415
+	};
+	WILDS_DECORATIONS["wilds-dead-oak"] = {
+		...WILDS_DECORATIONS["wilds-dead-oak"],
+		artScale: 2
+	};
+	WILDS_DECORATIONS["wilds-lantern-signpost"] = {
+		...WILDS_DECORATIONS["wilds-lantern-signpost"],
+		aboveTacticalOverlays: true
+	};
+	const TORTURE_TWO_HEX = /* @__PURE__ */ new Set([
+		...Array.from({ length: 12 }, (_, index) => `torture-gear-${String(index + 1).padStart(2, "0")}`),
+		"torture-gear-14",
+		"torture-gear-15"
+	]);
+	const TORTURE_DECORATIONS = decorationSet(Array.from({ length: 44 }, (_, index) => index + 1).filter((number) => number !== 13 && number !== 22 && number !== 30).map((number) => {
+		const serial = String(number).padStart(2, "0");
+		return [`torture-gear-${serial}`, `Equipamento de tortura ${serial}`];
+	}), TORTURE_TWO_HEX);
+	const CITY_DECORATIONS = decorationSet([
+		["city-gate-banner", "Portão com estandarte"],
+		["city-palisade-banner", "Paliçada com estandarte"],
+		["city-spike-barricade-large", "Barricada de estacas grande"],
+		["city-spike-barricade", "Barricada de estacas"],
+		["city-palisade-frame", "Moldura de paliçada"],
+		["city-wooden-barricade", "Barricada de madeira"],
+		["city-banner-barricade", "Barricada com bandeira"],
+		["city-spike-barricade-low", "Estacas baixas"],
+		["city-wattle-fence", "Cerca trançada"],
+		["city-stone-banner-wall", "Muralha baixa com estandarte"],
+		["city-banner-post", "Mastro de estandarte"],
+		["city-lantern-post", "Poste de lanterna"],
+		["city-well", "Poço da cidade"],
+		["city-signpost", "Placa direcional"],
+		["city-market-stall", "Barraca de mercado"],
+		["city-supply-cart", "Carroça de suprimentos"],
+		["city-covered-wagon", "Carroça coberta"],
+		["city-covered-crate", "Caixa coberta"],
+		["city-workbench", "Bancada"],
+		["city-execution-block", "Bloco de execução"],
+		["city-provisions", "Mantimentos"],
+		["city-log-stack", "Pilha de lenha"],
+		["city-campfire", "Fogueira"],
+		["city-barrels", "Barris"],
+		["city-stool", "Banco de madeira"],
+		["city-shrineCandle", "Oratório urbano com velas"],
+		["city-stone-pillar", "Pilar de pedra"],
+		["city-notice-post", "Poste de avisos"],
+		["city-ring-pillar", "Pilar com argola"],
+		["city-brazier", "Braseiro"],
+		["city-clothesline", "Varal"],
+		["city-wheelbarrow", "Carrinho de mão"],
+		["city-gallows-cages", "Forca com gaiolas"],
+		["city-gallows-cages2", "Forca com gaiolas II"]
+	], /* @__PURE__ */ new Set(["city-supply-cart", "city-covered-wagon"]));
+	CITY_DECORATIONS["city-stool"] = {
+		...CITY_DECORATIONS["city-stool"],
+		artScale: 2 / 3
+	};
+	const NEW_DECOR_2026 = {
+		"light-candle": {
+			id: "light-candle",
+			name: "Vela",
+			footprint: DECO_ONE,
+			artScale: .5
+		},
+		"light-wall-torch": {
+			id: "light-wall-torch",
+			name: "Tocha de Parede",
+			footprint: DECO_ONE
+		},
+		"light-brazier-bowl": {
+			id: "light-brazier-bowl",
+			name: "Braseiro II",
+			footprint: DECO_ONE
+		},
+		"light-fireplace": {
+			id: "light-fireplace",
+			name: "Lareira",
+			footprint: DECO_ONE,
+			artScale: 2,
+			unitLayer: "behind"
+		},
+		"inn-fireplace": {
+			id: "inn-fireplace",
+			name: "Lareira de Pedra da Estalagem",
+			footprint: DECO_ONE,
+			artScale: 2,
+			unitLayer: "behind"
+		},
+		"inn-herb-shelf": {
+			id: "inn-herb-shelf",
+			name: "Prateleira de Ervas e Jarras",
+			footprint: DECO_ONE,
+			artScale: .85,
+			unitLayer: "behind"
+		},
+		"inn-provisions-display": {
+			id: "inn-provisions-display",
+			name: "Mantimentos Pendentes da Estalagem",
+			footprint: DECO_ONE,
+			artScale: .9,
+			unitLayer: "behind"
+		},
+		"forest-mossy-stump": {
+			id: "forest-mossy-stump",
+			name: "Toco Musgoso com Raízes",
+			footprint: DECO_ONE,
+			heightScale: .84
+		},
+		"forest-amanitas": {
+			id: "forest-amanitas",
+			name: "Grupo de Amanitas",
+			footprint: DECO_ONE,
+			heightScale: 1.08,
+			artScale: .5
+		},
+		"forest-mossy-trunk": {
+			id: "forest-mossy-trunk",
+			name: "Tronco Caído Musgoso",
+			footprint: DECO_ONE,
+			heightScale: .68
+		},
+		"cave-stalagmites": {
+			id: "cave-stalagmites",
+			name: "Grupo de Estalagmites",
+			footprint: DECO_ONE
+		},
+		"cave-blue-crystals": {
+			id: "cave-blue-crystals",
+			name: "Cristais Azuis",
+			footprint: DECO_ONE
+		},
+		"cave-hanging-bat": {
+			id: "cave-hanging-bat",
+			name: "Morcego Pendurado",
+			footprint: DECO_ONE,
+			unitLayer: "behind",
+			heightScale: 1.2
+		},
+		"cave-mossy-rocks": {
+			id: "cave-mossy-rocks",
+			name: "Rocha Coberta de Musgo",
+			footprint: DECO_ONE
+		},
+		"cave-bones": {
+			id: "cave-bones",
+			name: "Ossos e Crânio",
+			footprint: DECO_ONE
+		},
+		"cave-rock-pile": {
+			id: "cave-rock-pile",
+			name: "Monte de Pedras",
+			footprint: DECO_ONE
+		},
+		"cave-stalactite": {
+			id: "cave-stalactite",
+			name: "Estalactite",
+			footprint: DECO_ONE,
+			unitLayer: "behind",
+			heightScale: 1.25
+		},
+		"cave-cracked-stone": {
+			id: "cave-cracked-stone",
+			name: "Pedra Rachada com Luz Azul",
+			footprint: DECO_ONE
+		},
+		"cave-amethyst-geode": {
+			id: "cave-amethyst-geode",
+			name: "Geodo de Ametista",
+			footprint: DECO_ONE
+		},
+		"cave-underground-pool": {
+			id: "cave-underground-pool",
+			name: "Poço Subterrâneo",
+			footprint: DECO_ONE
+		},
+		"cave-hanging-roots": {
+			id: "cave-hanging-roots",
+			name: "Raízes Suspensas",
+			footprint: DECO_ONE,
+			unitLayer: "behind",
+			heightScale: 1.2
+		},
+		"cave-ammonite-fossil": {
+			id: "cave-ammonite-fossil",
+			name: "Fóssil de Amonite",
+			footprint: DECO_ONE
+		},
+		"cave-stone-rubble": {
+			id: "cave-stone-rubble",
+			name: "Entulho de Pedras",
+			footprint: DECO_ONE
+		},
+		"cave-boulder": {
+			id: "cave-boulder",
+			name: "Pedregulho",
+			footprint: DECO_ONE
+		},
+		"cave-glowing-mushrooms": {
+			id: "cave-glowing-mushrooms",
+			name: "Cogumelos Luminescentes",
+			footprint: DECO_ONE
+		},
+		"cave-carved-stone-block": {
+			id: "cave-carved-stone-block",
+			name: "Bloco de Pedra Entalhado",
+			footprint: DECO_ONE
+		},
+		"cave-barred-stone-opening": {
+			id: "cave-barred-stone-opening",
+			name: "Abertura de Pedra Gradeada",
+			footprint: DECO_ONE,
+			unitLayer: "behind"
+		},
+		"cave-rusty-lantern": {
+			id: "cave-rusty-lantern",
+			name: "Lanterna Enferrujada",
+			footprint: DECO_ONE
+		},
+		"cave-webbed-chest": {
+			id: "cave-webbed-chest",
+			name: "Baú Coberto por Teias",
+			footprint: DECO_ONE
+		},
+		"cave-wall-ring": {
+			id: "cave-wall-ring",
+			name: "Argola de Ferro na Pedra",
+			footprint: DECO_ONE,
+			unitLayer: "behind"
+		},
+		"cave-candle-stand": {
+			id: "cave-candle-stand",
+			name: "Candelabro de Velas",
+			footprint: DECO_ONE
+		},
+		"cave-spiked-gate": {
+			id: "cave-spiked-gate",
+			name: "Grade com Pontas",
+			footprint: DECO_ONE,
+			unitLayer: "behind"
+		},
+		"cave-wall-brazier": {
+			id: "cave-wall-brazier",
+			name: "Braseiro de Parede",
+			footprint: DECO_ONE,
+			unitLayer: "behind"
+		},
+		"cave-hanging-chains": {
+			id: "cave-hanging-chains",
+			name: "Correntes Suspensas",
+			footprint: DECO_ONE,
+			unitLayer: "behind",
+			heightScale: 1.2
+		},
+		"cave-rusty-keys": {
+			id: "cave-rusty-keys",
+			name: "Chaves Enferrujadas",
+			footprint: DECO_ONE
+		},
+		Brazier3: {
+			id: "Brazier3",
+			name: "Braseiro III",
+			footprint: DECO_ONE,
+			artScale: 1.05
+		},
+		Chandelier: {
+			id: "Chandelier",
+			name: "Lustre",
+			footprint: DECO_ONE,
+			artScale: 1.1,
+			heightScale: 1.25,
+			unitLayer: "behind",
+			noShadow: true
+		},
+		"city-root-shrine": {
+			id: "city-root-shrine",
+			name: "Santuário Coberto de Raízes",
+			footprint: DECO_PAIR
+		},
+		"city-market-stall-2": {
+			id: "city-market-stall-2",
+			name: "Barraca de Mercado II",
+			footprint: DECO_PAIR
+		},
+		"city-bear-trap": {
+			id: "city-bear-trap",
+			name: "Armadilha de Urso",
+			footprint: DECO_ONE
+		},
+		"city-forge": {
+			id: "city-forge",
+			name: "Forja do Ferreiro",
+			footprint: DECO_TRIO
+		},
+		"city-well-2": {
+			id: "city-well-2",
+			name: "Poço II",
+			footprint: DECO_ONE
+		},
+		"city-supply-cart-2": {
+			id: "city-supply-cart-2",
+			name: "Carroça de Suprimentos II",
+			footprint: DECO_PAIR
+		},
+		"city-log-cart": {
+			id: "city-log-cart",
+			name: "Carroça de Lenha",
+			footprint: DECO_PAIR
+		},
+		"city-wreckage-pile": {
+			id: "city-wreckage-pile",
+			name: "Barricada Destruída",
+			footprint: DECO_PAIR
+		},
+		"city-notice-board-2": {
+			id: "city-notice-board-2",
+			name: "Quadro de Avisos II",
+			footprint: DECO_ONE
+		},
+		"city-gallows-2": {
+			id: "city-gallows-2",
+			name: "Forca II",
+			footprint: DECO_PAIR
+		},
+		"city-broken-chair": {
+			id: "city-broken-chair",
+			name: "Cadeira Quebrada",
+			footprint: DECO_ONE
+		},
+		"city-broken-pottery": {
+			id: "city-broken-pottery",
+			name: "Potes Quebrados",
+			footprint: DECO_ONE
+		},
+		"city-basket": {
+			id: "city-basket",
+			name: "Cesto de Vime",
+			footprint: DECO_ONE
+		},
+		"city-nailed-planks": {
+			id: "city-nailed-planks",
+			name: "Tábuas com Pregos",
+			footprint: DECO_ONE
+		},
+		"city-bucket": {
+			id: "city-bucket",
+			name: "Balde de Madeira",
+			footprint: DECO_ONE,
+			artScale: .65
+		},
+		"city-rope-coil": {
+			id: "city-rope-coil",
+			name: "Rolo de Corda",
+			footprint: DECO_ONE
+		},
+		"city-crate-stack": {
+			id: "city-crate-stack",
+			name: "Caixas Empilhadas",
+			footprint: DECO_ONE
+		},
+		"city-broken-barrel": {
+			id: "city-broken-barrel",
+			name: "Barril Quebrado",
+			footprint: DECO_ONE
+		},
+		"city-sack-pile": {
+			id: "city-sack-pile",
+			name: "Sacos de Grãos",
+			footprint: DECO_ONE
+		},
+		"city-firewood-pile": {
+			id: "city-firewood-pile",
+			name: "Pilha de Lenha",
+			footprint: DECO_ONE
+		},
+		"dungeon-ossuary": {
+			id: "dungeon-ossuary",
+			name: "Ossário",
+			footprint: DECO_PAIR
+		},
+		"dungeon-hanging-cage": {
+			id: "dungeon-hanging-cage",
+			name: "Gaiola Suspensa",
+			footprint: DECO_ONE
+		},
+		"dungeon-stone-door": {
+			id: "dungeon-stone-door",
+			name: "Porta de Pedra Trancada",
+			footprint: DECO_PAIR,
+			tile: "door"
+		},
+		"wilds-snowy-dead-tree": {
+			id: "wilds-snowy-dead-tree",
+			name: "Árvore Morta Nevada",
+			footprint: DECO_PAIR
+		},
+		"wilds-mushroom-stump": {
+			id: "wilds-mushroom-stump",
+			name: "Toco Oco com Cogumelos",
+			footprint: DECO_ONE
+		},
+		"wilds-snowy-log": {
+			id: "wilds-snowy-log",
+			name: "Tronco Caído Nevado",
+			footprint: DECO_PAIR
+		},
+		"wilds-snowy-pines": {
+			id: "wilds-snowy-pines",
+			name: "Pinheiros Nevados",
+			footprint: DECO_PAIR,
+			heightScale: 3.3 / 2.3
+		},
+		"wilds-camp": {
+			id: "wilds-camp",
+			name: "Acampamento",
+			footprint: DECO_PAIR
+		},
+		"wilds-snowy-bush": {
+			id: "wilds-snowy-bush",
+			name: "Arbusto Seco Nevado",
+			footprint: DECO_ONE
+		},
+		"wilds-iron-cage": {
+			id: "wilds-iron-cage",
+			name: "Gaiola de Ferro",
+			footprint: DECO_ONE
+		},
+		"wilds-chained-pillar": {
+			id: "wilds-chained-pillar",
+			name: "Pilar Acorrentado",
+			footprint: DECO_ONE
+		},
+		"wilds-torture-rack": {
+			id: "wilds-torture-rack",
+			name: "Mesa de Tortura",
+			footprint: DECO_PAIR
+		},
+		"wilds-ruined-gate": {
+			id: "wilds-ruined-gate",
+			name: "Portal em Ruínas",
+			footprint: DECO_TRIO
+		},
+		"wilds-brazier-tripod": {
+			id: "wilds-brazier-tripod",
+			name: "Braseiro de Tripé",
+			footprint: DECO_ONE
+		},
+		"wilds-altar-sarcophagus": {
+			id: "wilds-altar-sarcophagus",
+			name: "Sarcófago Ornamentado",
+			footprint: DECO_PAIR
+		},
+		"wilds-broken-column": {
+			id: "wilds-broken-column",
+			name: "Coluna Derrubada",
+			footprint: DECO_PAIR
+		},
+		"wilds-temple-door": {
+			id: "wilds-temple-door",
+			name: "Portal do Templo",
+			footprint: DECO_PAIR
+		},
+		"wilds-fallen-king": {
+			id: "wilds-fallen-king",
+			name: "Estátua de Rei Caído",
+			footprint: DECO_PAIR
+		},
+		"wilds-knight-statue": {
+			id: "wilds-knight-statue",
+			name: "Estátua de Cavaleiro",
+			footprint: DECO_ONE
+		},
+		"wilds-ivy-archway": {
+			id: "wilds-ivy-archway",
+			name: "Arco em Ruínas",
+			footprint: DECO_PAIR
+		},
+		"wilds-incense-burner": {
+			id: "wilds-incense-burner",
+			name: "Incensário Antigo",
+			footprint: DECO_ONE
+		},
+		"wilds-fountain": {
+			id: "wilds-fountain",
+			name: "Fonte de Pedra Ornamentada",
+			footprint: DECO_PAIR
+		},
+		"wilds-ancestral-tree": {
+			id: "wilds-ancestral-tree",
+			name: "Árvore Ancestral",
+			footprint: DECO_BLOCK_3X3
+		},
+		"wilds-exposed-roots": {
+			id: "wilds-exposed-roots",
+			name: "Raízes Expostas",
+			footprint: DECO_ONE
+		},
+		"wilds-branch-pile": {
+			id: "wilds-branch-pile",
+			name: "Pilha de Galhos",
+			footprint: DECO_ONE
+		},
+		"wilds-mossy-log": {
+			id: "wilds-mossy-log",
+			name: "Tronco Musgoso com Cogumelos",
+			footprint: DECO_ONE
+		},
+		"wilds-dry-bush": {
+			id: "wilds-dry-bush",
+			name: "Moita Seca",
+			footprint: DECO_ONE
+		},
+		"wilds-tree-stump": {
+			id: "wilds-tree-stump",
+			name: "Toco de Árvore",
+			footprint: DECO_ONE
+		},
+		"wilds-mushroom-cluster": {
+			id: "wilds-mushroom-cluster",
+			name: "Cogumelos Silvestres",
+			footprint: DECO_ONE
+		},
+		"ice-rope-coil": {
+			id: "ice-rope-coil",
+			name: "Corda Congelada",
+			footprint: DECO_PAIR,
+			artScale: .3
+		},
+		"ice-barrel": {
+			id: "ice-barrel",
+			name: "Barril Congelado",
+			footprint: DECO_PAIR,
+			artScale: .3
+		},
+		"ice-sack": {
+			id: "ice-sack",
+			name: "Saco Congelado",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-bones": {
+			id: "ice-bones",
+			name: "Ossos Congelados",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-crystal-spikes": {
+			id: "ice-crystal-spikes",
+			name: "Espinhos de Gelo",
+			footprint: DECO_PAIR,
+			artScale: .45
+		},
+		"ice-frozen-stump": {
+			id: "ice-frozen-stump",
+			name: "Toco Congelado",
+			footprint: DECO_PAIR,
+			artScale: .4
+		},
+		"ice-frozen-boulder": {
+			id: "ice-frozen-boulder",
+			name: "Rochedo Congelado",
+			footprint: DECO_PAIR,
+			artScale: .42
+		},
+		"ice-frozen-grass": {
+			id: "ice-frozen-grass",
+			name: "Moita Congelada",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-bear-trap": {
+			id: "ice-bear-trap",
+			name: "Armadilha Congelada",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-lantern-cage": {
+			id: "ice-lantern-cage",
+			name: "Lanterna Congelada",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-chains": {
+			id: "ice-chains",
+			name: "Correntes Congeladas",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-wooden-spikes": {
+			id: "ice-wooden-spikes",
+			name: "Estacas Congeladas",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-shield": {
+			id: "ice-shield",
+			name: "Escudo Congelado",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-skull": {
+			id: "ice-skull",
+			name: "Crânio Congelado",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-firewood": {
+			id: "ice-firewood",
+			name: "Lenha Congelada",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-broken-shield": {
+			id: "ice-broken-shield",
+			name: "Escudo Quebrado Congelado",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-helmet": {
+			id: "ice-helmet",
+			name: "Elmo Congelado",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-crate": {
+			id: "ice-crate",
+			name: "Caixote Congelado",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-cairn": {
+			id: "ice-cairn",
+			name: "Pedras Empilhadas Congeladas",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-tools-pile": {
+			id: "ice-tools-pile",
+			name: "Ferramentas Congeladas",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-satchel": {
+			id: "ice-satchel",
+			name: "Alforje Congelado",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"ice-weapon-pile": {
+			id: "ice-weapon-pile",
+			name: "Armas Congeladas",
+			footprint: DECO_ONE,
+			artScale: .45
+		},
+		"wilds-dead-fern-pile": {
+			id: "wilds-dead-fern-pile",
+			name: "Pilha de Samambaia Seca",
+			footprint: DECO_PAIR
+		},
+		"wilds-bark-pile": {
+			id: "wilds-bark-pile",
+			name: "Pilha de Casca de Árvore",
+			footprint: DECO_PAIR
+		},
+		"wilds-dead-sapling": {
+			id: "wilds-dead-sapling",
+			name: "Muda Morta com Raízes",
+			footprint: DECO_PAIR
+		},
+		"wilds-mossy-charred-log": {
+			id: "wilds-mossy-charred-log",
+			name: "Tronco Carbonizado Musgoso",
+			footprint: DECO_PAIR
+		},
+		"wilds-hollow-stump": {
+			id: "wilds-hollow-stump",
+			name: "Toco Oco",
+			footprint: DECO_ONE
+		},
+		"wilds-burnt-branch-pile": {
+			id: "wilds-burnt-branch-pile",
+			name: "Pilha de Galhos Queimados",
+			footprint: DECO_ONE
+		},
+		"wilds-dry-twig-pile": {
+			id: "wilds-dry-twig-pile",
+			name: "Pilha de Gravetos Secos",
+			footprint: DECO_ONE
+		},
+		"wilds-thorn-bramble": {
+			id: "wilds-thorn-bramble",
+			name: "Moita de Espinhos",
+			footprint: DECO_PAIR
+		},
+		"wilds-hollow-log": {
+			id: "wilds-hollow-log",
+			name: "Tronco Oco",
+			footprint: DECO_ONE
+		},
+		"wilds-bare-branch": {
+			id: "wilds-bare-branch",
+			name: "Galho Seco Solto",
+			footprint: DECO_ONE
+		},
+		"wilds-root-tangle": {
+			id: "wilds-root-tangle",
+			name: "Emaranhado de Raízes",
+			footprint: DECO_ONE
+		},
+		"wilds-shelf-mushrooms": {
+			id: "wilds-shelf-mushrooms",
+			name: "Cogumelos em Prateleira",
+			footprint: DECO_ONE
+		},
+		"wilds-charred-stump": {
+			id: "wilds-charred-stump",
+			name: "Toco Carbonizado",
+			footprint: DECO_ONE
+		},
+		"wilds-mossy-stones": {
+			id: "wilds-mossy-stones",
+			name: "Pedras Musgosas Empilhadas",
+			footprint: DECO_ONE
+		},
+		"wilds-birds-nest": {
+			id: "wilds-birds-nest",
+			name: "Ninho de Pássaro",
+			footprint: DECO_ONE
+		},
+		"dungeon-sarcophagus": {
+			id: "dungeon-sarcophagus",
+			name: "Sarcófago de Pedra",
+			footprint: DECO_PAIR
+		},
+		"dungeon-penitent-statue": {
+			id: "dungeon-penitent-statue",
+			name: "Estátua Penitente",
+			footprint: DECO_ONE,
+			heightScale: 1.35
+		},
+		"dungeon-funerary-urn": {
+			id: "dungeon-funerary-urn",
+			name: "Urna Funerária",
+			footprint: DECO_ONE,
+			heightScale: 1.25
+		},
+		"dungeon-tomb-relief": {
+			id: "dungeon-tomb-relief",
+			name: "Laje Tumular Ornamentada",
+			footprint: DECO_ONE
+		},
+		"dungeon-bones": {
+			id: "dungeon-bones",
+			name: "Ossos Antigos",
+			footprint: DECO_PAIR
+		},
+		"torture-wall-shackles": {
+			id: "torture-wall-shackles",
+			name: "Argola de Masmorra",
+			footprint: DECO_ONE
+		},
+		"torture-pillory": {
+			id: "torture-pillory",
+			name: "Pelourinho de Madeira",
+			footprint: DECO_PAIR
+		},
+		"dungeon-stone-rubble": {
+			id: "dungeon-stone-rubble",
+			name: "Escombros de Masmorra",
+			footprint: DECO_PAIR
+		},
+		"torture-brazier": {
+			id: "torture-brazier",
+			name: "Braseiro de Ferro",
+			footprint: DECO_ONE
+		},
+		"torture-chain-pile": {
+			id: "torture-chain-pile",
+			name: "Correntes Enferrujadas",
+			footprint: DECO_ONE
+		},
+		"wilds-gothic-gravestone": {
+			id: "wilds-gothic-gravestone",
+			name: "Lápide Gótica",
+			footprint: DECO_ONE,
+			heightScale: 1.2
+		},
+		"wilds-broken-gravestone": {
+			id: "wilds-broken-gravestone",
+			name: "Lápide Quebrada",
+			footprint: DECO_ONE,
+			heightScale: 1.15
+		},
+		"wilds-broken-cross": {
+			id: "wilds-broken-cross",
+			name: "Cruz Caída no Túmulo",
+			footprint: DECO_ONE
+		},
+		"wilds-grave-mound": {
+			id: "wilds-grave-mound",
+			name: "Monte de Sepultura",
+			footprint: DECO_PAIR
+		},
+		"wilds-cemetery-lantern": {
+			id: "wilds-cemetery-lantern",
+			name: "Lanterna de Cemitério",
+			footprint: DECO_ONE,
+			heightScale: 1.3
+		},
+		"wilds-cave-stalagmite-cluster": {
+			id: "wilds-cave-stalagmite-cluster",
+			name: "Formação de Estalagmites",
+			footprint: DECO_ONE
+		},
+		"wilds-cave-stalactites": {
+			id: "wilds-cave-stalactites",
+			name: "Estalactites Suspensas",
+			footprint: DECO_ONE,
+			heightScale: 1.2
+		},
+		"wilds-cave-crystal-boulder": {
+			id: "wilds-cave-crystal-boulder",
+			name: "Rocha com Cristais",
+			footprint: DECO_ONE
+		},
+		"wilds-cave-mushrooms": {
+			id: "wilds-cave-mushrooms",
+			name: "Cogumelos de Caverna",
+			footprint: DECO_ONE
+		},
+		"wilds-cave-crystal-rubble": {
+			id: "wilds-cave-crystal-rubble",
+			name: "Escombros com Cristais",
+			footprint: DECO_PAIR
+		},
+		"city-inn-barrel": {
+			id: "city-inn-barrel",
+			name: "Barril da Taverna",
+			footprint: DECO_ONE,
+			heightScale: 1.15
+		},
+		"city-inn-table": {
+			id: "city-inn-table",
+			name: "Mesa da Taverna",
+			footprint: DECO_ONE
+		},
+		"city-inn-chair": {
+			id: "city-inn-chair",
+			name: "Cadeira da Taverna",
+			footprint: DECO_ONE,
+			heightScale: 1.2
+		},
+		"city-inn-tankard": {
+			id: "city-inn-tankard",
+			name: "Caneca de Estanho",
+			footprint: DECO_ONE
+		},
+		"city-inn-candle-sconce": {
+			id: "city-inn-candle-sconce",
+			name: "Castiçal de Parede",
+			footprint: DECO_ONE,
+			heightScale: 1.25
+		},
+		"wilds-snowy-stump": {
+			id: "wilds-snowy-stump",
+			name: "Toco Nevado com Raízes",
+			footprint: DECO_PAIR
+		},
+		"wilds-snowy-fallen-tree": {
+			id: "wilds-snowy-fallen-tree",
+			name: "Árvore Caída Nevada",
+			footprint: DECO_PAIR
+		},
+		"wilds-snowy-roots": {
+			id: "wilds-snowy-roots",
+			name: "Raízes Expostas na Neve",
+			footprint: DECO_PAIR
+		},
+		"wilds-winter-thorn-bush": {
+			id: "wilds-winter-thorn-bush",
+			name: "Arbusto Espinhoso de Inverno",
+			footprint: DECO_ONE
+		},
+		"wilds-winter-mossy-log": {
+			id: "wilds-winter-mossy-log",
+			name: "Tronco Musgoso Nevado",
+			footprint: DECO_PAIR
+		},
+		"wilds-cave-stalagmite-formation": {
+			id: "wilds-cave-stalagmite-formation",
+			name: "Colunas de Pedra da Caverna",
+			footprint: DECO_ONE
+		},
+		"wilds-cave-stalactite-formation": {
+			id: "wilds-cave-stalactite-formation",
+			name: "Grande Estalactite",
+			footprint: DECO_ONE,
+			heightScale: 1.25
+		},
+		"wilds-cave-amethyst-boulder": {
+			id: "wilds-cave-amethyst-boulder",
+			name: "Afloramento de Ametista",
+			footprint: DECO_ONE
+		},
+		"wilds-cave-glowing-mushrooms": {
+			id: "wilds-cave-glowing-mushrooms",
+			name: "Cogumelos Luminescentes",
+			footprint: DECO_ONE
+		},
+		"wilds-cave-crystal-wall": {
+			id: "wilds-cave-crystal-wall",
+			name: "Parede de Cristais",
+			footprint: DECO_PAIR
+		},
+		"city-lantern-post-new": {
+			id: "city-lantern-post-new",
+			name: "Poste de Rua com Lanterna",
+			footprint: DECO_ONE,
+			heightScale: 1.8
+		},
+		"city-market-wagon-new": {
+			id: "city-market-wagon-new",
+			name: "Carroça de Feira Coberta",
+			footprint: DECO_PAIR
+		},
+		"city-hanging-sign": {
+			id: "city-hanging-sign",
+			name: "Placa Suspensa da Cidade",
+			footprint: DECO_ONE
+		},
+		"city-firewood-stack-new": {
+			id: "city-firewood-stack-new",
+			name: "Pilha Amarrada de Lenha",
+			footprint: DECO_PAIR
+		},
+		"city-stone-trough-fountain": {
+			id: "city-stone-trough-fountain",
+			name: "Bebedouro de Pedra",
+			footprint: DECO_ONE
+		}
+	};
+	const DECORATIONS = {
+		"watchtower-stone-open-door-2hex": {
+			id: "watchtower-stone-open-door-2hex",
+			name: "Vão de Pedra Aberto do Torreão 3D · 2 hexes",
+			footprint: DECO_PAIR,
+			architectureSpan: 2,
+			blockingFootprint: [],
+			model3d: "doorway"
+		},
+		"door-3d-stone-oak": {
+			id: "door-3d-stone-oak",
+			name: "Porta de madeira em pedra clara 3D",
+			footprint: [
+				{
+					dx: -1,
+					dy: 0
+				},
+				{
+					dx: 0,
+					dy: 0
+				},
+				{
+					dx: 1,
+					dy: 0
+				}
+			],
+			architectureSpan: 3,
+			model3d: "door",
+			doorStyle: "stoneOak",
+			wallTexture: "/game/textures/doors/stone-oak-reference.jpg"
+		},
+		"door-3d-stone-oak-open": {
+			id: "door-3d-stone-oak-open",
+			name: "Vão de madeira em pedra clara 3D",
+			footprint: [
+				{
+					dx: -1,
+					dy: 0
+				},
+				{
+					dx: 0,
+					dy: 0
+				},
+				{
+					dx: 1,
+					dy: 0
+				}
+			],
+			architectureSpan: 3,
+			blockingFootprint: [{
+				dx: -1,
+				dy: 0
+			}, {
+				dx: 1,
+				dy: 0
+			}],
+			model3d: "doorway",
+			doorStyle: "stoneOak",
+			wallTexture: "/game/textures/doors/stone-oak-reference.jpg"
+		},
+		"door-3d-dungeon-oak": {
+			id: "door-3d-dungeon-oak",
+			name: "Porta espessa de masmorra com grade 3D",
+			footprint: [
+				{
+					dx: -1,
+					dy: 0
+				},
+				{
+					dx: 0,
+					dy: 0
+				},
+				{
+					dx: 1,
+					dy: 0
+				}
+			],
+			architectureSpan: 3,
+			model3d: "door",
+			doorStyle: "dungeonOak",
+			thickWall: true,
+			wallTexture: "/game/textures/doors/dungeon-oak-reference.jpg"
+		},
+		"door-3d-dungeon-oak-open": {
+			id: "door-3d-dungeon-oak-open",
+			name: "Vão espesso de masmorra com grade 3D",
+			footprint: [
+				{
+					dx: -1,
+					dy: 0
+				},
+				{
+					dx: 0,
+					dy: 0
+				},
+				{
+					dx: 1,
+					dy: 0
+				}
+			],
+			architectureSpan: 3,
+			blockingFootprint: [{
+				dx: -1,
+				dy: 0
+			}, {
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "doorway",
+			doorStyle: "dungeonOak",
+			thickWall: true,
+			wallTexture: "/game/textures/doors/dungeon-oak-reference.jpg"
+		},
+		"dungeon-3d-thick-basalt": {
+			id: "dungeon-3d-thick-basalt",
+			name: "Masmorra — muralha espessa de basalto 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			thickWall: true,
+			wallThicknessScale: 2.35,
+			wallTexture: "/game/textures/walls/dungeon-thick-basalt.png"
+		},
+		"dungeon-3d-thick-reference": {
+			id: "dungeon-3d-thick-reference",
+			name: "Masmorra — muralha espessa com argolas 3D",
+			footprint: [
+				{
+					dx: -1,
+					dy: 0
+				},
+				{
+					dx: 0,
+					dy: 0
+				},
+				{
+					dx: 1,
+					dy: 0
+				}
+			],
+			architectureSpan: 3,
+			model3d: "wall",
+			thickWall: true,
+			dungeonReference: true,
+			wallThicknessScale: 2.35,
+			wallTexture: "/game/textures/walls/dungeon-thick-reference.jpg"
+		},
+		"castle-3d-thick": {
+			id: "castle-3d-thick",
+			name: "Muralha espessa com ameias 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			castleStyle: "battlement",
+			thickWall: true,
+			wallThicknessScale: 1.8,
+			wallTexture: "/game/textures/walls/castle-thick.jpg"
+		},
+		"castle-3d-thick-tower": {
+			id: "castle-3d-thick-tower",
+			name: "Torre quadrada espessa 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			castleStyle: "tower",
+			thickWall: true,
+			heightScale: 1.15,
+			wallTexture: "/game/textures/walls/castle-thick.jpg"
+		},
+		"castle-3d-thick-ruined": {
+			id: "castle-3d-thick-ruined",
+			name: "Muralha espessa arruinada 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			castleStyle: "ruined",
+			thickWall: true,
+			wallThicknessScale: 1.8,
+			wallTexture: "/game/textures/walls/castle-thick.jpg"
+		},
+		"house-3d-vau": {
+			id: "house-3d-vau",
+			name: "Casa clássica do Vau 3D",
+			footprint: DECO_BLOCK_5,
+			model3d: "prop",
+			propModel: "small-house"
+		},
+		"rocks-3d-outcrop": {
+			id: "rocks-3d-outcrop",
+			name: "Afloramento rochoso realista 3D",
+			footprint: DECO_PAIR,
+			model3d: "prop",
+			propModel: "rocky-outcrop"
+		},
+		"rocks-3d-grey-outcrop": {
+			id: "rocks-3d-grey-outcrop",
+			name: "Afloramento rochoso cinzento 3D II",
+			footprint: DECO_PAIR,
+			model3d: "prop",
+			propModel: "grey-outcrop"
+		},
+		"prop-3d-tavern-barrel": {
+			id: "prop-3d-tavern-barrel",
+			name: "Barril da taverna 3D",
+			footprint: DECO_ONE,
+			model3d: "prop",
+			propModel: "tavern-barrel"
+		},
+		"prop-3d-tavern-chair": {
+			id: "prop-3d-tavern-chair",
+			name: "Cadeira da taverna 3D",
+			footprint: DECO_ONE,
+			model3d: "prop",
+			propModel: "tavern-chair"
+		},
+		"prop-3d-tavern-candlestick": {
+			id: "prop-3d-tavern-candlestick",
+			name: "Castiçal de parede 3D",
+			footprint: DECO_ONE,
+			model3d: "prop",
+			propModel: "tavern-candlestick"
+		},
+		"prop-3d-tavern-mug": {
+			id: "prop-3d-tavern-mug",
+			name: "Caneca de metal 3D",
+			footprint: DECO_ONE,
+			model3d: "prop",
+			propModel: "tavern-mug"
+		},
+		"prop-3d-tavern-table": {
+			id: "prop-3d-tavern-table",
+			name: "Mesa redonda da taverna 3D",
+			footprint: DECO_ONE,
+			model3d: "prop",
+			propModel: "tavern-table"
+		},
+		"tree-3d-broadleaf": {
+			id: "tree-3d-broadleaf",
+			name: "Árvore realista 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "tree",
+			treeModel: "broadleaf"
+		},
+		"tree-3d-snowy-pine": {
+			id: "tree-3d-snowy-pine",
+			name: "Pinheiro nevado 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "tree",
+			treeModel: "snowy-pine"
+		},
+		"tree-3d-dead-oak": {
+			id: "tree-3d-dead-oak",
+			name: "Carvalho morto 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "tree",
+			treeModel: "dead-oak"
+		},
+		"tree-3d-dead-snag": {
+			id: "tree-3d-dead-snag",
+			name: "Árvore morta 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "tree",
+			treeModel: "dead-snag"
+		},
+		"tree-3d-twisted-stump": {
+			id: "tree-3d-twisted-stump",
+			name: "Árvore retorcida 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "tree",
+			treeModel: "twisted-stump"
+		},
+		"rock-3d-layered": {
+			id: "rock-3d-layered",
+			name: "Rochas — parede estratificada 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			rockStyle: "layered",
+			heightScale: .55,
+			wallTexture: "/game/textures/walls/rock-formation.jpg"
+		},
+		"rock-3d-arch": {
+			id: "rock-3d-arch",
+			name: "Rochas — arco natural 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "doorway",
+			rockStyle: "arch",
+			wallTexture: "/game/textures/walls/rock-formation.jpg"
+		},
+		"rock-3d-broken": {
+			id: "rock-3d-broken",
+			name: "Rochas — parede desmoronada 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			rockStyle: "broken",
+			heightScale: .75,
+			wallTexture: "/game/textures/walls/rock-formation.jpg"
+		},
+		"temple-3d-plain": {
+			id: "temple-3d-plain",
+			name: "Templo — muralha de pedra 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			templeStyle: "plain",
+			wallTexture: "/game/textures/walls/temple-plain.jpg"
+		},
+		"temple-3d-niche": {
+			id: "temple-3d-niche",
+			name: "Templo — nicho arqueado 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			templeStyle: "niche",
+			wallTexture: "/game/textures/walls/temple-niche.jpg"
+		},
+		"temple-3d-relief": {
+			id: "temple-3d-relief",
+			name: "Templo — arco com relevo floral 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			templeStyle: "relief",
+			wallTexture: "/game/textures/walls/temple-relief.jpg"
+		},
+		"castle-3d-battlement": {
+			id: "castle-3d-battlement",
+			name: "Castelo — muralha com ameias 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			castleStyle: "battlement",
+			wallTexture: "/game/textures/walls/castle-battlement.jpg"
+		},
+		"castle-3d-ruined": {
+			id: "castle-3d-ruined",
+			name: "Castelo — muralha arruinada 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			castleStyle: "ruined",
+			wallTexture: "/game/textures/walls/castle-ruined.jpg"
+		},
+		"castle-3d-gate": {
+			id: "castle-3d-gate",
+			name: "Castelo — portão arqueado 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "door",
+			doorStyle: "castle",
+			castleStyle: "gate",
+			wallTexture: "/game/textures/walls/castle-gate.jpg"
+		},
+		"castle-3d-gate-open": {
+			id: "castle-3d-gate-open",
+			name: "Castelo — arco aberto 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "doorway",
+			doorStyle: "castle",
+			castleStyle: "gate",
+			wallTexture: "/game/textures/walls/castle-gate.jpg"
+		},
+		"wall-3d-dungeon": {
+			id: "wall-3d-dungeon",
+			name: "Parede de Masmorra 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			wallThicknessScale: 1.55,
+			wallTexture: "/game/textures/walls/dungeon-v2.png"
+		},
+		"wall-3d-tower": {
+			id: "wall-3d-tower",
+			name: "Parede de Torre 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			wallTexture: "/game/textures/walls/tower-v2.png"
+		},
+		"wall-3d-tavern": {
+			id: "wall-3d-tavern",
+			name: "Parede de Taverna 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			wallTexture: "/game/textures/walls/tavern-v2.png"
+		},
+		"wall-3d-crypt": {
+			id: "wall-3d-crypt",
+			name: "Parede de Cripta 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			wallThicknessScale: 1.55,
+			wallTexture: "/game/textures/walls/crypt-v2.png"
+		},
+		"wall-3d-temple": {
+			id: "wall-3d-temple",
+			name: "Parede de Templo 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			wallTexture: "/game/textures/walls/temple-v2.png"
+		},
+		"wall-3d-cave": {
+			id: "wall-3d-cave",
+			name: "Parede de Caverna 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			wallThicknessScale: 1.55,
+			wallTexture: "/game/textures/walls/cave-v2.png"
+		},
+		"wall-3d-castle": {
+			id: "wall-3d-castle",
+			name: "Parede de Castelo 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			wallThicknessScale: 1.55,
+			wallTexture: "/game/textures/walls/castle-v2.png"
+		},
+		"wall-3d-city": {
+			id: "wall-3d-city",
+			name: "Parede de Cidade 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			wallTexture: "/game/textures/walls/city-v2.png"
+		},
+		"wall-3d-stone": {
+			id: "wall-3d-stone",
+			name: "Parede de pedra 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall"
+		},
+		"wall-3d-low": {
+			id: "wall-3d-low",
+			name: "Mureta de pedra 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "wall",
+			heightScale: .5
+		},
+		"door-3d-frame": {
+			id: "door-3d-frame",
+			name: "Passagem aberta 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "doorway",
+			doorStyle: "oak",
+			wallTexture: "/game/textures/doors/medieval-oak-door.png"
+		},
+		"door-3d-closed": {
+			id: "door-3d-closed",
+			name: "Porta fechada 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "door",
+			doorStyle: "oak",
+			wallTexture: "/game/textures/doors/medieval-oak-door.png"
+		},
+		"door-3d-reinforced-frame": {
+			id: "door-3d-reinforced-frame",
+			name: "Vão de porta reforçada 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "doorway",
+			doorStyle: "reinforced",
+			wallTexture: "/game/textures/doors/reinforced-wood-door.png"
+		},
+		"door-3d-reinforced": {
+			id: "door-3d-reinforced",
+			name: "Porta reforçada 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "door",
+			doorStyle: "reinforced",
+			wallTexture: "/game/textures/doors/reinforced-wood-door.png"
+		},
+		"door-3d-iron-frame": {
+			id: "door-3d-iron-frame",
+			name: "Arco de ferro aberto 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "doorway",
+			doorStyle: "iron"
+		},
+		"door-3d-iron": {
+			id: "door-3d-iron",
+			name: "Porta arqueada de ferro rebitado 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "door",
+			doorStyle: "iron"
+		},
+		"door-3d-steel-frame": {
+			id: "door-3d-steel-frame",
+			name: "Arco de aço aberto 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "doorway",
+			doorStyle: "steel"
+		},
+		"door-3d-steel": {
+			id: "door-3d-steel",
+			name: "Porta arqueada de aço com painéis 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "door",
+			doorStyle: "steel"
+		},
+		"secret-door-3d-frame": {
+			id: "secret-door-3d-frame",
+			name: "Passagem secreta aberta 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "doorway",
+			doorStyle: "secretStone",
+			wallTexture: "/game/textures/doors/passage-stone.png"
+		},
+		"secret-door-3d-hidden": {
+			id: "secret-door-3d-hidden",
+			name: "Porta secreta de pedra 3D",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}],
+			model3d: "secretDoor",
+			doorStyle: "secretStone",
+			wallThicknessScale: 1.55,
+			wallTexture: "/game/textures/walls/dungeon-v2.png"
+		},
+		"mountain-ridge": {
+			id: "mountain-ridge",
+			name: "Cordilheira",
+			footprint: DECO_PAIR,
+			tile: "hill"
+		},
+		"spike-rocks": {
+			id: "spike-rocks",
+			name: "Agulhas de Pedra",
+			footprint: DECO_PAIR
+		},
+		"dead-tree-large": {
+			id: "dead-tree-large",
+			name: "Árvore Morta Grande",
+			footprint: DECO_PAIR
+		},
+		"dense-forest": {
+			id: "dense-forest",
+			name: "Bosque Denso",
+			footprint: DECO_PAIR,
+			tile: "woods"
+		},
+		"stone-bridge": {
+			id: "stone-bridge",
+			name: "Ponte de Pedra",
+			footprint: DECO_PAIR
+		},
+		"bridge-parapet-gothic-statues-001": {
+			id: "bridge-parapet-gothic-statues-001",
+			name: "Parapeito Gótico — Estátuas",
+			footprint: DECO_QUAD,
+			foreground: true,
+			unitLayer: "front",
+			repeatGroup: "bridge-parapet-gothic-statues",
+			noShadow: true,
+			aboveGroundMist: true
+		},
+		"bridge-parapet-gothic-wall-001": {
+			id: "bridge-parapet-gothic-wall-001",
+			name: "Parapeito Gótico — Muralha",
+			footprint: DECO_QUAD,
+			unitLayer: "behind",
+			repeatGroup: "bridge-parapet-gothic-wall",
+			noShadow: true,
+			aboveGroundMist: true
+		},
+		"bridge-parapet-tall-001": {
+			id: "bridge-parapet-tall-001",
+			name: "Tall-Parapeito",
+			footprint: DECO_ROW_FIVE,
+			unitLayer: "behind",
+			repeatGroup: "bridge-parapet-tall",
+			heightScale: 1.8,
+			noShadow: true,
+			aboveGroundMist: true
+		},
+		"bridge-parapet-tall-statues-001": {
+			id: "bridge-parapet-tall-statues-001",
+			name: "Tall-Parapeito — Estátuas",
+			footprint: DECO_ROW_FIVE,
+			foreground: true,
+			unitLayer: "front",
+			decorRenderOrder: 10,
+			repeatGroup: "bridge-parapet-tall",
+			heightScale: 1.8,
+			noShadow: true,
+			aboveGroundMist: true
+		},
+		"ember-channels-001": {
+			id: "ember-channels-001",
+			name: "Canais de Brasa",
+			footprint: DECO_PAIR
+		},
+		gatehouse: {
+			id: "gatehouse",
+			name: "Portão Fortificado",
+			footprint: DECO_PAIR
+		},
+		watchtower: {
+			id: "watchtower",
+			name: "Torre de Vigia",
+			footprint: DECO_PAIR
+		},
+		"locked-chest": {
+			id: "locked-chest",
+			name: "Baú Pequeno",
+			footprint: DECO_ONE
+		},
+		"chest-medium": {
+			id: "chest-medium",
+			name: "Baú Médio",
+			footprint: DECO_ONE
+		},
+		"chest-large": {
+			id: "chest-large",
+			name: "Baú Grande",
+			footprint: DECO_ONE
+		},
+		barricade: {
+			id: "barricade",
+			name: "Barricada",
+			footprint: DECO_ONE
+		},
+		"wooden-barricade-1": {
+			id: "wooden-barricade-1",
+			name: "Barricada de Estacas II",
+			footprint: DECO_ONE
+		},
+		"dead-tree": {
+			id: "dead-tree",
+			name: "Árvore morta",
+			footprint: DECO_ONE
+		},
+		"fallen-log": {
+			id: "fallen-log",
+			name: "Tronco caído",
+			footprint: DECO_PAIR
+		},
+		"small-house": {
+			id: "small-house",
+			name: "Casa pequena",
+			footprint: DECO_BLOCK_5
+		},
+		"stone-hut": {
+			id: "stone-hut",
+			name: "Cabana de pedra",
+			footprint: DECO_BLOCK_5
+		},
+		"rocky-outcrop": {
+			id: "rocky-outcrop",
+			name: "Afloramento Rochoso",
+			footprint: DECO_PAIR
+		},
+		"boulder-pile": {
+			id: "boulder-pile",
+			name: "Pilha de Pedras",
+			footprint: DECO_PAIR
+		},
+		"twin-spires": {
+			id: "twin-spires",
+			name: "Torres Gêmeas de Pedra",
+			footprint: DECO_PAIR
+		},
+		"large-boulder": {
+			id: "large-boulder",
+			name: "Pedregulho Grande",
+			footprint: DECO_ONE
+		},
+		"burning-house": {
+			id: "burning-house",
+			name: "Casa em Chamas",
+			footprint: DECO_BLOCK_5,
+			blockingFootprint: HOUSE_GROUND_FOOTPRINT
+		},
+		"burnt-house-ruins": {
+			id: "burnt-house-ruins",
+			name: "Ruínas Queimadas",
+			footprint: DECO_BLOCK_5,
+			blockingFootprint: BURNT_HOUSE_GROUND_FOOTPRINT
+		},
+		well: {
+			id: "well",
+			name: "Poço",
+			footprint: DECO_ONE
+		},
+		"stone-fountain": {
+			id: "stone-fountain",
+			name: "Fonte de Pedra",
+			footprint: DECO_ONE
+		},
+		tombstones: {
+			id: "tombstones",
+			name: "Lápides",
+			footprint: DECO_ONE,
+			artScale: .625
+		},
+		"spike-rocks-2": {
+			id: "spike-rocks-2",
+			name: "Agulhas de Pedra II",
+			footprint: DECO_PAIR
+		},
+		lamppost: {
+			id: "lamppost",
+			name: "Poste de Lampião",
+			footprint: DECO_ONE
+		},
+		"mossy-rocks": {
+			id: "mossy-rocks",
+			name: "Pedras Musgosas",
+			footprint: DECO_PAIR
+		},
+		"jagged-ridge": {
+			id: "jagged-ridge",
+			name: "Crista Irregular",
+			footprint: DECO_PAIR,
+			tile: "hill"
+		},
+		"mossy-boulder": {
+			id: "mossy-boulder",
+			name: "Pedregulho Musgoso",
+			footprint: DECO_ONE
+		},
+		"mountain-range": {
+			id: "mountain-range",
+			name: "Cadeia de Montanhas",
+			footprint: DECO_TRIO,
+			tile: "hill"
+		},
+		"rune-stone": {
+			id: "rune-stone",
+			name: "Menir Rúnico",
+			footprint: DECO_ONE
+		},
+		"burning-hamlet": {
+			id: "burning-hamlet",
+			name: "Vilarejo em Chamas",
+			footprint: DECO_BLOCK_5,
+			blockingFootprint: HOUSE_GROUND_FOOTPRINT
+		},
+		"boulder-mound": {
+			id: "boulder-mound",
+			name: "Monte de Pedras",
+			footprint: DECO_ONE
+		},
+		"wooden-cart": {
+			id: "wooden-cart",
+			name: "Carroça de Madeira",
+			footprint: DECO_PAIR
+		},
+		"merchant-covered-cart-001": {
+			id: "merchant-covered-cart-001",
+			name: "Carroça Coberta do Mercador",
+			footprint: DECO_PAIR,
+			artScale: 1.2,
+			heightScale: 1.15
+		},
+		"inn-stairs-up": {
+			id: "inn-stairs-up",
+			name: "Escada para o Andar de Cima",
+			footprint: DECO_PAIR,
+			artScale: .9
+		},
+		"inn-stairs-down": {
+			id: "inn-stairs-down",
+			name: "Escada para o Andar de Baixo",
+			footprint: DECO_PAIR,
+			artScale: .9
+		},
+		"stone-stairs-up-001": {
+			id: "stone-stairs-up-001",
+			name: "Escada de Pedra · Subir",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}, {
+				dx: 0,
+				dy: -1
+			}],
+			noShadow: true,
+			exitKind: "connector"
+		},
+		"stone-stairs-down-001": {
+			id: "stone-stairs-down-001",
+			name: "Escada de Pedra · Descer",
+			footprint: [{
+				dx: 0,
+				dy: 0
+			}, {
+				dx: 0,
+				dy: -1
+			}],
+			noShadow: true,
+			exitKind: "connector"
+		},
+		"spike-crown": {
+			id: "spike-crown",
+			name: "Coroa de Espinhos",
+			footprint: DECO_TRIO
+		},
+		...WILDS_DECORATIONS,
+		...TORTURE_DECORATIONS,
+		...CITY_DECORATIONS,
+		...NEW_DECOR_2026,
+		"escape-exit": {
+			id: "escape-exit",
+			name: "Saída de Fuga",
+			footprint: DECO_PAIR,
+			exitKind: "escape",
+			noShadow: true
+		},
+		"dungeon-exit-single": {
+			id: "dungeon-exit-single",
+			name: "Saída da Masmorra · Porta · 1 hex",
+			footprint: DECO_ONE,
+			exitKind: "dungeon",
+			noShadow: true
+		},
+		"dungeon-exit": {
+			id: "dungeon-exit",
+			name: "Saída da Masmorra",
+			footprint: DECO_PAIR,
+			exitKind: "dungeon",
+			noShadow: true
+		},
+		"floor-connector": {
+			id: "floor-connector",
+			name: "Passagem de Andar",
+			footprint: DECO_ONE,
+			exitKind: "connector",
+			noShadow: true
+		}
+	};
+	for (const id of [
+		"wilds-lantern-post",
+		"wilds-weathered-signpost",
+		"wilds-lantern-signpost",
+		"city-banner-post",
+		"city-lantern-post",
+		"city-signpost",
+		"city-notice-post",
+		"lamppost"
+	]) {
+		const def = DECORATIONS[id];
+		if (def) DECORATIONS[id] = {
+			...def,
+			heightScale: 2,
+			mirrorAlternate: true
+		};
+	}
+	/** Every lockable-chest decoration id. Both size variants block/open the same way
+	* (BattleEngine.useLockpick/adjacentLock, hexprops.buildDecorOverlay) — callers that need
+	* "is this a chest" check membership here instead of one hardcoded id. */
+	const CHEST_DECOR_IDS = /* @__PURE__ */ new Set([
+		"locked-chest",
+		"chest-medium",
+		"chest-large"
+	]);
+	[
+		...Object.keys(WILDS_DECORATIONS),
+		...Object.keys(TORTURE_DECORATIONS),
+		...Object.keys(CITY_DECORATIONS),
+		...Object.keys(NEW_DECOR_2026)
+	];
+	/** A footprint offset turned `rot` sixths of a circle about its anchor hex.
+	*
+	* Offsets are odd-r, where a row's horizontal shift depends on its parity, so a relative
+	* offset cannot be turned on its own — the same (dx, dy) means different neighbours on an
+	* odd row than on an even one. The turn therefore happens in cube space around the real
+	* anchor: offset to cube, subtract the anchor, rotate (x, y, z) -> (-z, -x, -y) per step,
+	* add the anchor back, and convert home.
+	*
+	* This never touches the shape constants themselves — a footprint is read, turned for this
+	* one placement, and the constant stays exactly as it was written.
+	*/
+	function rotateFootprint(footprint, anchorX, anchorY, rot) {
+		const steps = (Math.round(rot) % 6 + 6) % 6;
+		if (steps === 0) return footprint.map(({ dx, dy }) => ({
+			dx,
+			dy
+		}));
+		const parity = (row) => (row % 2 + 2) % 2;
+		const toCube = (col, row) => {
+			const x = col - (row - parity(row)) / 2;
+			const z = row;
+			return {
+				x,
+				y: -x - z,
+				z
+			};
+		};
+		const toOffset = (x, z) => ({
+			col: x + (z - parity(z)) / 2,
+			row: z
+		});
+		const anchor = toCube(anchorX, anchorY);
+		return footprint.map(({ dx, dy }) => {
+			const cell = toCube(anchorX + dx, anchorY + dy);
+			let x = cell.x - anchor.x;
+			let y = cell.y - anchor.y;
+			let z = cell.z - anchor.z;
+			for (let i = 0; i < steps; i++) {
+				const nx = -z;
+				const ny = -x;
+				const nz = -y;
+				x = nx;
+				y = ny;
+				z = nz;
+			}
+			const back = toOffset(x + anchor.x, z + anchor.z);
+			return {
+				dx: back.col - anchorX,
+				dy: back.row - anchorY
+			};
+		});
+	}
+	/** The footprint a placement actually occupies, turned if it says it is turned. */
+	function placedFootprint(p) {
+		const def = DECORATIONS[p.id];
+		if (!def) return [];
+		if (def.architectureSpan) return def.footprint.map(({ dx, dy }) => {
+			const turn = (p.rot ?? 0) % 4;
+			return turn === 1 ? {
+				dx: -dy,
+				dy: dx
+			} : turn === 2 ? {
+				dx: -dx,
+				dy: -dy
+			} : turn === 3 ? {
+				dx: dy,
+				dy: -dx
+			} : {
+				dx,
+				dy
+			};
+		});
+		return rotateFootprint(def.footprint, p.x, p.y, p.rot ?? 0);
+	}
+	function decorationCells(placements) {
+		const out = /* @__PURE__ */ new Set();
+		for (const p of placements) for (const { dx, dy } of placedFootprint(p)) out.add(`${p.x + dx},${p.y + dy}`);
+		return out;
+	}
+	/** Malrec's Conjurador line only: a starting 5% Ember resistance. Mages get no flat class
+	* boost — their resistances come from casting (a separate system). Trained skills add on top. */
+	const CONJURER_RESISTANCES = { ember: 5 };
+	const CLASSES = {
+		...ENCOUNTER_NPC_CLASSES,
+		swordsman: {
+			id: "swordsman",
+			name: "Guerreiro",
+			role: "Linha de frente",
+			hp: 34,
+			atk: 9,
+			mag: 0,
+			def: 6,
+			dex: 3,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "defaultWarrior",
+			size: 1,
+			init: 7
+		},
+		archer: {
+			id: "archer",
+			name: "Arqueira",
+			role: "Alcance",
+			hp: 24,
+			atk: 8,
+			mag: 0,
+			def: 3,
+			dex: 4,
+			mov: 6,
+			minRange: 2,
+			maxRange: 4,
+			sprite: "archerRecruit",
+			size: 1,
+			init: 3
+		},
+		mage: {
+			id: "mage",
+			name: "Mago Negro",
+			role: "Magia",
+			hp: 22,
+			atk: 3,
+			mag: 10,
+			def: 2,
+			dex: 6,
+			mov: 5,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "mageRecruit",
+			size: 1,
+			init: 5
+		},
+		healer: {
+			id: "healer",
+			name: "Curandeiro",
+			role: "Cura",
+			hp: 26,
+			atk: 4,
+			mag: 8,
+			def: 3,
+			dex: 6,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "healerRecruit",
+			size: 1,
+			init: 8
+		},
+		soldier: {
+			id: "soldier",
+			name: "Soldado",
+			role: "Milícia",
+			hp: 31,
+			atk: 8,
+			mag: 0,
+			def: 4,
+			dex: 2,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "soldier",
+			size: 1,
+			init: 2
+		},
+		miliciaV2: {
+			id: "miliciaV2",
+			name: "Milícia",
+			role: "Milícia",
+			hp: 31,
+			atk: 8,
+			mag: 0,
+			def: 4,
+			dex: 2,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "militia-v2",
+			size: 1,
+			init: 2
+		},
+		pikeman: {
+			id: "pikeman",
+			name: "Piqueiro",
+			role: "Pique",
+			hp: 33,
+			atk: 8,
+			mag: 0,
+			def: 5,
+			dex: 2,
+			mov: 3,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "pikeman",
+			size: 1,
+			init: 3
+		},
+		brigand: {
+			id: "brigand",
+			name: "Besteiro",
+			role: "Emboscada",
+			hp: 25,
+			atk: 7,
+			mag: 0,
+			def: 2,
+			dex: 3,
+			mov: 3,
+			minRange: 2,
+			maxRange: 3,
+			sprite: "brigand",
+			size: 1,
+			init: 4
+		},
+		captain: {
+			id: "captain",
+			name: "Capitão",
+			role: "Comando",
+			hp: 60,
+			atk: 11,
+			mag: 0,
+			def: 7,
+			dex: 4,
+			mov: 4,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "captain",
+			size: 1,
+			init: 1
+		},
+		wardog: {
+			id: "wardog",
+			name: "Cão de guerra",
+			role: "Profano",
+			hp: 40,
+			atk: 9,
+			mag: 0,
+			def: 3,
+			dex: 1,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "wardog",
+			size: 2,
+			footprintOffsets: FOOTPRINT_TYPE_3,
+			init: 6
+		},
+		wardog2: {
+			id: "wardog2",
+			name: "Cão de guerra 2",
+			role: "Profano",
+			hp: 40,
+			atk: 9,
+			mag: 0,
+			def: 3,
+			dex: 1,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "wardog2",
+			size: 2,
+			footprintOffsets: FOOTPRINT_TYPE_3,
+			init: 6
+		},
+		morvenianWolf: {
+			id: "morvenianWolf",
+			name: "Mordavian Puppy",
+			role: "Fera",
+			hp: 34,
+			atk: 10,
+			mag: 0,
+			def: 2,
+			dex: 1,
+			mov: 6,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "morvenian-wolf",
+			size: 2,
+			footprintOffsets: FOOTPRINT_TYPE_2,
+			init: 7
+		},
+		mordavianWolf: {
+			id: "mordavianWolf",
+			name: "Mordavian Wolf",
+			role: "Fera",
+			hp: 44,
+			atk: 13,
+			mag: 0,
+			def: 3,
+			dex: 2,
+			mov: 6,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "mordavian-wolf",
+			size: 2,
+			footprintOffsets: FOOTPRINT_TYPE_2,
+			init: 7
+		},
+		mordavianWolfFinal: {
+			id: "mordavianWolfFinal",
+			name: "Mordavian Wolf Final",
+			role: "Fera",
+			hp: 44,
+			atk: 13,
+			mag: 0,
+			def: 3,
+			dex: 2,
+			mov: 6,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "mordavian-wolf-final",
+			size: 2,
+			footprintOffsets: FOOTPRINT_TYPE_2,
+			init: 7
+		},
+		punisher: {
+			id: "punisher",
+			name: "Carrasco",
+			role: "Carrasco",
+			hp: 55,
+			atk: 13,
+			mag: 0,
+			def: 6,
+			dex: 2,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "punisher",
+			size: 1,
+			init: 5
+		},
+		theButcher: {
+			id: "theButcher",
+			name: "The Butcher",
+			role: "Chefe",
+			hp: 72,
+			atk: 19,
+			mag: 0,
+			def: 11,
+			dex: 6,
+			mov: 4,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "theButcher",
+			size: 1,
+			init: 6
+		},
+		birolho: {
+			id: "birolho",
+			name: "Birolho",
+			role: "Abominação",
+			hp: 78,
+			atk: 12,
+			mag: 0,
+			def: 4,
+			dex: 4,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "birolho",
+			size: 4,
+			footprintOffsets: FOOTPRINT_TYPE_7,
+			init: 6
+		},
+		birolho2: {
+			id: "birolho2",
+			name: "Birolho2",
+			role: "Abominação",
+			hp: 78,
+			atk: 12,
+			mag: 0,
+			def: 4,
+			dex: 4,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "birolho2",
+			size: 4,
+			footprintOffsets: FOOTPRINT_TYPE_7,
+			init: 6
+		},
+		birolho3: {
+			id: "birolho3",
+			name: "Birolho3",
+			role: "Abominação",
+			hp: 78,
+			atk: 12,
+			mag: 0,
+			def: 4,
+			dex: 4,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "birolho3",
+			size: 4,
+			footprintOffsets: FOOTPRINT_TYPE_7,
+			init: 6
+		},
+		birolhoLegs: {
+			id: "birolhoLegs",
+			name: "BirolhoLegs",
+			role: "Abominação",
+			hp: 78,
+			atk: 12,
+			mag: 0,
+			def: 4,
+			dex: 4,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "BirolhoLegs",
+			size: 4,
+			footprintOffsets: FOOTPRINT_TYPE_7,
+			init: 6
+		},
+		birolhoLegs2: {
+			id: "birolhoLegs2",
+			name: "BirolhoLegs2",
+			role: "Abominação",
+			hp: 78,
+			atk: 12,
+			mag: 0,
+			def: 4,
+			dex: 4,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "BirolhoLegs2",
+			size: 4,
+			footprintOffsets: FOOTPRINT_TYPE_7,
+			init: 6
+		},
+		carnivorousPlant: {
+			id: "carnivorousPlant",
+			name: "Planta Carnívora",
+			role: "Chefe",
+			hp: 250,
+			atk: 28,
+			mag: 22,
+			def: 20,
+			dex: 15,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "carnivorous-plant-001",
+			size: 4,
+			footprintOffsets: FOOTPRINT_TYPE_7,
+			init: 7,
+			boss: true
+		},
+		sapling: {
+			id: "sapling",
+			name: "Muda Carnívora",
+			role: "Planta",
+			hp: 39,
+			atk: 12,
+			mag: 10,
+			def: 7,
+			dex: 6,
+			mov: 4,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "sapling-001",
+			size: 1,
+			init: 5
+		},
+		cultist: {
+			id: "cultist",
+			name: "Feiticeiro",
+			role: "Rito",
+			hp: 23,
+			atk: 2,
+			mag: 9,
+			def: 2,
+			dex: 5,
+			mov: 3,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "sorcerer",
+			size: 1,
+			init: 5
+		},
+		cultistV2: {
+			id: "cultistV2",
+			name: "Cultista Ancestral",
+			role: "Rito",
+			hp: 23,
+			atk: 2,
+			mag: 9,
+			def: 2,
+			dex: 5,
+			mov: 3,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "cultist-v2",
+			size: 1,
+			init: 5
+		},
+		minorHorror: {
+			id: "minorHorror",
+			name: "Minor Horror",
+			role: "Abominação",
+			hp: 42,
+			atk: 9,
+			mag: 7,
+			def: 3,
+			dex: 4,
+			mov: 4,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "minor-horror-001",
+			size: 1,
+			init: 5
+		},
+		horror: {
+			id: "horror",
+			name: "Horror",
+			role: "Abominação",
+			hp: 86,
+			atk: 11,
+			mag: 0,
+			def: 5,
+			dex: 5,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "horror",
+			size: 4,
+			footprintOffsets: FOOTPRINT_TYPE_7,
+			init: 6
+		},
+		asherah: {
+			id: "asherah",
+			name: "Asherah",
+			role: "Pesadelo",
+			hp: 120,
+			atk: 13,
+			mag: 0,
+			def: 6,
+			dex: 4,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "Asherah",
+			size: 4,
+			footprintOffsets: FOOTPRINT_TYPE_7,
+			init: 7
+		},
+		ancientGolem: {
+			id: "ancientGolem",
+			name: "Golem Ancião",
+			role: "Construto",
+			hp: 123,
+			atk: 17,
+			mag: 0,
+			def: 13,
+			dex: 4,
+			mov: 5,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "ancient-golem",
+			size: 4,
+			footprintOffsets: FOOTPRINT_TYPE_7,
+			init: 9
+		},
+		zombie: {
+			id: "zombie",
+			creatureType: "undead",
+			name: "Zumbi",
+			role: "Morto-vivo",
+			hp: 38,
+			atk: 9,
+			mag: 0,
+			def: 3,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "zombie",
+			size: 1,
+			init: 2
+		},
+		emberedWraith: {
+			id: "emberedWraith",
+			creatureType: "undead",
+			name: "Embered Wraith",
+			role: "Morto-vivo",
+			hp: 76,
+			atk: 18,
+			mag: 18,
+			def: 6,
+			dex: 2,
+			mov: 6,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "EmberedWraith",
+			size: 1,
+			init: 4
+		},
+		zombie2: {
+			id: "zombie2",
+			creatureType: "undead",
+			name: "Zumbi 2",
+			role: "Morto-vivo",
+			hp: 38,
+			atk: 9,
+			mag: 0,
+			def: 3,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "zombie2",
+			size: 1,
+			init: 2
+		},
+		undeadOx: {
+			id: "undeadOx",
+			creatureType: "undead",
+			name: "Boi Morto-vivo",
+			role: "Morto-vivo",
+			hp: 95,
+			atk: 20,
+			mag: 10,
+			def: 7,
+			dex: 3,
+			mov: 4,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "undeadOx",
+			size: 4,
+			footprintOffsets: FOOTPRINT_TYPE_4,
+			init: 3
+		},
+		plagueBearingCattle: {
+			id: "plagueBearingCattle",
+			creatureType: "undead",
+			name: "Plague Bearing Cattle",
+			role: "Morto-vivo",
+			hp: 114,
+			atk: 24,
+			mag: 12,
+			def: 8,
+			dex: 4,
+			mov: 4,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "plague-bearing-cattle",
+			size: 2,
+			footprintOffsets: FOOTPRINT_TYPE_3,
+			init: 3
+		},
+		troll: {
+			id: "troll",
+			name: "Troll da caverna",
+			role: "Bruto",
+			hp: 88,
+			atk: 12,
+			mag: 0,
+			def: 9,
+			dex: 3,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "troll",
+			size: 4,
+			footprintOffsets: FOOTPRINT_TYPE_8,
+			init: 8
+		},
+		troll2: {
+			id: "troll2",
+			name: "Troll da caverna 2",
+			role: "Bruto",
+			hp: 88,
+			atk: 12,
+			mag: 0,
+			def: 9,
+			dex: 3,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "troll2",
+			size: 4,
+			footprintOffsets: FOOTPRINT_TYPE_7,
+			init: 8
+		},
+		roccoTheBird: {
+			id: "roccoTheBird",
+			name: "Rocco The Bird",
+			role: "Chefe",
+			hp: 108,
+			atk: 25,
+			mag: 25,
+			def: 20,
+			dex: 20,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "RoccoTheBird",
+			size: 4,
+			footprintOffsets: FOOTPRINT_TYPE_7,
+			init: 8,
+			boss: true
+		},
+		swampBlueCalf: {
+			id: "swampBlueCalf",
+			name: "Cobalt Blue Deer",
+			role: "Fera",
+			hp: 22,
+			atk: 7,
+			mag: 0,
+			def: 3,
+			dex: 2,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "cobalt-blue-deer",
+			size: 1,
+			init: 6
+		},
+		bigBlueCalf: {
+			id: "bigBlueCalf",
+			name: "Big Blue Ox",
+			role: "Fera",
+			hp: 22,
+			atk: 7,
+			mag: 0,
+			def: 3,
+			dex: 2,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "big-blue-ox-002",
+			size: 2,
+			footprintOffsets: FOOTPRINT_TYPE_2,
+			init: 6
+		},
+		assassin: {
+			id: "assassin",
+			name: "Assassino",
+			role: "Emboscada",
+			hp: 20,
+			atk: 9,
+			mag: 0,
+			def: 2,
+			dex: 3,
+			mov: 6,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "brigand",
+			size: 1,
+			init: 1
+		},
+		rogue: {
+			id: "rogue",
+			name: "Ladino",
+			role: "Infiltração",
+			hp: 22,
+			atk: 7,
+			mag: 0,
+			def: 2,
+			dex: 3,
+			mov: 6,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "brigand",
+			size: 1,
+			init: 2
+		},
+		lancer: {
+			id: "lancer",
+			name: "Lanceiro",
+			role: "Pique",
+			hp: 26,
+			atk: 8,
+			mag: 0,
+			def: 4,
+			dex: 3,
+			mov: 5,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "lancer",
+			size: 1,
+			init: 4
+		},
+		aldric: {
+			id: "aldric",
+			name: "Lanceiro",
+			role: "Pique",
+			hp: 26,
+			atk: 8,
+			mag: 0,
+			def: 4,
+			dex: 3,
+			mov: 5,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "aldric",
+			size: 1,
+			init: 4
+		},
+		sandoval: {
+			id: "sandoval",
+			name: "Lanceiro",
+			role: "Lanceiro rival · Chefe",
+			hp: 58,
+			atk: 15,
+			mag: 0,
+			def: 10,
+			dex: 6,
+			mov: 5,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "sandoval",
+			size: 1,
+			init: 5,
+			boss: true
+		},
+		kaelFinal: {
+			id: "kaelFinal",
+			name: "Guerreiro",
+			role: "Espadachim · Teste visual",
+			hp: 34,
+			atk: 9,
+			mag: 0,
+			def: 6,
+			dex: 3,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "kaelFinal",
+			size: 1,
+			init: 7
+		},
+		kaelEarly: {
+			id: "kaelEarly",
+			name: "Guerreiro",
+			role: "Espadachim · versão inicial",
+			hp: 34,
+			atk: 9,
+			mag: 0,
+			def: 6,
+			dex: 3,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "kaelEarly",
+			size: 1,
+			init: 7
+		},
+		neera: {
+			id: "neera",
+			name: "Arqueira",
+			role: "Alcance",
+			hp: 24,
+			atk: 8,
+			mag: 0,
+			def: 3,
+			dex: 4,
+			mov: 6,
+			minRange: 2,
+			maxRange: 4,
+			sprite: "neera",
+			size: 1,
+			init: 3
+		},
+		voss: {
+			id: "voss",
+			name: "Mago Negro",
+			role: "Magia",
+			hp: 22,
+			atk: 3,
+			mag: 10,
+			def: 2,
+			dex: 6,
+			mov: 5,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "voss",
+			size: 1,
+			init: 5
+		},
+		salazar: {
+			id: "salazar",
+			name: "Curandeiro",
+			role: "Cura",
+			hp: 26,
+			atk: 4,
+			mag: 8,
+			def: 3,
+			dex: 6,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "salazar",
+			size: 1,
+			init: 8
+		},
+		conjurer: {
+			id: "conjurer",
+			resistances: CONJURER_RESISTANCES,
+			name: "Conjurador",
+			role: "Suporte arcano",
+			hp: 18,
+			atk: 3,
+			mag: 10,
+			def: 2,
+			dex: 9,
+			mov: 5,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "conjurer",
+			size: 1,
+			init: 6
+		},
+		familiar: {
+			id: "familiar",
+			name: "Familiar",
+			role: "Invocação",
+			hp: 10,
+			atk: 3,
+			mag: 3,
+			def: 1,
+			dex: 1,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "familiar",
+			size: 1,
+			init: 5,
+			summon: true
+		},
+		familiar2: {
+			id: "familiar2",
+			name: "Familiar Maior",
+			role: "Invocação",
+			hp: 16,
+			atk: 5,
+			mag: 5,
+			def: 2,
+			dex: 2,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "familiar2",
+			size: 1,
+			init: 6,
+			summon: true
+		},
+		familiar4: {
+			id: "familiar4",
+			name: "Familiar Radiante",
+			role: "Invocação",
+			hp: 16,
+			atk: 5,
+			mag: 5,
+			def: 2,
+			dex: 2,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "familiar4",
+			size: 1,
+			init: 6,
+			summon: true
+		},
+		familiar3: {
+			id: "familiar3",
+			name: "Familiar Titã",
+			role: "Invocação",
+			hp: 22,
+			atk: 8,
+			mag: 8,
+			def: 4,
+			dex: 4,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "familiar3",
+			size: 2,
+			footprintOffsets: FOOTPRINT_TYPE_6,
+			init: 6,
+			summon: true
+		},
+		zombieDog: {
+			id: "zombieDog",
+			creatureType: "undead",
+			name: "Cão Zumbi",
+			role: "Invocação",
+			hp: 22,
+			atk: 8,
+			mag: 8,
+			def: 4,
+			dex: 4,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "zombieDog",
+			size: 2,
+			footprintOffsets: FOOTPRINT_TYPE_2,
+			init: 6,
+			summon: true
+		},
+		paladin: {
+			id: "paladin",
+			name: "Paladino",
+			role: "Guardião",
+			hp: 30,
+			atk: 6,
+			mag: 4,
+			def: 7,
+			dex: 5,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "captain",
+			size: 1,
+			init: 9
+		},
+		heavyKnight: {
+			id: "heavyKnight",
+			name: "Cavaleiro Pesado",
+			role: "Muralha",
+			hp: 32,
+			atk: 7,
+			mag: 0,
+			def: 9,
+			dex: 3,
+			mov: 4,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "troll",
+			size: 1,
+			init: 10
+		},
+		elementalist: {
+			id: "elementalist",
+			name: "Elementalista",
+			role: "Promovido — Mago Negro",
+			hp: 22,
+			atk: 3,
+			mag: 10,
+			def: 2,
+			dex: 6,
+			mov: 5,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "mageRecruit",
+			size: 1,
+			init: 5
+		},
+		warlock: {
+			id: "warlock",
+			name: "Bruxo",
+			role: "Promovido — Mago Negro",
+			hp: 22,
+			atk: 3,
+			mag: 10,
+			def: 2,
+			dex: 6,
+			mov: 5,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "mageRecruit",
+			size: 1,
+			init: 5
+		},
+		sorcerer: {
+			id: "sorcerer",
+			resistances: CONJURER_RESISTANCES,
+			name: "Arcanista",
+			role: "Promovido — Conjurador",
+			hp: 18,
+			atk: 3,
+			mag: 10,
+			def: 2,
+			dex: 9,
+			mov: 5,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "sorcerer",
+			size: 1,
+			init: 6
+		},
+		necromancer: {
+			id: "necromancer",
+			resistances: CONJURER_RESISTANCES,
+			name: "Necromante",
+			role: "Promovido — Conjurador",
+			hp: 18,
+			atk: 3,
+			mag: 10,
+			def: 2,
+			dex: 9,
+			mov: 5,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "sorcerer",
+			size: 1,
+			init: 6
+		},
+		cleric: {
+			id: "cleric",
+			name: "Clérigo",
+			role: "Promovido — Curandeiro",
+			hp: 26,
+			atk: 4,
+			mag: 8,
+			def: 3,
+			dex: 6,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "healerRecruit",
+			size: 1,
+			init: 8
+		},
+		bishop: {
+			id: "bishop",
+			name: "Bispo",
+			role: "Promovido — Curandeiro",
+			hp: 26,
+			atk: 4,
+			mag: 8,
+			def: 3,
+			dex: 6,
+			mov: 5,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "healerRecruit",
+			size: 1,
+			init: 8
+		},
+		ranger: {
+			id: "ranger",
+			name: "Patrulheiro",
+			role: "Promovido — Arqueira",
+			hp: 24,
+			atk: 8,
+			mag: 0,
+			def: 3,
+			dex: 4,
+			mov: 6,
+			minRange: 2,
+			maxRange: 4,
+			sprite: "archerRecruit",
+			size: 1,
+			init: 3
+		},
+		sentinel: {
+			id: "sentinel",
+			name: "Sentinela",
+			role: "Promovido — Lanceiro",
+			hp: 26,
+			atk: 8,
+			mag: 0,
+			def: 4,
+			dex: 3,
+			mov: 5,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "pikeman",
+			size: 1,
+			init: 4
+		},
+		templar: {
+			id: "templar",
+			name: "Templário",
+			role: "Promovido — Lanceiro",
+			hp: 26,
+			atk: 8,
+			mag: 0,
+			def: 4,
+			dex: 3,
+			mov: 5,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "pikeman",
+			size: 1,
+			init: 4
+		},
+		beberrao: {
+			id: "beberrao",
+			name: "Beberrão",
+			role: "Civil",
+			hp: 11,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 0,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "beberrao",
+			size: 1,
+			init: 9
+		},
+		breadLady: {
+			id: "breadLady",
+			name: "Padeira",
+			role: "Civil",
+			hp: 9,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 0,
+			mov: 4,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "breadLady",
+			size: 1,
+			init: 8
+		},
+		brue: {
+			id: "brue",
+			name: "Brue",
+			role: "Civil — carcereiro",
+			hp: 13,
+			atk: 2,
+			mag: 0,
+			def: 2,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "brue",
+			size: 1,
+			init: 8
+		},
+		crazyLady: {
+			id: "crazyLady",
+			name: "Louca da Vela",
+			role: "Civil — errática",
+			hp: 7,
+			atk: 0,
+			mag: 1,
+			def: 0,
+			dex: 2,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "crazyLady",
+			size: 1,
+			init: 10
+		},
+		mudinho: {
+			id: "mudinho",
+			name: "Mudinho",
+			role: "Civil — mudo",
+			hp: 8,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 4,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "mudinho",
+			size: 1,
+			init: 8
+		},
+		oldHealer: {
+			id: "oldHealer",
+			name: "Curandeiro Ancião",
+			role: "Civil — místico errante",
+			hp: 8,
+			atk: 0,
+			mag: 2,
+			def: 0,
+			dex: 2,
+			mov: 3,
+			minRange: 1,
+			maxRange: 2,
+			sprite: "oldHealer",
+			size: 1,
+			init: 9
+		},
+		peasant1: {
+			id: "peasant1",
+			name: "Camponês",
+			role: "Civil",
+			hp: 12,
+			atk: 2,
+			mag: 0,
+			def: 1,
+			dex: 0,
+			mov: 4,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "peasant1",
+			size: 1,
+			init: 7
+		},
+		shadyPatron: {
+			id: "shadyPatron",
+			name: "Cliente Suspeito",
+			role: "Civil — frequentador estranho",
+			hp: 9,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "shadyPatron",
+			size: 1,
+			init: 8
+		},
+		soupLady: {
+			id: "soupLady",
+			name: "Velha da Sopa",
+			role: "Civil",
+			hp: 7,
+			atk: 0,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "soupLady",
+			size: 1,
+			init: 9
+		},
+		villagerF1: {
+			id: "villagerF1",
+			name: "Aldeã",
+			role: "Civil",
+			hp: 9,
+			atk: 1,
+			mag: 0,
+			def: 0,
+			dex: 1,
+			mov: 4,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "villagerF1",
+			size: 1,
+			init: 8
+		},
+		woodsman: {
+			id: "woodsman",
+			name: "Lenhador",
+			role: "Civil",
+			hp: 13,
+			atk: 2,
+			mag: 0,
+			def: 1,
+			dex: 0,
+			mov: 4,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "woodsman",
+			size: 1,
+			init: 7
+		},
+		travelingMerchant: {
+			id: "travelingMerchant",
+			name: "Mercador",
+			role: "Civil — mercador",
+			hp: 10,
+			atk: 1,
+			mag: 0,
+			def: 1,
+			dex: 1,
+			mov: 3,
+			minRange: 1,
+			maxRange: 1,
+			sprite: "travelingMerchant",
+			size: 1,
+			init: 7
+		}
+	};
+	({ ...ENCOUNTER_NPC_GROWTH });
+	Object.keys(CLASSES).filter((c) => !!CLASSES[c].summon);
+	const WEAPON_RUNGS = [
+		{
+			dice: 1,
+			faces: 4,
+			bonus: 0,
+			price: 40
+		},
+		{
+			dice: 1,
+			faces: 6,
+			bonus: 0,
+			price: 90
+		},
+		{
+			dice: 1,
+			faces: 8,
+			bonus: 0,
+			price: 180
+		},
+		{
+			dice: 1,
+			faces: 10,
+			bonus: 0,
+			price: 320
+		},
+		{
+			dice: 1,
+			faces: 12,
+			bonus: 0,
+			price: 520
+		},
+		{
+			dice: 2,
+			faces: 6,
+			bonus: 0,
+			price: 800
+		},
+		{
+			dice: 2,
+			faces: 8,
+			bonus: 0,
+			price: 1200
+		},
+		{
+			dice: 2,
+			faces: 10,
+			bonus: 0,
+			price: 1800
+		},
+		{
+			dice: 2,
+			faces: 12,
+			bonus: 0,
+			price: 2600
+		}
+	];
+	const MELEE = {
+		minRange: 1,
+		maxRange: 1
+	};
+	const REACH = {
+		minRange: 1,
+		maxRange: 2
+	};
+	const SPEAR = {
+		minRange: 1,
+		maxRange: 2,
+		twoHanded: true
+	};
+	const RANGED = {
+		minRange: 2,
+		maxRange: 4,
+		ranged: true
+	};
+	const RANGED_MASTERWORK = {
+		minRange: 2,
+		maxRange: 5,
+		ranged: true
+	};
+	function wpn(weaponType, id, name, usableBy, rung, range = MELEE, bonusClass, extraBonus = 0) {
+		const r = WEAPON_RUNGS[rung - 1];
+		return {
+			id,
+			weaponType,
+			name,
+			usableBy,
+			dice: r.dice,
+			faces: r.faces,
+			bonus: r.bonus + extraBonus,
+			price: r.price + extraBonus * 60,
+			minRange: range.minRange,
+			maxRange: range.maxRange,
+			ranged: range.ranged,
+			twoHanded: range.twoHanded,
+			bonusClass
+		};
+	}
+	const ARCANE_MAGE_TRIO = [
+		"mage",
+		"voss",
+		"elementalist",
+		"warlock"
+	];
+	const ARCANE_CONJURER_TRIO = [
+		"conjurer",
+		"sorcerer",
+		"necromancer"
+	];
+	const ARCANE_ALL = [...ARCANE_MAGE_TRIO, ...ARCANE_CONJURER_TRIO];
+	const HEAL_TRIO = [
+		"healer",
+		"salazar",
+		"bishop",
+		"cleric"
+	];
+	const WARRIOR_TRIO = [
+		"swordsman",
+		"kaelFinal",
+		"kaelEarly",
+		"paladin",
+		"heavyKnight"
+	];
+	const ARCHER_TRIO = [
+		"archer",
+		"neera",
+		"ranger",
+		"assassin"
+	];
+	const LANCER_TRIO = [
+		"lancer",
+		"aldric",
+		"sandoval",
+		"sentinel",
+		"templar"
+	];
+	[...[
+		...ARCHER_TRIO,
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		"rogue"
+	], ...ARCANE_ALL];
+	[
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	];
+	wpn("staff", "cajado-de-osso", "Cajado do Crescente Negro", ARCANE_ALL, 1, REACH, "mage"), wpn("staff", "cajado-abissal", "Cajado Abissal", ARCANE_ALL, 9, REACH, void 0, 2), wpn("staff", "cajado-de-ebano", "Cajado de Ébano", ARCANE_ALL, 3, REACH, "mage"), wpn("staff", "cajado-igneo", "Cajado Ígneo", ARCANE_ALL, 4, REACH, "elementalist"), wpn("staff", "bastao-do-pacto", "Bastão do Pacto", ARCANE_ALL, 5, REACH, "warlock"), wpn("staff", "cajado-tempestuoso", "Cajado Tempestuoso", ARCANE_ALL, 6, REACH, "elementalist"), wpn("staff", "cetro-da-corrupcao", "Cetro da Corrupção", ARCANE_ALL, 7, REACH, "warlock"), wpn("staff", "cajado-terrano", "Cajado Terrano", ARCANE_ALL, 8, REACH, "elementalist"), wpn("staff", "bastao-do-vacuo", "Bastão do Vácuo", ARCANE_ALL, 9, REACH, "mage"), wpn("staff", "cajado-arcano", "Cajado Arcano", ARCANE_ALL, 1, REACH, "sorcerer", 1), wpn("staff", "cajado-etereo", "Cajado Etéreo", ARCANE_ALL, 2, REACH, "conjurer", 1), wpn("staff", "cajado-da-luz-sombria", "Cajado da Luz Sombria", ARCANE_ALL, 3, REACH, "conjurer", 1), wpn("staff", "cajado-da-chama-purpura", "Cajado da Chama Púrpura", ARCANE_ALL, 4, REACH, "sorcerer", 1), wpn("staff", "cajado-funebre", "Cajado Fúnebre", ARCANE_ALL, 5, REACH, "necromancer", 1), wpn("staff", "bastao-do-caos", "Bastão do Caos", ARCANE_ALL, 6, REACH, "conjurer", 1), wpn("staff", "bastao-dos-restos", "Bastão dos Restos", ARCANE_ALL, 7, REACH, "necromancer", 1), wpn("staff", "cajado-do-arcano-puro", "Cajado do Arcano Puro", ARCANE_ALL, 8, REACH, "sorcerer", 1), wpn("staff", "cajado-da-praga", "Cajado da Praga", ARCANE_ALL, 9, REACH, "necromancer", 1), wpn("staff", "cajado-da-renovacao", "Cajado da Renovação", HEAL_TRIO, 2, MELEE, void 0, 1), wpn("staff", "cajado-da-esperanca", "Cajado da Esperança", HEAL_TRIO, 2), wpn("staff", "cajado-da-graca", "Cajado da Graça", HEAL_TRIO, 3), wpn("staff", "cetro-da-luz", "Cetro da Luz", HEAL_TRIO, 4), wpn("staff", "bastao-da-purificacao", "Bastão da Purificação", HEAL_TRIO, 5), wpn("staff", "cajado-do-bispo", "Cajado do Bispo", HEAL_TRIO, 6), wpn("staff", "cajado-da-comunhao", "Cajado da Comunhão", HEAL_TRIO, 7), wpn("staff", "cajado-da-fe", "Cajado da Fé", HEAL_TRIO, 8), wpn("staff", "cajado-da-justica", "Cajado da Justiça", HEAL_TRIO, 9), wpn("sword", "espada-larga", "Espada Larga", WARRIOR_TRIO, 1), wpn("sword", "espadao", "Espadão", WARRIOR_TRIO, 2), wpn("axe", "machado-de-guerra", "Machado de Guerra", WARRIOR_TRIO, 3), wpn("sword", "espada-da-lealdade", "Espada da Lealdade", WARRIOR_TRIO, 4), wpn("sword", "espadao-pesado", "Espadão Pesado", WARRIOR_TRIO, 5), wpn("sword", "lamina-sagrada", "Lâmina Sagrada", WARRIOR_TRIO, 6), wpn("hammer", "martelo-de-guerra", "Martelo de Guerra", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 1), wpn("hammer", "martelo-da-justica", "Martelo da Justiça", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 2), wpn("axe", "machado-barbaro", "Machado Bárbaro", WARRIOR_TRIO, 7), wpn("mace", "maca-de-espinhos", "Maça de Espinhos", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 1, MELEE, void 0, 3), wpn("mace", "maca-flangeada-negra", "Maça Flangeada Negra", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 2, MELEE, void 0, 3), wpn("mace", "maca-diamantada-de-ferro", "Maça Diamantada de Ferro", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 3, MELEE, void 0, 3), wpn("mace", "maca-da-cruz-ferrea", "Maça da Cruz Férrea", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 4, MELEE, void 0, 3), wpn("mace", "maca-espinhada-dourada", "Maça Espinhada Dourada", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 5, MELEE, void 0, 3), wpn("mace", "maca-alada-negra", "Maça Alada Negra", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 6, MELEE, void 0, 3), wpn("mace", "maca-do-leao-cruzado", "Maça do Leão Cruzado", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 7, MELEE, void 0, 2), wpn("mace", "maca-rubi-sombria", "Maça Rubi Sombria", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 7, MELEE, void 0, 3), wpn("mace", "maca-do-leao-duplo", "Maça do Leão Duplo", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 8, MELEE, void 0, 2), wpn("mace", "maca-do-cranio-flamejante", "Maça do Crânio Flamejante", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 8, MELEE, void 0, 3), wpn("mace", "maca-do-sol-sagrado", "Maça do Sol Sagrado", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 9, MELEE, void 0, 2), wpn("mace", "maca-do-nucleo-azul", "Maça do Núcleo Azul", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 9, MELEE, void 0, 3), wpn("bow", "arco-composto", "Arco Composto", ARCHER_TRIO, 1, RANGED), wpn("bow", "arco-longo", "Arco Longo", ARCHER_TRIO, 2, RANGED), wpn("bow", "arco-elfico", "Arco Élfico", ARCHER_TRIO, 3, RANGED), wpn("bow", "arco-do-cacador", "Arco do Caçador", ARCHER_TRIO, 4, RANGED), wpn("crossbow", "besta-leve", "Besta Leve", ARCHER_TRIO, 5, {
+		minRange: 1,
+		maxRange: 4,
+		ranged: true
+	}), wpn("spear", "lanca", "Lança", LANCER_TRIO, 1, SPEAR), wpn("spear", "partisan", "Partisan", LANCER_TRIO, 2, SPEAR), wpn("spear", "guisarme", "Guisarme", LANCER_TRIO, 3, SPEAR), wpn("spear", "lanca-de-defesa", "Lança de Defesa", LANCER_TRIO, 4, SPEAR), wpn("spear", "lanca-da-faixa-vermelha", "Lança da Faixa Vermelha", LANCER_TRIO, 1, SPEAR, void 0, 1), wpn("spear", "lanca-diamantada", "Lança Diamantada", LANCER_TRIO, 2, SPEAR, void 0, 1), wpn("spear", "lanca-da-faixa-sombria", "Lança da Faixa Sombria", LANCER_TRIO, 1, SPEAR, void 0, 2), wpn("spear", "lanca-fluida-carmesim", "Lança Fluida Carmesim", LANCER_TRIO, 2, SPEAR, void 0, 2), wpn("spear", "lanca-alada-azul", "Lança Alada Azul", LANCER_TRIO, 3, SPEAR, void 0, 1), wpn("spear", "lanca-serpente-rubra", "Lança da Serpente Rubra", LANCER_TRIO, 3, SPEAR, void 0, 2), wpn("spear", "lanca-da-trepadeira", "Lança da Trepadeira", LANCER_TRIO, 4, SPEAR, void 0, 1), wpn("spear", "lanca-da-estrela-polar", "Lança da Estrela Polar", LANCER_TRIO, 5, SPEAR), wpn("spear", "lanca-do-anjo-guardiao", "Lança do Anjo Guardião", LANCER_TRIO, 6, SPEAR), wpn("spear", "lanca-do-lobo-carmesim", "Lança do Lobo Carmesim", LANCER_TRIO, 7, SPEAR), wpn("spear", "lanca-da-esmeralda-viva", "Lança da Esmeralda Viva", LANCER_TRIO, 8, SPEAR), wpn("spear", "lanca-da-estrela-celeste", "Lança da Estrela Celeste", LANCER_TRIO, 9, SPEAR), wpn("staff", "bastao-purificacao-sombrio", "Bastão da Purificação Sombria", HEAL_TRIO, 5, REACH, void 0, 1), wpn("staff", "bastao-caos-fraturado", "Bastão do Caos Fraturado", ARCANE_ALL, 1, REACH, "conjurer", 2), wpn("staff", "bastao-pacto-sangue", "Bastão do Pacto de Sangue", ARCANE_ALL, 2, REACH, "warlock", 2), wpn("staff", "bastao-vacuo-negro", "Bastão do Vácuo Negro", ARCANE_ALL, 3, REACH, "mage", 2), wpn("sword", "espada-juramento-negro", "Espada do Juramento Negro", WARRIOR_TRIO, 8), wpn("sword", "montante-da-ruina", "Montante da Ruína", WARRIOR_TRIO, 9), wpn("sword", "espadao-do-carrasco", "Espadão do Carrasco", WARRIOR_TRIO, 1, MELEE, void 0, 1), wpn("sword", "zweihander-profana", "Zweihänder Profana", WARRIOR_TRIO, 2, MELEE, void 0, 1), wpn("bow", "arco-composto-de-chifre", "Arco Composto de Chifre", ARCHER_TRIO, 5, RANGED), wpn("bow", "arco-do-cacador-sombrio", "Arco do Caçador Sombrio", ARCHER_TRIO, 6, RANGED), wpn("bow", "arco-elfico-de-cinzas", "Arco Élfico de Cinzas", ARCHER_TRIO, 7, RANGED), wpn("bow", "arco-longo-de-teixo", "Arco Longo de Teixo", ARCHER_TRIO, 8, RANGED_MASTERWORK), wpn("hammer", "martelo-belico", "Martelo Bélico", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 3), wpn("hammer", "malho-do-juizo", "Malho do Juízo", [
+		...WARRIOR_TRIO,
+		"cleric",
+		"healer",
+		"salazar",
+		"bishop"
+	], 4), wpn("sword", "lamina-consagrada", "Lâmina Consagrada", WARRIOR_TRIO, 3, MELEE, void 0, 1), wpn("bow", "arco-rustico", "Arco Rústico", ARCHER_TRIO, 9, RANGED_MASTERWORK), wpn("bow", "arco-prateado", "Arco Prateado", ARCHER_TRIO, 1, RANGED, void 0, 1), wpn("bow", "arco-de-peles", "Arco de Peles", ARCHER_TRIO, 2, RANGED, void 0, 1), wpn("bow", "arco-de-aco", "Arco de Aço", ARCHER_TRIO, 3, RANGED, void 0, 1), wpn("bow", "arco-de-galhos", "Arco de Galhos", ARCHER_TRIO, 4, RANGED, void 0, 1), wpn("bow", "arco-presas-douradas", "Arco de Presas Douradas", ARCHER_TRIO, 5, RANGED, void 0, 1), wpn("bow", "arco-caveira-sombria", "Arco da Caveira Sombria", ARCHER_TRIO, 6, RANGED, void 0, 1), wpn("bow", "arco-guardiao-dos-galhos", "Arco do Guardião dos Galhos", ARCHER_TRIO, 7, RANGED, void 0, 1), wpn("bow", "arco-do-leao-dourado", "Arco do Leão Dourado", ARCHER_TRIO, 8, RANGED_MASTERWORK, void 0, 1), wpn("bow", "arco-espinhoso-negro", "Arco Espinhoso Negro", ARCHER_TRIO, 9, RANGED_MASTERWORK, void 0, 1), wpn("bow", "arco-outonal", "Arco Outonal", ARCHER_TRIO, 1, RANGED, void 0, 2), wpn("bow", "arco-penas-sombrias", "Arco das Penas Sombrias", ARCHER_TRIO, 2, RANGED, void 0, 2), wpn("staff", "cajado-do-julgamento", "Cajado do Julgamento", ARCANE_ALL, 4, REACH, void 0, 2), wpn("staff", "cajado-da-vinha", "Cajado da Vinha", HEAL_TRIO, 1, MELEE, void 0, 1), wpn("staff", "cajado-espinhos-carmesim", "Cajado dos Espinhos Carmesim", ARCANE_ALL, 5, REACH, void 0, 2), wpn("staff", "cajado-orbe-crescente", "Cajado do Orbe Crescente", ARCANE_ALL, 6, REACH, void 0, 2), wpn("staff", "cajado-da-galhada", "Cajado da Galhada", HEAL_TRIO, 1), wpn("staff", "cajado-cristal-sombrio", "Cajado de Cristal Sombrio", ARCANE_ALL, 7, REACH, void 0, 2), wpn("staff", "cajado-caveira-carneiro", "Cajado da Caveira de Carneiro", ARCANE_ALL, 8, REACH, void 0, 2), wpn("staff", "cajado-crescente-negro", "Cajado de Osso", ARCANE_ALL, 2, REACH, "warlock"), wpn("staff", "cajado-da-trepadeira", "Cajado da Trepadeira", HEAL_TRIO, 3, MELEE, void 0, 1), wpn("sword", "espada-do-leao", "Espada do Leão", WARRIOR_TRIO, 4, MELEE, void 0, 1), wpn("sword", "espada-diamante", "Espada de Diamante", WARRIOR_TRIO, 5, MELEE, void 0, 1), wpn("sword", "espada-real", "Espada Real", WARRIOR_TRIO, 6, MELEE, void 0, 1), wpn("sword", "espada-do-tridente", "Espada do Tridente", WARRIOR_TRIO, 7, MELEE, void 0, 1), wpn("sword", "espada-da-roda-solar", "Espada da Roda Solar", WARRIOR_TRIO, 8, MELEE, void 0, 1), wpn("sword", "cimitarra-do-dragao", "Cimitarra do Dragão", WARRIOR_TRIO, 9, MELEE, void 0, 1), wpn("sword", "espada-do-leao-carmesim", "Espada do Leão Carmesim", WARRIOR_TRIO, 1, MELEE, void 0, 2), wpn("sword", "espada-da-caveira-espinhosa", "Espada da Caveira Espinhosa", WARRIOR_TRIO, 2, MELEE, void 0, 2), wpn("sword", "espada-dourada-suprema", "Espada Dourada Suprema", WARRIOR_TRIO, 3, MELEE, void 0, 2), wpn("sword", "espada-do-peregrino-caido", "Espada do Peregrino Caído", WARRIOR_TRIO, 4, MELEE, void 0, 2), wpn("sword", "espada-do-coracao-sangrento", "Espada do Coração Sangrento", WARRIOR_TRIO, 5, MELEE, void 0, 2), wpn("sword", "espada-serrilhada", "Espada Serrilhada", WARRIOR_TRIO, 6, MELEE, void 0, 2);
+	/** Every dagger/katar of the archer line. They are never a main-hand weapon: the bow is always
+	* the main hand, and a dagger always goes in the off-hand slot (Mão Secundária attack and the
+	* adjacent counter). They keep the ids and art they had as main-hand weapons; damage is the same
+	* rung of the shared dice ladder. */
+	const OFFHAND_DAGGERS = [
+		[
+			"punhal-curvo",
+			"Punhal Curvo",
+			1
+		],
+		[
+			"katar",
+			"Katar",
+			2
+		],
+		[
+			"adaga-sombria",
+			"Adaga Sombria",
+			3
+		],
+		[
+			"adaga-de-veneno",
+			"Adaga de Veneno",
+			4
+		],
+		[
+			"adaga-viperina",
+			"Adaga Viperina",
+			5
+		],
+		[
+			"misericordia-sombria",
+			"Misericórdia Sombria",
+			6
+		],
+		[
+			"punhal-do-salteador",
+			"Punhal do Salteador",
+			7
+		],
+		[
+			"katar-sepulcral",
+			"Katar Sepulcral",
+			8
+		]
+	];
+	new Set(OFFHAND_DAGGERS.map(([id]) => id));
+	[...ARCANE_ALL, ...ARCHER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [
+		...ARCANE_ALL,
+		...ARCHER_TRIO,
+		...HEAL_TRIO
+	], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...ARCANE_ALL, ...ARCHER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [...WARRIOR_TRIO, ...LANCER_TRIO], [
+		...WARRIOR_TRIO,
+		...LANCER_TRIO,
+		...HEAL_TRIO
+	], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], [...WARRIOR_TRIO, ...LANCER_TRIO], { ...Object.fromEntries(OFFHAND_DAGGERS.map(([id, name, rung]) => {
+		const r = WEAPON_RUNGS[rung - 1];
+		return [id, {
+			id,
+			name,
+			slot: "offHand",
+			kind: "weapon",
+			weaponType: "dagger",
+			usableBy: ARCHER_TRIO,
+			dice: r.dice,
+			faces: r.faces,
+			bonus: r.bonus,
+			minRange: 1,
+			maxRange: 1,
+			price: r.price
+		}];
+	})) };
+	/** Priest Tier 3: Holy damage and fear, exclusively against explicitly typed undead. */
+	const TURN_UNDEAD = {
+		name: "Turn Undead",
+		fearTurns: 2
+	};
+	const TURN_UNDEAD_PROGRESSION = [
+		{
+			level: 6,
+			range: 3,
+			radius: 1,
+			dice: 4,
+			faces: 6,
+			mul: 1.6
+		},
+		{
+			level: 9,
+			range: 4,
+			radius: 1,
+			dice: 5,
+			faces: 6,
+			mul: 1.8
+		},
+		{
+			level: 12,
+			range: 4,
+			radius: 2,
+			dice: 6,
+			faces: 6,
+			mul: 2
+		},
+		{
+			level: 15,
+			range: 5,
+			radius: 2,
+			dice: 7,
+			faces: 6,
+			mul: 2.2
+		},
+		{
+			level: 18,
+			range: 6,
+			radius: 2,
+			dice: 8,
+			faces: 6,
+			mul: 2.4
+		},
+		{
+			level: 22,
+			range: 7,
+			radius: 3,
+			dice: 10,
+			faces: 6,
+			mul: 2.6
+		}
+	];
+	function turnUndeadPower(level) {
+		const capped = Math.max(1, Math.min(22, Math.floor(level)));
+		const p = [...TURN_UNDEAD_PROGRESSION].reverse().find((p) => capped >= p.level) ?? TURN_UNDEAD_PROGRESSION[0];
+		return {
+			...p,
+			areaHexes: 1 + 3 * p.radius * (p.radius + 1),
+			fearTurns: TURN_UNDEAD.fearTurns
+		};
+	}
+	/** Generic hex-radius area, same cube-distance math as fireballTiles but parameterized —
+	* used by Web of Dreams (and anything else with its own AoE size) instead of FIREBALL.size. */
+	function hexAreaTiles(origin, radius, cols, rows) {
+		const out = [];
+		for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+			const Aq = x - (y - (y & 1)) / 2;
+			const Ar = y;
+			const As = -Aq - Ar;
+			const Bq = origin.x - (origin.y - (origin.y & 1)) / 2;
+			const Br = origin.y;
+			const Bs = -Bq - Br;
+			if ((Math.abs(Aq - Bq) + Math.abs(Ar - Br) + Math.abs(As - Bs)) / 2 <= radius) out.push({
+				x,
+				y
+			});
+		}
+		return out;
+	}
+	const CHAR = {
+		".": "plains",
+		w: "woods",
+		r: "ruins",
+		a: "water",
+		e: "ember",
+		h: "hill",
+		f: "flame",
+		c: "column",
+		n: "nave",
+		b: "barricade",
+		o: "door",
+		v: "void",
+		u: "snow"
+	};
+	function parseLayout(layout) {
+		const tiles = [];
+		for (const row of layout) for (const ch of row) tiles.push(CHAR[ch] ?? "plains");
+		return tiles;
+	}
+	const TILE_CHAR = {
+		plains: ".",
+		woods: "w",
+		ruins: "r",
+		water: "a",
+		ember: "e",
+		hill: "h",
+		flame: "f",
+		column: "c",
+		nave: "n",
+		barricade: "b",
+		door: "o",
+		void: "v",
+		snow: "u"
+	};
+	const RAW_MISSIONS = [
+		{
+			id: "vau",
+			index: 0,
+			title: "O Vau",
+			place: "Rio de cinza",
+			briefing: "O rio ainda corta a planície queimada. Três sobreviventes. Do outro lado, a milícia que os persegue. Atravessem o vau e abram caminho.",
+			objective: "Derrote todos os inimigos",
+			win: "rout",
+			cols: 8,
+			rows: 7,
+			layout: [
+				"..ww..h.",
+				"...ww.h.",
+				"aaa.aaaa",
+				"aaa.aaah",
+				".h......",
+				"w......w",
+				"ww....ww"
+			],
+			playerSpawns: [
+				{
+					name: "Kael",
+					classId: "kaelFinal",
+					x: 2,
+					y: 6
+				},
+				{
+					name: "Neera",
+					classId: "neera",
+					x: 3,
+					y: 6
+				},
+				{
+					name: "Voss",
+					classId: "voss",
+					x: 4,
+					y: 6
+				}
+			],
+			enemySpawns: [
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 1,
+					y: 0
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 6,
+					y: 0
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 4,
+					y: 1
+				}
+			]
+		},
+		{
+			id: "bosque",
+			index: 1,
+			title: "Bosque Morto",
+			place: "Troncos secos",
+			briefing: "As árvores não têm folhas há duas estações. O bosque aperta o passo e esconde besteiros. No charco fareja um Cobalt Blue Deer. Não deixem Kael sozinho na frente.",
+			objective: "Derrote todos os inimigos",
+			win: "rout",
+			cols: 9,
+			rows: 8,
+			layout: [
+				"w.w...w.w",
+				".www.www.",
+				"w..w.w..w",
+				"ww.....ww",
+				"w..hhh..w",
+				".w.....w.",
+				"w.......w",
+				"ww.....ww"
+			],
+			playerSpawns: [
+				{
+					name: "Kael",
+					classId: "kaelFinal",
+					x: 4,
+					y: 7
+				},
+				{
+					name: "Neera",
+					classId: "neera",
+					x: 3,
+					y: 7
+				},
+				{
+					name: "Voss",
+					classId: "voss",
+					x: 5,
+					y: 7
+				}
+			],
+			enemySpawns: [
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 1,
+					y: 0
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 7,
+					y: 0
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 4,
+					y: 1
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 2,
+					y: 2
+				},
+				{
+					name: "Cobalt Blue Deer",
+					classId: "swampBlueCalf",
+					x: 6,
+					y: 2
+				},
+				{
+					name: "Cobalt Blue Deer",
+					classId: "swampBlueCalf",
+					x: 8,
+					y: 4
+				}
+			]
+		},
+		{
+			id: "aldeia",
+			index: 2,
+			title: "Aldeia Queimada",
+			place: "Casario em ruína",
+			briefing: "A aldeia ainda fumega. Casas em chama custam o passo e queimam quem atravessa — 1d8. Piqueiros alcançam duas casas. Não corram pelo fogo.",
+			objective: "Derrote todos os inimigos",
+			win: "rout",
+			cols: 10,
+			rows: 8,
+			layout: [
+				"eewrr.wree",
+				"ew.fff...e",
+				"w.rrr.rr.w",
+				".fff..fff.",
+				"ww.rr.rr.w",
+				".f.h..h.f.",
+				"w...ff...w",
+				"www....www"
+			],
+			playerSpawns: [
+				{
+					name: "Kael",
+					classId: "kaelFinal",
+					x: 4,
+					y: 7
+				},
+				{
+					name: "Neera",
+					classId: "neera",
+					x: 3,
+					y: 7
+				},
+				{
+					name: "Voss",
+					classId: "voss",
+					x: 5,
+					y: 7
+				}
+			],
+			enemySpawns: [
+				{
+					name: "Piqueiro",
+					classId: "pikeman",
+					x: 3,
+					y: 2
+				},
+				{
+					name: "Piqueiro",
+					classId: "pikeman",
+					x: 7,
+					y: 2
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 5,
+					y: 2
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 2,
+					y: 5
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 6,
+					y: 5
+				}
+			]
+		},
+		{
+			id: "muralha",
+			index: 3,
+			title: "Muralha Rasa",
+			place: "Porta da fortaleza",
+			briefing: "A muralha baixa ainda segura o caminho. Besteiros no adarve, soldados no vão do portão. Três cães de guerra — carne de rito, ferro uruk no focinho — tomam duas casas cada. Não deixem cercar Kael.",
+			objective: "Derrote todos os inimigos",
+			win: "rout",
+			cols: 11,
+			rows: 8,
+			layout: [
+				"rrrr.e.rrrr",
+				"r.........r",
+				"rrr.....rrr",
+				"r.........r",
+				"....hhh....",
+				"h.........h",
+				"...........",
+				"www.....www"
+			],
+			playerSpawns: [
+				{
+					name: "Kael",
+					classId: "kaelFinal",
+					x: 5,
+					y: 7
+				},
+				{
+					name: "Neera",
+					classId: "neera",
+					x: 4,
+					y: 7
+				},
+				{
+					name: "Voss",
+					classId: "voss",
+					x: 6,
+					y: 7
+				}
+			],
+			enemySpawns: [
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 4,
+					y: 1
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 6,
+					y: 1
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 5,
+					y: 2
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 1,
+					y: 3
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 9,
+					y: 3
+				},
+				{
+					name: "Cão de guerra",
+					classId: "wardog",
+					x: 3,
+					y: 5
+				},
+				{
+					name: "Cão de guerra",
+					classId: "wardog",
+					x: 7,
+					y: 5
+				},
+				{
+					name: "Cão de guerra",
+					classId: "wardog",
+					x: 5,
+					y: 4
+				}
+			]
+		},
+		{
+			id: "fortaleza",
+			index: 4,
+			title: "Fortaleza de Cinzas",
+			place: "Pátio interior",
+			briefing: "O capitão espera no pátio. Derrubem ele — a guarda se dispersa. Voss e Neera acertam de longe, sem contra-ataque. Não encostem no chefe. Usem bosque e ruína.",
+			objective: "Derrube o capitão",
+			win: "boss",
+			cols: 10,
+			rows: 8,
+			layout: [
+				"rrr.ee.rrr",
+				"r........r",
+				"r........r",
+				"r........r",
+				"r..rrrr..r",
+				"r.ww..ww.r",
+				"e........e",
+				"ee......ee"
+			],
+			playerSpawns: [
+				{
+					name: "Kael",
+					classId: "kaelFinal",
+					x: 4,
+					y: 7
+				},
+				{
+					name: "Neera",
+					classId: "neera",
+					x: 3,
+					y: 7
+				},
+				{
+					name: "Voss",
+					classId: "voss",
+					x: 5,
+					y: 7
+				}
+			],
+			enemySpawns: [
+				{
+					name: "Capitão",
+					classId: "captain",
+					x: 4,
+					y: 1
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 2,
+					y: 2
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 7,
+					y: 2
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 8,
+					y: 3
+				}
+			]
+		},
+		{
+			id: "templo",
+			index: 5,
+			title: "As Jaulas da Lua Carmim",
+			place: "Nave enforcada",
+			briefing: "A lua de sangue pende sobre a nave. Gaiolas de ferro e carne. O rito já acabou — Asherah ocupa o altar. Matem todos. Se ela alcançar Voss, ele cai.",
+			objective: "Derrote Asherah e os feiticeiros",
+			win: "rout",
+			cols: 13,
+			rows: 12,
+			layout: [
+				"rrrrreeerrrrr",
+				"rcnhhhnnnncrr",
+				"rnnhhhhnnnncr",
+				"rcnnfnnnnfncr",
+				"rnncnnrnncnnr",
+				"rcnnnnnnnnncr",
+				"rnncnnnrrcnnr",
+				"rcnnnnnnnncnr",
+				"rnnrnnnnnrnnr",
+				"rcnncnnncncnr",
+				"rnnnnnnnnnnnr",
+				"rrrnnnnnnnrrr"
+			],
+			playerSpawns: [
+				{
+					name: "Kael",
+					classId: "kaelFinal",
+					x: 5,
+					y: 11
+				},
+				{
+					name: "Neera",
+					classId: "neera",
+					x: 6,
+					y: 11
+				},
+				{
+					name: "Voss",
+					classId: "voss",
+					x: 7,
+					y: 11
+				}
+			],
+			enemySpawns: [
+				{
+					name: "Asherah",
+					classId: "asherah",
+					x: 6,
+					y: 2
+				},
+				{
+					name: "Feiticeiro",
+					classId: "cultist",
+					x: 2,
+					y: 4
+				},
+				{
+					name: "Feiticeiro",
+					classId: "cultist",
+					x: 10,
+					y: 4
+				},
+				{
+					name: "Feiticeiro",
+					classId: "cultist",
+					x: 2,
+					y: 8
+				},
+				{
+					name: "Feiticeiro",
+					classId: "cultist",
+					x: 10,
+					y: 8
+				}
+			]
+		},
+		{
+			id: "cripta",
+			index: 6,
+			title: "Cripta de Cinzas",
+			place: "Sob o templo",
+			briefing: "Asherah caiu. O prisioneiro do rito anda — Salazar, clérigo sem poções. Duas curas menores e uma cura simples por combate. A cripta ainda tem culto. Não deixem cercá-lo.",
+			objective: "Derrote todos os inimigos",
+			win: "rout",
+			cols: 11,
+			rows: 10,
+			layout: [
+				"rrrrrrrrrrr",
+				"rcncnnncncr",
+				"nnnnnnnnnnn",
+				"rcncnnncncr",
+				"nnnnnnnnnnn",
+				"rcncnnncncr",
+				"nnnnnnnnnnn",
+				"rcncnnncncr",
+				"nnnnnnnnnnn",
+				"rrrnnnnnrrr"
+			],
+			playerSpawns: [
+				{
+					name: "Kael",
+					classId: "kaelFinal",
+					x: 4,
+					y: 9
+				},
+				{
+					name: "Neera",
+					classId: "neera",
+					x: 5,
+					y: 9
+				},
+				{
+					name: "Voss",
+					classId: "voss",
+					x: 6,
+					y: 9
+				},
+				{
+					name: "Salazar",
+					classId: "salazar",
+					x: 7,
+					y: 9
+				}
+			],
+			enemySpawns: [
+				{
+					name: "Feiticeiro",
+					classId: "cultist",
+					x: 2,
+					y: 1
+				},
+				{
+					name: "Feiticeiro",
+					classId: "cultist",
+					x: 8,
+					y: 1
+				},
+				{
+					name: "Piqueiro",
+					classId: "pikeman",
+					x: 5,
+					y: 2
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 1,
+					y: 4
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 9,
+					y: 4
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 5,
+					y: 5
+				}
+			]
+		},
+		{
+			id: "estalagem",
+			index: 7,
+			title: "A Estalagem do Osso Seco",
+			place: "Pousada à margem da cinza",
+			briefing: "A estrada acaba num copo. O Osso Seco ainda serve, se Gold pagar. Brue vende o que restou da adega. O mudo escreve. A hóspede do porão só fala. Ninguém ataca aqui.",
+			objective: "Descanso, conversa e troca",
+			win: "rout",
+			hub: true,
+			cols: 8,
+			rows: 6,
+			layout: [
+				"rrrrrrrr",
+				"r......r",
+				"r......r",
+				"r......r",
+				"r......r",
+				"rrrrrrrr"
+			],
+			playerSpawns: [
+				{
+					name: "Kael",
+					classId: "kaelFinal",
+					x: 2,
+					y: 4
+				},
+				{
+					name: "Neera",
+					classId: "neera",
+					x: 3,
+					y: 4
+				},
+				{
+					name: "Voss",
+					classId: "voss",
+					x: 4,
+					y: 4
+				},
+				{
+					name: "Salazar",
+					classId: "salazar",
+					x: 5,
+					y: 4
+				}
+			],
+			enemySpawns: []
+		},
+		{
+			id: "colina",
+			index: 8,
+			title: "A Colina Morta",
+			place: "Encosta seca",
+			briefing: "Uma colina ampla, coberta de vegetação morta. Árvores retorcidas, capim amarelado, pedras antigas. O caminho sobe. Quanto mais alto, mais a encosta vira paredão. No cume, a silhueta de uma construção fortificada. A superfície acaba.",
+			objective: "Derrote todos os inimigos",
+			win: "rout",
+			cols: 11,
+			rows: 9,
+			layout: [
+				"ccc...ccccc",
+				"chhhhhhhhcc",
+				"h.w.h.w.h.h",
+				".w...h...w.",
+				"wh.......hw",
+				".h..hhh..h.",
+				"w.w.....w.w",
+				"...........",
+				"www.....www"
+			],
+			playerSpawns: [
+				{
+					name: "Kael",
+					classId: "kaelFinal",
+					x: 4,
+					y: 8
+				},
+				{
+					name: "Neera",
+					classId: "neera",
+					x: 3,
+					y: 8
+				},
+				{
+					name: "Voss",
+					classId: "voss",
+					x: 6,
+					y: 8
+				},
+				{
+					name: "Salazar",
+					classId: "salazar",
+					x: 7,
+					y: 8
+				}
+			],
+			enemySpawns: [
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 2,
+					y: 2
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 8,
+					y: 2
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 5,
+					y: 3
+				},
+				{
+					name: "Piqueiro",
+					classId: "pikeman",
+					x: 4,
+					y: 5
+				},
+				{
+					name: "Piqueiro",
+					classId: "pikeman",
+					x: 6,
+					y: 5
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 1,
+					y: 6
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 9,
+					y: 6
+				}
+			]
+		},
+		{
+			id: "passagem",
+			index: 9,
+			title: "A Passagem Antiga",
+			place: "Caverna talhada",
+			briefing: "A única passagem pelo paredão é uma caverna escavada há muito tempo. Paredes talhadas, blocos de pedra, nichos e plataformas sem função. Raízes no teto. No escuro vive um troll da caverna, em armadura grosseira. Ele parte barricadas. Desce e sobe através da montanha.",
+			objective: "Derrote todos os inimigos",
+			win: "rout",
+			cols: 11,
+			rows: 10,
+			layout: [
+				"ccccccccccc",
+				"cnnnnnnnnnc",
+				"cnnncnnncnn",
+				"cnnnnnnnnnc",
+				"cnncccccnnc",
+				"cnnnnnnnnnc",
+				"cnnncnnncnn",
+				"cnnnnnnnnnc",
+				"cnnnnnnnnnc",
+				"cccnnnnnccc"
+			],
+			playerSpawns: [
+				{
+					name: "Kael",
+					classId: "kaelFinal",
+					x: 4,
+					y: 9
+				},
+				{
+					name: "Neera",
+					classId: "neera",
+					x: 3,
+					y: 9
+				},
+				{
+					name: "Voss",
+					classId: "voss",
+					x: 6,
+					y: 9
+				},
+				{
+					name: "Salazar",
+					classId: "salazar",
+					x: 7,
+					y: 9
+				}
+			],
+			enemySpawns: [
+				{
+					name: "Feiticeiro",
+					classId: "cultist",
+					x: 2,
+					y: 1
+				},
+				{
+					name: "Feiticeiro",
+					classId: "cultist",
+					x: 8,
+					y: 1
+				},
+				{
+					name: "Piqueiro",
+					classId: "pikeman",
+					x: 5,
+					y: 2
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 1,
+					y: 5
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 9,
+					y: 5
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 5,
+					y: 6
+				},
+				{
+					name: "Feiticeiro",
+					classId: "cultist",
+					x: 5,
+					y: 3
+				},
+				{
+					name: "Troll da caverna",
+					classId: "troll",
+					x: 6,
+					y: 6
+				}
+			]
+		},
+		{
+			id: "profundezas",
+			index: 10,
+			title: "As Profundezas Famintas",
+			music: "MindReading UMNX  077-Balanced-High.mp3",
+			place: "Câmaras mais fundas da caverna",
+			briefing: "A passagem continua abaixo, mais funda que qualquer mapa registrado. O ar cheira a cinza fria. Pilares talhados sustentam um teto que não deveria existir a essa profundidade. Algo aqui não come há muito tempo — e não é comida que procura.",
+			objective: "Derrote todos os inimigos",
+			win: "rout",
+			cols: 13,
+			rows: 9,
+			layout: [
+				"ccccccccccccc",
+				"cnnnnnnnnnnnc",
+				"cnncnnnnncnnc",
+				"cnnnnnnnnnnnc",
+				"cncnnncnnncnc",
+				"cnnnnnnnnnnnc",
+				"cnnncnnncnnnc",
+				"nnnnnnnnnnnnc",
+				"cnnnnnnnnnnnc"
+			],
+			playerSpawns: [
+				{
+					name: "Kael",
+					classId: "kaelFinal",
+					x: 5,
+					y: 7
+				},
+				{
+					name: "Neera",
+					classId: "neera",
+					x: 4,
+					y: 7
+				},
+				{
+					name: "Voss",
+					classId: "voss",
+					x: 6,
+					y: 7
+				},
+				{
+					name: "Salazar",
+					classId: "salazar",
+					x: 7,
+					y: 7
+				}
+			],
+			enemySpawns: [
+				{
+					name: "Feiticeiro",
+					classId: "cultist",
+					x: 3,
+					y: 1
+				},
+				{
+					name: "Feiticeiro",
+					classId: "cultist",
+					x: 9,
+					y: 1
+				},
+				{
+					name: "Piqueiro",
+					classId: "pikeman",
+					x: 8,
+					y: 2
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 2,
+					y: 3
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 10,
+					y: 3
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 7,
+					y: 4
+				},
+				{
+					name: "Feiticeiro",
+					classId: "cultist",
+					x: 6,
+					y: 5
+				},
+				{
+					name: "Piqueiro",
+					classId: "pikeman",
+					x: 3,
+					y: 5
+				},
+				{
+					name: "Troll da caverna",
+					classId: "troll",
+					x: 2,
+					y: 6
+				},
+				{
+					name: "Troll da caverna",
+					classId: "troll",
+					x: 10,
+					y: 7
+				},
+				{
+					name: "Horror",
+					classId: "horror",
+					x: 6,
+					y: 3,
+					guaranteedDrop: true
+				}
+			]
+		},
+		{
+			id: "vertente",
+			index: 11,
+			title: "R1",
+			place: "Face norte da colina",
+			briefing: "A passagem desemboca na outra face. Pouco muda no chão. Muda a vista: a elevação inteira acima, e no topo o Templo Fortificado, nítido pela primeira vez. Não parece abandonado. A encosta é pior deste lado.",
+			objective: "Derrote todos os inimigos",
+			win: "rout",
+			cols: 11,
+			rows: 9,
+			layout: [
+				"rrrr.e.rrrr",
+				"r.........r",
+				"hhh.....hhh",
+				".w.h...h.w.",
+				"h.........h",
+				".w..hhh..w.",
+				"w.........w",
+				"...........",
+				"www.....www"
+			],
+			playerSpawns: [
+				{
+					name: "Kael",
+					classId: "kaelFinal",
+					x: 4,
+					y: 8
+				},
+				{
+					name: "Neera",
+					classId: "neera",
+					x: 3,
+					y: 8
+				},
+				{
+					name: "Voss",
+					classId: "voss",
+					x: 6,
+					y: 8
+				},
+				{
+					name: "Salazar",
+					classId: "salazar",
+					x: 7,
+					y: 8
+				}
+			],
+			enemySpawns: [
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 2,
+					y: 1
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 8,
+					y: 1
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 5,
+					y: 2
+				},
+				{
+					name: "Piqueiro",
+					classId: "pikeman",
+					x: 3,
+					y: 4
+				},
+				{
+					name: "Piqueiro",
+					classId: "pikeman",
+					x: 7,
+					y: 4
+				},
+				{
+					name: "Cão de guerra",
+					classId: "wardog",
+					x: 1,
+					y: 6
+				},
+				{
+					name: "Cão de guerra",
+					classId: "wardog",
+					x: 9,
+					y: 6
+				}
+			]
+		},
+		{
+			id: "portao",
+			index: 12,
+			title: "R2",
+			place: "Portões do cume",
+			briefing: "O caminho acaba diante da entrada. Muralhas espessas, torres no corpo da igreja, portão monumental. Antigo e preservado. A escadaria sobe até as portas. O interior fica para depois.",
+			objective: "Derrote todos os inimigos",
+			win: "rout",
+			cols: 11,
+			rows: 8,
+			layout: [
+				"rrr.....rrr",
+				"r.........r",
+				"rrr.....rrr",
+				"....hhh....",
+				"...........",
+				"h.........h",
+				"...........",
+				"www.....www"
+			],
+			playerSpawns: [
+				{
+					name: "Kael",
+					classId: "kaelFinal",
+					x: 4,
+					y: 7
+				},
+				{
+					name: "Neera",
+					classId: "neera",
+					x: 3,
+					y: 7
+				},
+				{
+					name: "Voss",
+					classId: "voss",
+					x: 6,
+					y: 7
+				},
+				{
+					name: "Salazar",
+					classId: "salazar",
+					x: 7,
+					y: 7
+				}
+			],
+			enemySpawns: [
+				{
+					name: "Capitão",
+					classId: "captain",
+					x: 5,
+					y: 1
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 2,
+					y: 1
+				},
+				{
+					name: "Soldado",
+					classId: "miliciaV2",
+					x: 8,
+					y: 1
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 1,
+					y: 2
+				},
+				{
+					name: "Besteiro",
+					classId: "brigand",
+					x: 9,
+					y: 2
+				},
+				{
+					name: "Piqueiro",
+					classId: "pikeman",
+					x: 4,
+					y: 3
+				},
+				{
+					name: "Piqueiro",
+					classId: "pikeman",
+					x: 6,
+					y: 3
+				},
+				{
+					name: "Feiticeiro",
+					classId: "cultist",
+					x: 5,
+					y: 0
+				},
+				{
+					name: "Cão de guerra",
+					classId: "wardog",
+					x: 2,
+					y: 5
+				},
+				{
+					name: "Cão de guerra",
+					classId: "wardog",
+					x: 8,
+					y: 5
+				}
+			]
+		}
+	];
+	function expandMaps(missions) {
+		return missions.map((m) => {
+			if (m.hub) return m;
+			const layout = [];
+			for (const row of m.layout) {
+				const wide = Array.from(row, (ch) => ch + ch).join("");
+				layout.push(wide, wide);
+			}
+			const place = (s) => ({
+				...s,
+				x: s.x * 2,
+				y: s.y * 2
+			});
+			const doubled = {
+				...m,
+				cols: m.cols * 2,
+				rows: m.rows * 2,
+				layout,
+				playerSpawns: m.playerSpawns.map(place),
+				enemySpawns: m.enemySpawns.map(place),
+				neutralSpawns: m.neutralSpawns?.map(place)
+			};
+			return m.autoTactics === false ? doubled : scatterTactics(doubled);
+		});
+	}
+	/** The six neighbor cells of an odd-r offset hex grid coordinate, as absolute [x, y] pairs
+	* — the one copy of this offset table for the whole file (it was previously re-declared
+	* three separate times: twice inline in scatterTactics, once more for decorateOpenTerrain's
+	* flood-fill/connectivity checks below). */
+	function hexAdj(x, y) {
+		return (y & 1 ? [
+			[1, 0],
+			[1, -1],
+			[0, -1],
+			[-1, 0],
+			[0, 1],
+			[1, 1]
+		] : [
+			[1, 0],
+			[0, -1],
+			[-1, -1],
+			[-1, 0],
+			[-1, 1],
+			[0, 1]
+		]).map(([dx, dy]) => [x + dx, y + dy]);
+	}
+	function oddrDist(ax, ay, bx, by) {
+		const aq = ax - (ay - (ay & 1)) / 2;
+		const bq = bx - (by - (by & 1)) / 2;
+		const ar = ay;
+		const br = by;
+		return (Math.abs(aq - bq) + Math.abs(ar - br) + Math.abs(-aq - ar - (-bq - br))) / 2;
+	}
+	/** Scatters barricades, hills and high-terrain variants over a map.
+	*
+	* This is the generator: it runs on load for any mission that has not opted out
+	* (Mission.autoTactics), and the Map Editor calls it directly so a blank map can be filled
+	* with something to react to and then cleaned up by hand. Exported for that second use. */
+	function scatterTactics(m) {
+		const tiles = parseLayout(m.layout);
+		const blocked = /* @__PURE__ */ new Set();
+		const mark = (x, y) => blocked.add(`${x},${y}`);
+		for (const s of [
+			...m.playerSpawns,
+			...m.enemySpawns,
+			...m.neutralSpawns ?? []
+		]) {
+			mark(s.x, s.y);
+			for (const [nx, ny] of hexAdj(s.x, s.y)) mark(nx, ny);
+		}
+		const cand = [];
+		for (let y = 1; y < m.rows - 1; y++) for (let x = 1; x < m.cols - 1; x++) {
+			const t = tiles[y * m.cols + x];
+			if ((t === "plains" || t === "nave" || t === "woods") && !blocked.has(`${x},${y}`)) cand.push({
+				x,
+				y
+			});
+		}
+		let seed = (m.index + 1) * 9973;
+		const rnd = () => {
+			seed = Math.imul(seed, 1664525) + 1013904223 | 0;
+			return (seed >>> 0) / 4294967296;
+		};
+		for (let i = cand.length - 1; i > 0; i--) {
+			const j = Math.floor(rnd() * (i + 1));
+			const tmp = cand[i];
+			cand[i] = cand[j];
+			cand[j] = tmp;
+		}
+		const taken = [];
+		const walkable = (t) => !!t && TERRAIN[t].passable;
+		const canWalk = (tilesNow) => {
+			const from = m.playerSpawns[0];
+			const to = m.enemySpawns[0];
+			if (!from || !to) return true;
+			const seen = /* @__PURE__ */ new Set([`${from.x},${from.y}`]);
+			const q = [{
+				x: from.x,
+				y: from.y
+			}];
+			while (q.length) {
+				const p = q.pop();
+				if (oddrDist(p.x, p.y, to.x, to.y) <= 1) return true;
+				for (const [nx, ny] of hexAdj(p.x, p.y)) {
+					if (nx < 0 || ny < 0 || nx >= m.cols || ny >= m.rows) continue;
+					const k = `${nx},${ny}`;
+					if (seen.has(k)) continue;
+					if (!walkable(tilesNow[ny * m.cols + nx])) continue;
+					seen.add(k);
+					q.push({
+						x: nx,
+						y: ny
+					});
+				}
+			}
+			return false;
+		};
+		const okBase = (x, y) => {
+			if (x < 1 || y < 1 || x >= m.cols - 1 || y >= m.rows - 1) return false;
+			if (blocked.has(`${x},${y}`)) return false;
+			const t = tiles[y * m.cols + x];
+			return t === "plains" || t === "nave" || t === "woods";
+		};
+		const cubeOf = (col, row) => {
+			return {
+				q: col - (row - (row & 1)) / 2,
+				r: row
+			};
+		};
+		const oddrOf = (q, r) => ({
+			x: q + (r - (r & 1)) / 2,
+			y: r
+		});
+		const cubeDirs = [
+			[1, 0],
+			[1, -1],
+			[0, -1],
+			[-1, 0],
+			[-1, 1],
+			[0, 1]
+		];
+		const avg = (list) => ({
+			x: list.reduce((s, p) => s + p.x, 0) / Math.max(1, list.length),
+			y: list.reduce((s, p) => s + p.y, 0) / Math.max(1, list.length)
+		});
+		const P = avg(m.playerSpawns);
+		const E = avg(m.enemySpawns);
+		const frontX = (P.x + E.x) / 2;
+		const frontY = (P.y + E.y) / 2;
+		const minY = Math.min(P.y, E.y);
+		const maxY = Math.max(P.y, E.y);
+		const walls = [];
+		for (const p of cand) {
+			if (!okBase(p.x, p.y)) continue;
+			const A = cubeOf(p.x, p.y);
+			for (const [dq, dr] of cubeDirs) {
+				const cells = [p];
+				let q = A.q;
+				let r = A.r;
+				let good = true;
+				for (let k = 0; k < 2; k++) {
+					q += dq;
+					r += dr;
+					const n = oddrOf(q, r);
+					n.x = Math.round(n.x);
+					n.y = Math.round(n.y);
+					if (!okBase(n.x, n.y)) {
+						good = false;
+						break;
+					}
+					cells.push(n);
+				}
+				if (!good) continue;
+				const mx = cells.reduce((s, c) => s + c.x, 0) / 3;
+				const my = cells.reduce((s, c) => s + c.y, 0) / 3;
+				const between = my > minY + 1.2 && my < maxY - 1.2;
+				const sameRow = cells.every((c) => c.y === cells[0].y) ? 3 : 0;
+				const dFront = Math.abs(mx - frontX) * .3 + Math.abs(my - frontY);
+				const central = 1 - Math.abs(mx - (m.cols - 1) / 2) / (m.cols / 2);
+				walls.push({
+					cells,
+					score: (between ? 12 : 0) + sameRow + central * 4 - dFront
+				});
+			}
+		}
+		const density = m.cols * m.rows / 288;
+		const wantWalls = Math.min(3, Math.max(1, Math.round(2 * density)));
+		const wallCenters = [];
+		const remaining = [...walls];
+		let placed = 0;
+		while (placed < wantWalls && remaining.length) {
+			let bestIdx = -1;
+			let bestScore = -Infinity;
+			for (let idx = 0; idx < remaining.length; idx++) {
+				const wall = remaining[idx];
+				if (wall.cells.some((c) => taken.some((q) => oddrDist(c.x, c.y, q.x, q.y) < 3))) continue;
+				const mx = Math.round(wall.cells.reduce((s, c) => s + c.x, 0) / 3);
+				const my = Math.round(wall.cells.reduce((s, c) => s + c.y, 0) / 3);
+				const spread = wallCenters.length ? Math.min(...wallCenters.map((p) => oddrDist(mx, my, p.x, p.y))) : 0;
+				const effScore = wall.score + spread * 2.2;
+				if (effScore > bestScore) {
+					bestScore = effScore;
+					bestIdx = idx;
+				}
+			}
+			if (bestIdx < 0) break;
+			const wall = remaining[bestIdx];
+			remaining.splice(bestIdx, 1);
+			const prev = wall.cells.map((c) => tiles[c.y * m.cols + c.x]);
+			for (const c of wall.cells) tiles[c.y * m.cols + c.x] = "barricade";
+			if (!canWalk(tiles)) {
+				wall.cells.forEach((c, i) => {
+					tiles[c.y * m.cols + c.x] = prev[i];
+				});
+				continue;
+			}
+			taken.push(...wall.cells);
+			wallCenters.push({
+				x: Math.round(wall.cells.reduce((s, c) => s + c.x, 0) / 3),
+				y: Math.round(wall.cells.reduce((s, c) => s + c.y, 0) / 3)
+			});
+			placed += 1;
+		}
+		const layout = [];
+		for (let y = 0; y < m.rows; y++) {
+			let row = "";
+			for (let x = 0; x < m.cols; x++) row += TILE_CHAR[tiles[y * m.cols + x] ?? "plains"] ?? ".";
+			layout.push(row);
+		}
+		return {
+			...m,
+			layout
+		};
+	}
+	const ROCK_IDS = ["spike-rocks"];
+	/** Replaces every "column" tile (a marble pillar rendered on its own patch of grass —
+	* looks absurd indoors, and doubly so on a plains/cave map that has no grass anywhere
+	* else) with rock-formation decorations instead, on every mission that uses columns at
+	* all, not just the worst offenders. Runs after expandMaps() specifically because a raw
+	* mission's single hex always doubles into a horizontally-adjacent PAIR of the same tile
+	* (expandMaps does `ch + ch` per character) — so working at the expanded grid means every
+	* column, however isolated it looked in the original hand-authored layout, already has a
+	* same-row neighbor to pair with here. That's what makes plain adjacent-pair matching
+	* enough: no leftover singles to fall back on, no footprint mismatch to design around.
+	* (An earlier pass tried placing decorations directly on the raw pre-expansion missions —
+	* their coordinates don't survive expandMaps(), which scales spawns but not decorations,
+	* so anything placed that way renders in the wrong spot. Doing it here, post-expansion,
+	* on real rendered coordinates, sidesteps that entirely.) */
+	function rockifyColumns(mission) {
+		if (mission.hub) return mission;
+		const grid = mission.layout.map((row) => row.split(""));
+		const fallbackFloor = mission.layout.some((row) => row.includes("n")) ? "n" : ".";
+		const decorations = [...mission.decorations ?? []];
+		const claimed = /* @__PURE__ */ new Set();
+		let next = 0;
+		for (let y = 0; y < mission.rows; y++) for (let x = 0; x < mission.cols - 1; x++) {
+			const key = `${x},${y}`;
+			if (grid[y][x] !== "c" || claimed.has(key)) continue;
+			const rightKey = `${x + 1},${y}`;
+			if (grid[y][x + 1] !== "c" || claimed.has(rightKey)) continue;
+			claimed.add(key);
+			claimed.add(rightKey);
+			decorations.push({
+				id: ROCK_IDS[next % ROCK_IDS.length],
+				x,
+				y
+			});
+			next += 1;
+		}
+		for (let y = 0; y < mission.rows; y++) for (let x = 0; x < mission.cols; x++) if (grid[y][x] === "c") grid[y][x] = fallbackFloor;
+		return {
+			...mission,
+			layout: grid.map((row) => row.join("")),
+			decorations
+		};
+	}
+	const DEADTREE_REPLACEMENT = "wilds-fallen-log";
+	const HIGHWOOD_REPLACEMENT = "wilds-dead-oak";
+	const HIGHRUIN_REPLACEMENT = "wilds-ruined-wayside-shrine";
+	/** Retires deadtree/highwood/highruin as ground-tile terrain, per direct instruction: those
+	* three were never really "ground" — a fallen tree trunk (deadtree/highwood, distinguished
+	* only by which sprite folder inherited the name — see TERRAIN's own "Tronco caído"/"Tronco
+	* morto") and an abandoned house (highruin) are props that happen to sit on the ground, not
+	* a kind of ground themselves — so every occurrence becomes plain floor (matching
+	* rockifyColumns' own fallbackFloor convention: "n" on an indoor/underground map, "."
+	* everywhere else) with a same-theme decoration placed on top instead. Runs in the same
+	* post-expandMaps pipeline slot as rockifyColumns for the same reason: coordinates only
+	* line up with the final rendered grid after expandMaps has already doubled every raw
+	* hand-authored cell. */
+	function clearScrappedGroundTiles(mission) {
+		if (mission.hub) return mission;
+		const grid = mission.layout.map((row) => row.split(""));
+		const fallbackFloor = "h";
+		const decorations = [...mission.decorations ?? []];
+		const claimed = decorationCells(decorations);
+		const targets = [
+			{
+				char: "t",
+				id: DEADTREE_REPLACEMENT
+			},
+			{
+				char: "d",
+				id: HIGHWOOD_REPLACEMENT
+			},
+			{
+				char: "s",
+				id: HIGHRUIN_REPLACEMENT
+			}
+		];
+		for (const { char, id } of targets) for (let y = 0; y < mission.rows; y++) for (let x = 0; x < mission.cols; x++) {
+			if (grid[y][x] !== char) continue;
+			grid[y][x] = fallbackFloor;
+			const key = `${x},${y}`;
+			if (claimed.has(key)) continue;
+			decorations.push({
+				id,
+				x,
+				y
+			});
+			claimed.add(key);
+		}
+		return {
+			...mission,
+			layout: grid.map((row) => row.join("")),
+			decorations
+		};
+	}
+	function mulberry32Local(seed) {
+		let a = seed | 0;
+		return () => {
+			a = a + 1831565813 | 0;
+			let t = Math.imul(a ^ a >>> 15, 1 | a);
+			t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+			return ((t ^ t >>> 14) >>> 0) / 4294967296;
+		};
+	}
+	function seedFromId(id) {
+		let h = 2166136261;
+		for (let i = 0; i < id.length; i++) {
+			h ^= id.charCodeAt(i);
+			h = Math.imul(h, 16777619);
+		}
+		return h >>> 0;
+	}
+	function inBoundsCell(x, y, cols, rows) {
+		return x >= 0 && x < cols && y >= 0 && y < rows;
+	}
+	function connectivityOk(grid, cols, rows, blockedExtra, spawns) {
+		if (spawns.length === 0) return true;
+		const passable = (x, y) => {
+			if (blockedExtra.has(`${x},${y}`)) return false;
+			const id = CHAR[grid[y][x]] ?? "plains";
+			return TERRAIN[id]?.passable !== false;
+		};
+		const [sx, sy] = spawns[0];
+		const seen = /* @__PURE__ */ new Set([`${sx},${sy}`]);
+		const stack = [[sx, sy]];
+		while (stack.length) {
+			const [cx, cy] = stack.pop();
+			for (const [nx, ny] of hexAdj(cx, cy)) {
+				const k = `${nx},${ny}`;
+				if (inBoundsCell(nx, ny, cols, rows) && !seen.has(k) && passable(nx, ny)) {
+					seen.add(k);
+					stack.push([nx, ny]);
+				}
+			}
+		}
+		return spawns.every(([x, y]) => seen.has(`${x},${y}`));
+	}
+	function chebyshev(a, b) {
+		return Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]));
+	}
+	function minDist(cell, pts) {
+		return pts.length ? Math.min(...pts.map((p) => chebyshev(cell, p))) : Infinity;
+	}
+	/** Sprinkles a handful of lockable chests ("here and there", not blanket coverage) onto
+	* open ground — spaced apart, never where they'd cut off a spawn (same BFS check as
+	* decoration placement, since a chest is impassable terrain until picked), and biased
+	* toward enemy territory: candidates are ranked by (distance from the nearest player
+	* spawn) minus (distance from the nearest enemy spawn), so a chest is worth fighting
+	* through the enemy line for, not a freebie sitting next to the party's own spawn. */
+	function placeChests(grid, cols, rows, playerSpawns, enemySpawns, spawnSet, blockedExtra, seed, floorChar) {
+		const rng = mulberry32Local(seed);
+		const spawns = [...playerSpawns, ...enemySpawns];
+		const candidates = [];
+		for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+			const k = `${x},${y}`;
+			if (spawnSet.has(k) || blockedExtra.has(k) || grid[y][x] !== floorChar) continue;
+			candidates.push([x, y]);
+		}
+		candidates.sort((a, b) => {
+			const scoreA = minDist(a, playerSpawns) - minDist(a, enemySpawns);
+			return minDist(b, playerSpawns) - minDist(b, enemySpawns) - scoreA;
+		});
+		const CHEST_MIN_HERO_DIST = 4;
+		const heroHexes = (c) => playerSpawns.length ? Math.min(...playerSpawns.map((sp) => oddrDist(c[0], c[1], sp[0], sp[1]))) : Infinity;
+		const farEnough = candidates.filter((c) => heroHexes(c) >= CHEST_MIN_HERO_DIST);
+		const usable = farEnough.length > 0 ? farEnough : candidates;
+		const pool = usable.slice(0, Math.max(1, Math.ceil(usable.length / 2)));
+		for (let i = pool.length - 1; i > 0; i--) {
+			const j = Math.floor(rng() * (i + 1));
+			[pool[i], pool[j]] = [pool[j], pool[i]];
+		}
+		const budget = Math.min(3, Math.max(1, Math.floor(cols * rows / 150)));
+		const placed = [];
+		for (const [cx, cy] of pool) {
+			if (placed.length >= budget) break;
+			if (placed.some(([px, py]) => Math.max(Math.abs(px - cx), Math.abs(py - cy)) < 3)) continue;
+			const candidate = new Set(blockedExtra);
+			candidate.add(`${cx},${cy}`);
+			if (connectivityOk(grid, cols, rows, candidate, spawns)) {
+				blockedExtra.add(`${cx},${cy}`);
+				placed.push([cx, cy]);
+			}
+		}
+		return placed;
+	}
+	/** Strips "funky" single-hex clutter tiles — woods ("w") and ruins ("r"), whose baked-in
+	* tree/house art tiles awkwardly at hex scale (and reads as grass/greenery even indoors,
+	* e.g. a temple nave) — back to plain ground, replaced with a modest sprinkling of the
+	* multi-hex decoration objects instead. Elevation (hill), fire (flame) and ember are
+	* untouched. Also sprinkles 1-3 lockable chests per map onto open ground, deterministically
+	* seeded by mission id so they don't reshuffle on reload. Every placement is verified with a
+	* BFS connectivity check — dropped if it would cut any spawn off from the rest of the board —
+	* so this can never produce an unwinnable map. Runs last, after rockifyColumns, on the same
+	* real expanded coordinates the game actually renders. */
+	function decorateOpenTerrain(mission) {
+		if (mission.hub) return mission;
+		const { cols, rows } = mission;
+		const grid = mission.layout.map((row) => row.split(""));
+		const playerSpawns = mission.playerSpawns.map((s) => [s.x, s.y]);
+		const enemySpawns = mission.enemySpawns.map((s) => [s.x, s.y]);
+		const spawnSet = new Set([...playerSpawns, ...enemySpawns].map(([x, y]) => `${x},${y}`));
+		const floorChar = mission.layout.some((row) => row.includes("n")) ? "n" : ".";
+		const blockedExtra = /* @__PURE__ */ new Set();
+		const hasAuthoredChest = (mission.decorations ?? []).some((d) => CHEST_DECOR_IDS.has(d.id));
+		const decorations = [...mission.decorations ?? []];
+		if (!hasAuthoredChest) {
+			const placedChests = placeChests(grid, cols, rows, playerSpawns, enemySpawns, spawnSet, blockedExtra, seedFromId(mission.id), floorChar);
+			for (const [x, y] of placedChests) decorations.push({
+				id: "locked-chest",
+				x,
+				y
+			});
+		}
+		for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+			if (grid[y][x] !== "k") continue;
+			if (decorations.some((d) => d.id === "locked-chest" && d.x === x && d.y === y)) continue;
+			decorations.push({
+				id: "locked-chest",
+				x,
+				y
+			});
+		}
+		return {
+			...mission,
+			layout: grid.map((row) => row.join("")),
+			decorations
+		};
+	}
+	/** Missions whose open ground is meant to read as dead/scorched, not living grass.
+	* Swaps every plains cell to the Cinza art variant (plains005.png). Still mechanically plains. */
+	const DEAD_GROUND_MISSIONS = /* @__PURE__ */ new Set(["portao"]);
+	const DEAD_GROUND_VARIANT = 4;
+	function applyDeadGround(mission) {
+		if (!DEAD_GROUND_MISSIONS.has(mission.id)) return mission;
+		const tiles = parseLayout(mission.layout);
+		const variants = mission.tileVariants ? [...mission.tileVariants] : new Array(tiles.length).fill(0);
+		for (let i = 0; i < tiles.length; i++) if (tiles[i] === "plains") variants[i] = DEAD_GROUND_VARIANT;
+		return {
+			...mission,
+			tileVariants: variants
+		};
+	}
+	const MISSIONS = expandMaps(RAW_MISSIONS).map(rockifyColumns).map(decorateOpenTerrain).map(applyDeadGround).map(clearScrappedGroundTiles);
+	(() => {
+		const out = {};
+		for (const m of MISSIONS) {
+			if (m.hub) continue;
+			for (const s of m.playerSpawns) if (out[s.name] == null || m.index < out[s.name]) out[s.name] = m.index;
+		}
+		return out;
+	})();
+	//#endregion
+	//#region src/game/pathfinding.ts
+	function oddrToCube(col, row) {
+		const q = col - (row - (row & 1)) / 2;
+		const r = row;
+		return {
+			q,
+			r,
+			s: -q - r
+		};
+	}
+	function hexDist(a, b) {
+		const A = oddrToCube(a.x, a.y);
+		const B = oddrToCube(b.x, b.y);
+		return (Math.abs(A.q - B.q) + Math.abs(A.r - B.r) + Math.abs(A.s - B.s)) / 2;
+	}
+	//#endregion
+	//#region work/turn-undead-v3-preview-entry.ts
+	const canvas = document.querySelector("canvas");
+	const ctx = new WebGL2DRenderer(canvas);
+	ctx.setSize(canvas.width, canvas.height);
+	let radius = 2;
+	let paused = false;
+	let started = performance.now();
+	let elapsed = 0;
+	const center = {
+		x: 6,
+		y: 5
+	};
+	const r = 35;
+	const project = (p) => ({
+		x: 80 + Math.sqrt(3) * r * (p.x + (p.y & 1) * .5),
+		y: 60 + r * 1.5 * p.y
+	});
+	const screenCell = (p) => {
+		const c = project(p);
+		return {
+			...c,
+			corners: Array.from({ length: 6 }, (_, i) => [c.x + r * Math.cos((i * 60 - 30) * Math.PI / 180), c.y + r * Math.sin((i * 60 - 30) * Math.PI / 180)])
+		};
+	};
+	const board = hexAreaTiles(center, 5, 13, 11).filter((p) => !(p.y < 3 && p.x < 5) && !(p.y > 7 && p.x > 8) && !(p.x === 1));
+	let cells = [];
+	function update() {
+		cells = board.filter((p) => hexDist(p, center) <= radius).map(screenCell);
+		document.querySelector("#area").textContent = cells.length + " affected hexes";
+	}
+	function polygon(cell) {
+		ctx.beginPath();
+		cell.corners.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+		ctx.closePath();
+	}
+	function render(now) {
+		if (!paused) elapsed = Math.min(TURN_UNDEAD_V3_DURATION, (now - started) / 1e3);
+		ctx.clear();
+		ctx.fillStyle = "#0b1016";
+		ctx.fillRect(0, 0, canvas.width, canvas.height);
+		for (const p of board) {
+			polygon(screenCell(p));
+			ctx.fillStyle = (p.x + p.y) % 3 === 0 ? "#202b30" : "#19242a";
+			ctx.fill();
+			ctx.strokeStyle = "#354044";
+			ctx.lineWidth = 1;
+			ctx.stroke();
+		}
+		drawTurnUndeadV3(ctx, cells, elapsed);
+		window.__turnUndeadPreview = {
+			webgl: true,
+			elapsed,
+			cells: cells.length,
+			glError: ctx.gl.getError()
+		};
+		requestAnimationFrame(render);
+	}
+	document.querySelector("#radius").addEventListener("change", (e) => {
+		radius = Number(e.target.value);
+		update();
+		started = performance.now();
+	});
+	document.querySelector("#replay").onclick = () => {
+		paused = false;
+		started = performance.now();
+	};
+	document.querySelector("#pause").onclick = () => {
+		paused = !paused;
+		if (!paused) started = performance.now() - elapsed * 1e3;
+	};
+	window.__setPreviewTime = (t) => {
+		elapsed = t;
+		paused = true;
+	};
+	document.querySelector("tbody").innerHTML = TURN_UNDEAD_PROGRESSION.map((p, i) => `<tr><td>${i === TURN_UNDEAD_PROGRESSION.length - 1 ? "22+ (capped)" : p.level + "–" + (TURN_UNDEAD_PROGRESSION[i + 1].level - 1)}</td><td>${p.range} hexes</td><td>${p.radius} ${p.radius === 1 ? "hex" : "hexes"}</td><td>${turnUndeadPower(p.level).areaHexes} hexes</td><td>⌊⌊MAG / 2⌋ × ${p.mul}⌋ + ${p.dice}D6 (${p.dice}–${p.dice * 6} rolled)</td><td>2 own turns</td></tr>`).join("");
+	update();
+	requestAnimationFrame(render);
+	//#endregion
+})();
+</script></body></html>

@@ -1305,7 +1305,7 @@
       },
       {
         "name": "Saqueador do riacho",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 20,
         "y": 11,
         "level": 8

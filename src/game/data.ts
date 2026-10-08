@@ -1089,6 +1089,24 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     size: 1,
     init: 2,
   },
+  // A new unit with its own dedicated art (assets.ts "militia-v2"), not a reskin of the
+  // Soldado above; starts from the Soldado's stats.
+  miliciaV2: {
+    id: "miliciaV2",
+    name: "Milícia",
+    role: "Milícia",
+    hp: 31,
+    atk: 8,
+    mag: 0,
+    def: 4,
+    dex: 2,
+    mov: 3,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "militia-v2",
+    size: 1,
+    init: 2,
+  },
   pikeman: {
     id: "pikeman",
     name: "Piqueiro",
@@ -1503,6 +1521,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   // 32-frame long sheets cut from reference video (public/game/sprites/zombie/README.md).
   zombie: {
     id: "zombie",
+    creatureType: "undead",
     name: "Zumbi",
     role: "Morto-vivo",
     hp: 38,
@@ -1521,6 +1540,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   // Fantasmal + 1 Relâmpago per battle (see the cultist/wraith branch in runAiFor).
   emberedWraith: {
     id: "emberedWraith",
+    creatureType: "undead",
     name: "Embered Wraith",
     role: "Morto-vivo",
     hp: 76,
@@ -1535,8 +1555,31 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     size: 1,
     init: 4,
   },
+  // Apparition: a ghost (undead, a Turn Undead target). Own TEK-cut art (assets.ts
+  // "apparition"). A strong monster: high MAG, DEF and DEX and no ATK — a ghost has no
+  // physical attack. With MAG above 0 her hits use MAG and ignore DEF (combat.ts
+  // powerOf/protOf), and high DEX makes her hard to hit. No spell kit yet, so she only attacks.
+  apparition: {
+    id: "apparition",
+    creatureType: "undead",
+    name: "Apparition",
+    role: "Fantasma",
+    hp: 90,
+    atk: 0,
+    mag: 22,
+    def: 14,
+    dex: 12,
+    mov: 5,
+    minRange: 1,
+    maxRange: 1,
+    sprite: "apparition",
+    size: 1,
+    init: 3,
+    undead: "ghost",
+  },
   zombie2: {
     id: "zombie2",
+    creatureType: "undead",
     name: "Zumbi 2",
     role: "Morto-vivo",
     hp: 38,
@@ -1556,6 +1599,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   // runAiFor's birolho branch). Sheets cut from reference video (sprites/undeadOx/README.md).
   undeadOx: {
     id: "undeadOx",
+    creatureType: "undead",
     name: "Boi Morto-vivo",
     role: "Morto-vivo",
     hp: 95,
@@ -1575,6 +1619,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   // Veneno Menor. Sheets cut from reference video (work/plague-cattle/).
   plagueBearingCattle: {
     id: "plagueBearingCattle",
+    creatureType: "undead",
     name: "Plague Bearing Cattle",
     role: "Morto-vivo",
     hp: 114,
@@ -1963,6 +2008,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   // Cáustico twice per battle (FAMILIAR_SPELL / Unit.spellCharges).
   zombieDog: {
     id: "zombieDog",
+    creatureType: "undead",
     name: "Cão Zumbi",
     role: "Invocação",
     hp: 22,
@@ -2380,6 +2426,7 @@ export const GROWTH: Record<ClassId, { hp: number; atk: number; mag: number; def
   mage: { hp: 3, atk: 0, mag: 3, def: 1, dex: 3 },
   healer: { hp: 3, atk: 0, mag: 1, def: 2, dex: 2 },
   soldier: { hp: 4, atk: 2, mag: 0, def: 2, dex: 1 },
+  miliciaV2: { hp: 4, atk: 2, mag: 0, def: 2, dex: 1 },
   pikeman: { hp: 4, atk: 2, mag: 0, def: 2, dex: 1 },
   brigand: { hp: 3, atk: 2, mag: 0, def: 1, dex: 1 },
   captain: { hp: 4, atk: 2, mag: 0, def: 2, dex: 1 },
@@ -2393,6 +2440,7 @@ export const GROWTH: Record<ClassId, { hp: number; atk: number; mag: number; def
   plagueBearingCattle: { hp: 12, atk: 6, mag: 2, def: 4, dex: 2 },
   // Twice the Zombie's growth, MAG growing with ATK.
   emberedWraith: { hp: 8, atk: 4, mag: 4, def: 2, dex: 2 },
+  apparition: { hp: 7, atk: 0, mag: 4, def: 3, dex: 3 },
   morvenianWolf: { hp: 4, atk: 2, mag: 0, def: 2, dex: 1 },
   mordavianWolf: { hp: 4, atk: 2, mag: 0, def: 2, dex: 1 },
   mordavianWolfFinal: { hp: 4, atk: 2, mag: 0, def: 2, dex: 1 },
@@ -2984,6 +3032,7 @@ export function spellIcon(id: string): string {
   if (id === "frost") return "/game/icons/frost.jpg";
   if (id === "ice-storm") return "/game/icons/ice-storm.jpg";
   if (id === "divine-bolt") return "/game/icons/divine-bolt.jpg";
+  if (id === "turn-undead") return "/game/icons/turn-undead.jpg";
   if (id === "bloody-shot") return "/game/icons/bloody-shot.jpg";
   if (id === "provoke") return "/game/icons/provoke.jpg";
   if (id === "summon-familiar2") return "/game/icons/summon-familiar2.png";
@@ -3610,6 +3659,7 @@ export function equipmentForClass(classId: ClassId, slot: EquipSlot): EquipmentD
 
 export const EMBER_DROP: Partial<Record<ClassId, number>> = {
   soldier: 2,
+  miliciaV2: 2,
   brigand: 2,
   pikeman: 3,
   wardog: 2,
@@ -3619,6 +3669,7 @@ export const EMBER_DROP: Partial<Record<ClassId, number>> = {
   undeadOx: 8,
   plagueBearingCattle: 10,
   emberedWraith: 6,
+  apparition: 7,
   morvenianWolf: 3,
   mordavianWolf: 5,
   mordavianWolfFinal: 5,
@@ -4543,7 +4594,33 @@ export const CURE_DISEASE = {
   range: 2,
 };
 
-/** Healer tier 3 (shares Cure Disease's pool): instant, self-centered, no aim — same as Aura
+/** Priest Tier 3: Holy damage and fear, exclusively against explicitly typed undead. */
+export const TURN_UNDEAD = { name: "Turn Undead", fearTurns: 2 };
+export const TURN_UNDEAD_PROGRESSION = [
+  { level: 6, range: 4, radius: 4, dice: 4, faces: 6, mul: 1.6 },
+  { level: 9, range: 5, radius: 5, dice: 5, faces: 6, mul: 1.8 },
+  { level: 12, range: 6, radius: 6, dice: 6, faces: 6, mul: 2 },
+  { level: 15, range: 7, radius: 7, dice: 7, faces: 6, mul: 2.2 },
+  { level: 18, range: 8, radius: 8, dice: 8, faces: 6, mul: 2.4 },
+  { level: 22, range: 9, radius: 9, dice: 10, faces: 6, mul: 2.6 },
+] as const;
+
+export function turnUndeadPower(level: number) {
+  const capped = Math.max(1, Math.min(22, Math.floor(level)));
+  const p = [...TURN_UNDEAD_PROGRESSION].reverse().find(p => capped >= p.level) ?? TURN_UNDEAD_PROGRESSION[0];
+  return { ...p, areaHexes: 1 + 3 * p.radius * (p.radius + 1), fearTurns: TURN_UNDEAD.fearTurns };
+}
+
+export function turnUndeadFormula(level: number, mag: number): string {
+  const p = turnUndeadPower(level);
+  return spellFormula(mag, p.mul, p.dice, p.faces, 0);
+}
+
+export function isUndeadClass(classId: ClassId): boolean {
+  return CLASSES[classId]?.creatureType === "undead";
+}
+
+/** Healer tier 4: instant, self-centered, no aim — same as Aura
  * of Protection/Intimidating Presence — tops off the hunger of the caster and every ally
  * within `radius` hexes, and conjures a level-scaled batch of plain Rations per ally fed,
  * ordinary inventory items, no secondary effect. `fullness` and the bonus-Rations dice are
@@ -4937,7 +5014,8 @@ export const SPELL_TIER: Partial<Record<SpellKind, SpellTier>> = {
   executionerStrike: 3,
   poisonBreath: 1,
   burningHands: 2,
-  createFoodAndWater: 3,
+  createFoodAndWater: 4,
+  turnUndead: 3,
 };
 
 export function spellTier(kind: SpellKind): SpellTier | null {
@@ -5115,8 +5193,8 @@ const RAW_MISSIONS: Mission[] = [
       { name: "Voss", classId: "voss", x: 4, y: 6 },
     ],
     enemySpawns: [
-      { name: "Soldado", classId: "soldier", x: 1, y: 0 },
-      { name: "Soldado", classId: "soldier", x: 6, y: 0 },
+      { name: "Soldado", classId: "miliciaV2", x: 1, y: 0 },
+      { name: "Soldado", classId: "miliciaV2", x: 6, y: 0 },
       { name: "Besteiro", classId: "brigand", x: 4, y: 1 },
     ],
   },
@@ -5147,8 +5225,8 @@ const RAW_MISSIONS: Mission[] = [
       { name: "Voss", classId: "voss", x: 5, y: 7 },
     ],
     enemySpawns: [
-      { name: "Soldado", classId: "soldier", x: 1, y: 0 },
-      { name: "Soldado", classId: "soldier", x: 7, y: 0 },
+      { name: "Soldado", classId: "miliciaV2", x: 1, y: 0 },
+      { name: "Soldado", classId: "miliciaV2", x: 7, y: 0 },
       { name: "Besteiro", classId: "brigand", x: 4, y: 1 },
       { name: "Besteiro", classId: "brigand", x: 2, y: 2 },
       { name: "Cobalt Blue Deer", classId: "swampBlueCalf", x: 6, y: 2 },
@@ -5184,7 +5262,7 @@ const RAW_MISSIONS: Mission[] = [
     enemySpawns: [
       { name: "Piqueiro", classId: "pikeman", x: 3, y: 2 },
       { name: "Piqueiro", classId: "pikeman", x: 7, y: 2 },
-      { name: "Soldado", classId: "soldier", x: 5, y: 2 },
+      { name: "Soldado", classId: "miliciaV2", x: 5, y: 2 },
       { name: "Besteiro", classId: "brigand", x: 2, y: 5 },
       { name: "Besteiro", classId: "brigand", x: 6, y: 5 },
     ],
@@ -5216,9 +5294,9 @@ const RAW_MISSIONS: Mission[] = [
       { name: "Voss", classId: "voss", x: 6, y: 7 },
     ],
     enemySpawns: [
-      { name: "Soldado", classId: "soldier", x: 4, y: 1 },
-      { name: "Soldado", classId: "soldier", x: 6, y: 1 },
-      { name: "Soldado", classId: "soldier", x: 5, y: 2 },
+      { name: "Soldado", classId: "miliciaV2", x: 4, y: 1 },
+      { name: "Soldado", classId: "miliciaV2", x: 6, y: 1 },
+      { name: "Soldado", classId: "miliciaV2", x: 5, y: 2 },
       { name: "Besteiro", classId: "brigand", x: 1, y: 3 },
       { name: "Besteiro", classId: "brigand", x: 9, y: 3 },
       { name: "Cão de guerra", classId: "wardog", x: 3, y: 5 },
@@ -5254,8 +5332,8 @@ const RAW_MISSIONS: Mission[] = [
     ],
     enemySpawns: [
       { name: "Capitão", classId: "captain", x: 4, y: 1 },
-      { name: "Soldado", classId: "soldier", x: 2, y: 2 },
-      { name: "Soldado", classId: "soldier", x: 7, y: 2 },
+      { name: "Soldado", classId: "miliciaV2", x: 2, y: 2 },
+      { name: "Soldado", classId: "miliciaV2", x: 7, y: 2 },
       { name: "Besteiro", classId: "brigand", x: 8, y: 3 },
     ],
   },
@@ -5330,8 +5408,8 @@ const RAW_MISSIONS: Mission[] = [
       { name: "Feiticeiro", classId: "cultist", x: 2, y: 1 },
       { name: "Feiticeiro", classId: "cultist", x: 8, y: 1 },
       { name: "Piqueiro", classId: "pikeman", x: 5, y: 2 },
-      { name: "Soldado", classId: "soldier", x: 1, y: 4 },
-      { name: "Soldado", classId: "soldier", x: 9, y: 4 },
+      { name: "Soldado", classId: "miliciaV2", x: 1, y: 4 },
+      { name: "Soldado", classId: "miliciaV2", x: 9, y: 4 },
       { name: "Besteiro", classId: "brigand", x: 5, y: 5 },
     ],
   },
@@ -5394,10 +5472,10 @@ const RAW_MISSIONS: Mission[] = [
     enemySpawns: [
       { name: "Besteiro", classId: "brigand", x: 2, y: 2 },
       { name: "Besteiro", classId: "brigand", x: 8, y: 2 },
-      { name: "Soldado", classId: "soldier", x: 5, y: 3 },
+      { name: "Soldado", classId: "miliciaV2", x: 5, y: 3 },
       { name: "Piqueiro", classId: "pikeman", x: 4, y: 5 },
       { name: "Piqueiro", classId: "pikeman", x: 6, y: 5 },
-      { name: "Soldado", classId: "soldier", x: 1, y: 6 },
+      { name: "Soldado", classId: "miliciaV2", x: 1, y: 6 },
       { name: "Besteiro", classId: "brigand", x: 9, y: 6 },
     ],
   },
@@ -5434,8 +5512,8 @@ const RAW_MISSIONS: Mission[] = [
       { name: "Feiticeiro", classId: "cultist", x: 2, y: 1 },
       { name: "Feiticeiro", classId: "cultist", x: 8, y: 1 },
       { name: "Piqueiro", classId: "pikeman", x: 5, y: 2 },
-      { name: "Soldado", classId: "soldier", x: 1, y: 5 },
-      { name: "Soldado", classId: "soldier", x: 9, y: 5 },
+      { name: "Soldado", classId: "miliciaV2", x: 1, y: 5 },
+      { name: "Soldado", classId: "miliciaV2", x: 9, y: 5 },
       { name: "Besteiro", classId: "brigand", x: 5, y: 6 },
       { name: "Feiticeiro", classId: "cultist", x: 5, y: 3 },
       { name: "Troll da caverna", classId: "troll", x: 6, y: 6 },
@@ -5487,8 +5565,8 @@ const RAW_MISSIONS: Mission[] = [
       { name: "Feiticeiro", classId: "cultist", x: 3, y: 1 },
       { name: "Feiticeiro", classId: "cultist", x: 9, y: 1 },
       { name: "Piqueiro", classId: "pikeman", x: 8, y: 2 },
-      { name: "Soldado", classId: "soldier", x: 2, y: 3 },
-      { name: "Soldado", classId: "soldier", x: 10, y: 3 },
+      { name: "Soldado", classId: "miliciaV2", x: 2, y: 3 },
+      { name: "Soldado", classId: "miliciaV2", x: 10, y: 3 },
       { name: "Besteiro", classId: "brigand", x: 7, y: 4 },
       { name: "Feiticeiro", classId: "cultist", x: 6, y: 5 },
       { name: "Piqueiro", classId: "pikeman", x: 3, y: 5 },
@@ -5537,7 +5615,7 @@ const RAW_MISSIONS: Mission[] = [
     enemySpawns: [
       { name: "Besteiro", classId: "brigand", x: 2, y: 1 },
       { name: "Besteiro", classId: "brigand", x: 8, y: 1 },
-      { name: "Soldado", classId: "soldier", x: 5, y: 2 },
+      { name: "Soldado", classId: "miliciaV2", x: 5, y: 2 },
       { name: "Piqueiro", classId: "pikeman", x: 3, y: 4 },
       { name: "Piqueiro", classId: "pikeman", x: 7, y: 4 },
       { name: "Cão de guerra", classId: "wardog", x: 1, y: 6 },
@@ -5573,8 +5651,8 @@ const RAW_MISSIONS: Mission[] = [
     ],
     enemySpawns: [
       { name: "Capitão", classId: "captain", x: 5, y: 1 },
-      { name: "Soldado", classId: "soldier", x: 2, y: 1 },
-      { name: "Soldado", classId: "soldier", x: 8, y: 1 },
+      { name: "Soldado", classId: "miliciaV2", x: 2, y: 1 },
+      { name: "Soldado", classId: "miliciaV2", x: 8, y: 1 },
       { name: "Besteiro", classId: "brigand", x: 1, y: 2 },
       { name: "Besteiro", classId: "brigand", x: 9, y: 2 },
       { name: "Piqueiro", classId: "pikeman", x: 4, y: 3 },

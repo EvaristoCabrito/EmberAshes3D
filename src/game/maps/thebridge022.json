@@ -2106,21 +2106,21 @@
       },
       {
         "name": "Inimigo 13",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 34,
         "y": 1,
         "level": 2
       },
       {
         "name": "Inimigo 14",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 32,
         "y": 7,
         "level": 2
       },
       {
         "name": "Inimigo 15",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 27,
         "y": 9,
         "level": 2
@@ -2143,14 +2143,14 @@
       },
       {
         "name": "Inimigo 16",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 28,
         "y": 6,
         "level": 3
       },
       {
         "name": "Inimigo 17",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 22,
         "y": 4,
         "level": 3

@@ -126,8 +126,11 @@ export function MapLoadingOverlay({ progress, visible }: { progress: number | nu
 /** Screen ids heavy enough (a big map background, the battle canvas' whole art set) that
  * the swap into them can outrun a single React commit and leave a blank/frozen frame in
  * between — the general "stuck for a few seconds" complaint. Anything else (briefing,
- * cutscenes, menus) is cheap enough not to need this. */
-const HEAVY_SCREENS = new Set(["overworldMap", "worldMap", "battle"]);
+ * cutscenes, menus) is cheap enough not to need this. The two map screens are NOT listed:
+ * each one mounts its own MapLoadingOverlay (same art) in its very first commit with the
+ * real byte progress of the map, and this number-less curtain on top of it hid that real bar
+ * (empty bar for 380 ms while the map underneath was already at 99-100%). */
+const HEAVY_SCREENS = new Set(["battle"]);
 
 /** Curtains any transition into a HEAVY_SCREENS destination behind the same loading art
  * used for the map, for a floor of MIN_VISIBLE_MS so it always reads as a deliberate

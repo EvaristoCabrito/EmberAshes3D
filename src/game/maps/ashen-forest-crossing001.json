@@ -11987,7 +11987,7 @@
       {
         "x": 47,
         "y": 11,
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "name": "Ravine Sentinel",
         "level": 8
       },
@@ -12029,7 +12029,7 @@
       {
         "x": 83,
         "y": 8,
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "name": "Eastern Sentinel",
         "level": 8
       }

@@ -8220,14 +8220,14 @@
       },
       {
         "name": "Guarda da Torre",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 14,
         "y": 14,
         "level": 10
       },
       {
         "name": "Guarda da Torre",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 36,
         "y": 14,
         "level": 10
@@ -8255,7 +8255,7 @@
       },
       {
         "name": "Guarda da Torre",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 8,
         "y": 10,
         "level": 10

@@ -1066,7 +1066,7 @@
     "enemySpawns": [
       {
         "name": "Guardião da nave",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 10,
         "y": 8,
         "level": 8

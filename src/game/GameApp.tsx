@@ -55,7 +55,7 @@ import { POISON_TIERS, poisonDice, poisonTierOf } from "./poison";
 import { hungerPenaltyFor, partyIsFed, stepOverworld, teleportOverworld, type OverworldEvent } from "./overworld";
 import { GoldAmount } from "./GoldAmount";
 import { DISPLAY_VERSION } from "./version";
-import { ICE_STORM, iceStormPower } from "./data";
+import { TURN_UNDEAD, TURN_UNDEAD_PROGRESSION, turnUndeadPower, ICE_STORM, iceStormPower } from "./data";
 import {
   ALL_LOCATIONS,
   ALL_MISSIONS,
@@ -524,7 +524,7 @@ function classSpells(classId: ClassId, level = Number.POSITIVE_INFINITY, heroNam
       case "archer":
         return ["longShot", "piercing", "bloodyShot", "multiShot"];
       case "healer":
-        return ["cureMinor", "bless", "cureWounds", "burningHands", "cureDisease", "createFoodAndWater"];
+        return ["cureMinor", "bless", "cureWounds", "burningHands", "cureDisease", "turnUndead", "createFoodAndWater"];
       case "lancer":
       case "aldric":
         return ["piercingThrust", "sweep", "trip"];
@@ -679,6 +679,8 @@ function slotIcon(action: SlotAction): string {
       return spellIcon("sweep");
     case "burningHands":
       return spellIcon("burning-hands");
+    case "turnUndead":
+      return spellIcon("turn-undead");
     case "createFoodAndWater":
       return spellIcon("create-food-and-water");
   }
@@ -779,6 +781,8 @@ function slotLabel(action: SlotAction): string {
       return "Chicote de Gavinhas";
     case "burningHands":
       return BURNING_HANDS.name;
+    case "turnUndead":
+      return TURN_UNDEAD.name;
     case "createFoodAndWater":
       return CREATE_FOOD_AND_WATER.name;
   }
@@ -1957,10 +1961,10 @@ export function GameApp() {
     writeMapSave(next);
     return fed;
   };
-  /** World-map-only cast of Create Food and Water (Healer tier 1) — the battle-side version
+  /** World-map-only cast of Create Food and Water (Healer tier 4) — the battle-side version
    * is engine.startCreateFoodAndWater(); this one lands directly on SaveData since there's
    * no live BattleEngine to hold the effect outside a fight. Spends from the same
-   * save.spellUses tier-3 pool (shares Cure Disease's charges — see SPELL_TIER) a battle
+   * save.spellUses tier-4 pool (see SPELL_TIER) a battle
    * cast would (see remainingTier/tierRemaining in engine.ts, which reads the exact same
    * field at battle start) — recovers at half-rate per overworld day, see stepOverworld's
    * new spellUses math in overworld.ts. */
@@ -1969,8 +1973,8 @@ export function GameApp() {
     const classId = rec.promotions[hero] ?? MAP_STATUS_CLASS[hero];
     if (!classId || rulesClass(classId) !== "healer") return false;
     const level = rec.levels[hero] ?? 1;
-    const spent = rec.spellUses[hero]?.tier3 ?? 0;
-    if (tierUses(classId, 3, level) - spent <= 0) return false;
+    const spent = rec.spellUses[hero]?.tier4 ?? 0;
+    if (tierUses(classId, 4, level) - spent <= 0) return false;
     const power = createFoodAndWaterPower(level);
     if (fullness(rec.heroHunger[hero]) >= power.fullness) return false;
     const gained = power.dice > 0 ? rollDice(power.dice, power.faces, power.bonus, Math.random) : 0;
@@ -1978,7 +1982,7 @@ export function GameApp() {
       ...rec,
       heroHunger: { ...rec.heroHunger, [hero]: power.fullness },
       rations: rec.rations + gained,
-      spellUses: { ...rec.spellUses, [hero]: { ...rec.spellUses[hero], tier3: spent + 1 } },
+      spellUses: { ...rec.spellUses, [hero]: { ...rec.spellUses[hero], tier4: spent + 1 } },
     });
     return true;
   };
@@ -3365,6 +3369,7 @@ const SKILL_CLASS: Partial<Record<SpellKind, ClassId>> = {
   frost: "mage",
   causticVenom: "mage",
   divineBolt: "healer",
+  turnUndead: "healer",
   poisonBreath: "mage",
   summonFamiliar: "conjurer",
   summonFamiliar2: "conjurer",
@@ -3482,6 +3487,16 @@ const SKILL_DAMAGE_ROWS: { name: string; cls: ClassId; tier: SpellTier; formula:
   },
   { name: POISON_BREATH.name, cls: SKILL_CLASS.poisonBreath!, tier: spellTier("poisonBreath")!, formula: (mag: number) => poisonBreathFormula(POISON_BREATH.unlockLevel, mag), note: "Aprendido no nível 3; progressão começa no nível 3. Cone de raio 1–5. Progressão de dano de Mãos Flamejantes atrasada em 2 níveis. Veneno Menor: 1D4 por turno; atinge aliados também." },
   { name: FROST.name, cls: "mage" as const, tier: 2 as const, formula: (mag:number)=>spellFormula(mag,FROST.mul,1,6,0), note:"Aprendido no nível 5. Linha de 2 hexes à frente; +1 hex a cada 4 níveis. Dano de Ice e fogo amigo. Cultist V2: 1 carga inicial, +1 nos níveis 5, 12 e 20." },
+  {
+    name: TURN_UNDEAD.name, cls: "healer" as const, tier: 3 as const,
+    formula: "See the full progression beside it.",
+    progression: TURN_UNDEAD_PROGRESSION.map((p, i) => ({
+      levels: i === TURN_UNDEAD_PROGRESSION.length - 1 ? "22–30 (capped at 22)" : `${p.level}–${TURN_UNDEAD_PROGRESSION[i + 1]!.level - 1}`,
+      range: p.range, size: turnUndeadPower(p.level).areaHexes, duration: TURN_UNDEAD.fearTurns,
+      damage: `⌊⌊MAG / 2⌋ × ${p.mul}⌋ + ${p.dice}D${p.faces}`,
+    })),
+    note: "Preview the area around the priest, then confirm or cancel; no target selection. Holy damage and 2 own turns of fear: undead retreat without attacking. Radius grows at every breakpoint from 4 to 9 hexes (61–271 affected cells). Other creature types are completely unaffected.",
+  },
   { name: CURE_DISEASE.name, cls: SKILL_CLASS.cureDisease!, tier: spellTier("cureDisease")!, formula: "—", note: "Clériga T3. Cura doença e veneno. Luz teal." },
   {
     name: ICE_STORM.name,
@@ -5311,7 +5326,7 @@ export function MapEditorScreen({
               ? npcBrush === "breadLady"
                 ? { name: `Civil ${plain + 1}`, classId: "breadLady", x, y, level: enemyLevelFor(0) }
                 : { ...encounterNpcSpawn(npcBrush, x, y), level: enemyLevelFor(0) }
-              : { name: `Inimigo ${plain + 1}`, classId: "soldier", x, y, level: enemyLevelFor(0) };
+              : { name: `Inimigo ${plain + 1}`, classId: "miliciaV2", x, y, level: enemyLevelFor(0) };
       return { ...d, [key]: [...list, spawn] };
     });
   };
@@ -8626,6 +8641,9 @@ function BattleScreen({
       case "burningHands":
         engine.startBurningHands();
         break;
+      case "turnUndead":
+        engine.startTurnUndead();
+        break;
       case "createFoodAndWater":
         engine.startCreateFoodAndWater();
         break;
@@ -10162,6 +10180,7 @@ function StatusPanel({ unit, accuracyTarget, statPointAllocation, unspentStatPoi
                     <>
                       {spellStatusRow("bless", BLESS.name)}
                       {spellStatusRow("burningHands", BURNING_HANDS.name)}
+                      {spellStatusRow("turnUndead", TURN_UNDEAD.name)}
                       {spellStatusRow("createFoodAndWater", CREATE_FOOD_AND_WATER.name)}
                       {unit.name === "Salazar" && spellStatusRow("divineBolt", DIVINE_BOLT.name)}
                       <div className="flex items-center gap-1.5 bg-bg border border-border rounded-md px-2 py-1.5">

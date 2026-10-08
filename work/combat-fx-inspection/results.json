@@ -1,0 +1,92 @@
+[
+  {
+    "method": "castBullRush",
+    "queue": 1,
+    "tip": null
+  },
+  {
+    "method": "castExecutionerStrike",
+    "queue": 0,
+    "tip": "Esse inimigo não está ao alcance ou não pode ser atingido daqui."
+  },
+  {
+    "method": "castShieldBash",
+    "queue": 0,
+    "tip": "Esse inimigo não está ao alcance ou não pode ser atingido daqui."
+  },
+  {
+    "method": "castShock",
+    "queue": 0,
+    "tip": null
+  },
+  {
+    "method": "castMagicMissile",
+    "queue": 3,
+    "tip": null
+  },
+  {
+    "method": "castMultiShot",
+    "queue": 3,
+    "tip": null
+  },
+  {
+    "method": "castDoubleStrike",
+    "queue": 0,
+    "tip": "Esse inimigo não está ao alcance ou não pode ser atingido daqui."
+  },
+  {
+    "method": "castTrip",
+    "queue": 0,
+    "tip": "Esse inimigo não está ao alcance ou não pode ser atingido daqui."
+  },
+  {
+    "method": "castLifeDrain",
+    "queue": 0,
+    "tip": "Esse inimigo não está ao alcance ou não pode ser atingido daqui."
+  },
+  {
+    "method": "startBless",
+    "queue": 1,
+    "tip": "Bless: +10% de chance de acerto por 8 rodadas para aliados a até 3 hexes."
+  },
+  {
+    "method": "startAuraOfProtection",
+    "queue": 1,
+    "tip": "Aura de Proteção: aliados a até 3 hexes tomam 35% menos dano por 4 rodadas."
+  },
+  {
+    "method": "startIntimidatingPresence",
+    "queue": 1,
+    "tip": "Presença Intimidante: inimigos a até 3 hexes tomam 35% mais dano por 4 rodadas."
+  },
+  {
+    "method": "startCreateFoodAndWater",
+    "queue": 1,
+    "tip": "Criar Comida e Água: fome restaurada (120%), +30 rações."
+  },
+  {
+    "method": "castHeal",
+    "queue": 1,
+    "tip": null
+  },
+  {
+    "method": "castSummonFamiliar",
+    "queue": 1,
+    "tip": "Salazar invocou Familiar de Salazar."
+  },
+  {
+    "method": "castFireball",
+    "queue": 1,
+    "tip": null
+  },
+  {
+    "method": "castCausticVenom",
+    "queue": 1,
+    "tip": null
+  },
+  {
+    "method": "castPhantasmalForce",
+    "queue": 1,
+    "tip": null
+  }
+]

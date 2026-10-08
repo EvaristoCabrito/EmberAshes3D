@@ -722,7 +722,7 @@
         "x": 15,
         "name": "Guarda Ossificado",
         "level": 11,
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "y": 11
       },
       {

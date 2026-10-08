@@ -57,6 +57,8 @@ export type ClassId = import("./encounter-npcs").EncounterNpcId
   | "captain"
   | "cultist"
   | "cultistV2"
+  | "miliciaV2"
+  | "apparition"
   | "minorHorror"
   | "horror"
   | "asherah"
@@ -144,6 +146,10 @@ export type ClassId = import("./encounter-npcs").EncounterNpcId
   | "zombieDog"
   | "travelingMerchant";
 export type SpriteId = "defaultWarrior" | "neera" | "voss" | "salazar" | "aldric" | "malrec" | "defaultLancer" | "soldier" | "brigand" | "captain" | "sorcerer" | "horror" | "minor-horror-001" | "Asherah" | "pikeman" | "wardog" | "wardog2" | "EmberedWraith" | "zombie" | "zombie2" | "undeadOx" | "plague-bearing-cattle" | "troll" | "troll2" | "RoccoTheBird" | "morvenian-wolf" | "mordavian-wolf" | "mordavian-wolf-final" | "punisher" | "theButcher" | "birolho" | "birolho2" | "birolho3" | "BirolhoLegs" | "BirolhoLegs2" | "familiar" | "familiar2" | "familiar3" | "familiar4" | "zombieDog" | "swamp-blue-calf" | "cobalt-blue-deer" | "big-blue-ox-002" | "ancient-golem" | "lancer" | "sandoval" | "kaelFinal" | "kaelEarly" | "conjurer" | "cultist-v2"
+  // Milícia V2: idle/hit/death/walk right/walk left, 36 frames each (work/militia_v2_build.py).
+  | "militia-v2"
+  // Apparition: idle/cast, 36 frames each, cut with the TEK (work/apparition/build.py).
+  | "apparition"
   // Carnivorous Plant: idle/atk/cast/hit/death, 36 frames each, cut with the TEK from the
   // user's videos (see work/carnivorous-plant/build.py).
   | "carnivorous-plant-001"
@@ -224,6 +230,7 @@ export type SpellKind =
   // and flanks of her Type 7 body, played on her ATT sheet.
   | "tendrilSwipe"
   | "burningHands"
+  | "turnUndead"
   | "createFoodAndWater";
 export type ScreenId = "boot" | "title" | "saveSlots" | "campaign" | "mapChoice" | "vauIntro" | "wispForestIntro" | "innArrivalIntro" | "worldMap" | "overworldMap" | "briefing" | "cutscene" | "epilogue" | "battle" | "victory" | "defeat" | "inn" | "testMenu" | "mapEditor" | "devControls";
 export type Phase = "player" | "enemy";
@@ -249,6 +256,7 @@ export interface TerrainDef {
 }
 
 export interface ClassDef {
+  creatureType?: "undead";
   id: ClassId;
   name: string;
   role: string;
@@ -285,6 +293,9 @@ export interface ClassDef {
    * straight onto a map in the editor behaves the same as one conjured in play. Every
    * summon class that gets added should carry this. */
   summon?: true;
+  /** Undead kind. Every class with one is undead, the target of Turn Undead (a future healer
+   * spell). */
+  undead?: "ghost";
 }
 
 /** One reply choice inside a branching DialogLine. Picking it jumps to `next`, or ends the
@@ -823,6 +834,9 @@ export interface Unit {
   bleedRoundMarker?: number;
   bleedMovedThisTurn: boolean;
   /** Shield Bash victim: loses their entire next turn, then clears automatically. */
+  /** Remaining own turns spent retreating without attacking. Optional for older saves. */
+  fearTurns?: number;
+  fearSourceId?: string;
   stunned: boolean;
   /** How many of this unit's own upcoming turns `stunned` still eats — Shield Bash sets this
    * to 1, Trip (Lancer tier 3) to 2. Decremented each time it costs a turn; `stunned` only
@@ -929,6 +943,9 @@ export interface UnitPublic {
    * meaningful alongside `hungry: true`; see hungerPenaltyFor in overworld.ts. */
   hungerPct?: number;
   fullness?: number;
+  /** Remaining own turns spent retreating without attacking. Optional for older saves. */
+  fearTurns?: number;
+  fearSourceId?: string;
   stunned: boolean;
   crippled: boolean;
   offHandId: string | null;
@@ -1191,6 +1208,9 @@ export interface GameArt {
    * unit takes damage, unless it is attacking or walking at that moment. On a killing blow it
    * plays first and the death sheet follows. Sprites without one just flash, as before. */
   hits: Partial<Record<SpriteId, HTMLImageElement[]>>;
+  /** Second hit-reaction sheet (hit2-*.png), for the sprites that have one: their hits cycle
+   * hit, hit, hit2 (see BattleEngine.hitPoolFor). */
+  hits2: Partial<Record<SpriteId, HTMLImageElement[]>>;
   impact: HTMLImageElement[];
   /** Ultra-realistic Fireball core; its trail and light remain procedural. */
   fireballCore: HTMLImageElement;
@@ -1268,6 +1288,9 @@ export interface BattleUnitSnap {
   bleeding?: boolean;
   bleedRoundsLeft?: number;
   bleedRoundMarker?: number;
+  /** Remaining own turns spent retreating without attacking. Optional for older saves. */
+  fearTurns?: number;
+  fearSourceId?: string;
   stunned: boolean;
   stunTurns: number;
   crippled: boolean;

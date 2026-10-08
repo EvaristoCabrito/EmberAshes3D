@@ -1,0 +1,7 @@
+﻿setup {"hero":"Malrec","foe":"Soldado","foeId":"enemy-Soldado-0","at":{"x":2,"y":11},"hp":31}
+1. after clicking the enemy: {"pendingFoe":"Soldado","forecast":{"attacker":"player-Malrec-5","defender":"enemy-Soldado-0","dmgOut":28,"dmgBack":1,"hitOut":73,"hitBack":35,"canCounter":true,"critOut":false,"kill":false},"queued":0,"active":false,"acted":false}
+   panel: "ATACAR SOLDADO 73% de acerto Confirmar Cancelar"
+2. after Cancelar: {"pendingFoe":null,"queued":0,"active":false,"acted":false} panel visible false
+3. after Confirmar: {"newLog":["Malrec melhorou Staves: 1 (+1)","Malrec atacou Soldado: 30 dano","Soldado atacou Malrec: 1 dano"],"pendingFoe":null}
+PASS
+errors []

@@ -352,7 +352,7 @@
     "neutralSpawns": [
       {
         "name": "Viajante Ferido",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 6,
         "y": 5,
         "dialog": {

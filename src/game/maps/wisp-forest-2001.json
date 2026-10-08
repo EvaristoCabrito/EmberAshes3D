@@ -6769,7 +6769,7 @@
       },
       {
         "name": "Soldado",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 20,
         "y": 26,
         "level": 1

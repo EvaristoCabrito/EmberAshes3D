@@ -1091,7 +1091,7 @@
       },
       {
         "name": "Saqueador da retaguarda",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 6,
         "y": 14,
         "level": 8

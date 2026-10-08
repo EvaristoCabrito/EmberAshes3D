@@ -1026,14 +1026,14 @@
       },
       {
         "name": "Soldado",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 4,
         "y": 4,
         "level": 2
       },
       {
         "name": "Soldado",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 14,
         "y": 4,
         "level": 2

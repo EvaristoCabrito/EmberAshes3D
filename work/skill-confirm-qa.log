@@ -1,0 +1,6 @@
+﻿setup {"selected":"Neera","foe":"Soldado","at":{"x":6,"y":9}}
+1. aimed: {"mode":"awaitSpell","spellArmed":true,"spellHitChance":73,"spellKind":"longShot","queued":0,"active":false,"neeraActed":false} panel "TIRO LONGO 73% de acerto Confirmar Cancelar"
+2. after Cancelar: {"mode":"selected","spellArmed":false,"spellHitChance":null,"spellKind":null,"queued":0,"active":false,"neeraActed":false} panel null
+3. aim after moving the mouse: {"x":6,"y":9} · log after Confirmar: ["Neera atingiu Soldado com magia: 30 dano"]
+PASS
+errors []

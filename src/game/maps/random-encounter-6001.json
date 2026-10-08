@@ -41,7 +41,7 @@
     "enemySpawns": [
       { "name": "Besteiro", "classId": "brigand", "x": 10, "y": 3, "level": 8 },
       { "name": "Besteiro", "classId": "brigand", "x": 10, "y": 6, "level": 8 },
-      { "name": "Soldado", "classId": "soldier", "x": 9, "y": 4, "level": 8 },
+      { "name": "Soldado", "classId": "miliciaV2", "x": 9, "y": 4, "level": 8 },
       { "name": "Carrasco", "classId": "punisher", "x": 11, "y": 4, "level": 9 }
     ],
     "neutralSpawns": [],

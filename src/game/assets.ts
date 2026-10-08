@@ -141,7 +141,7 @@ export function portraitFor(sprite: SpriteId): { src: string; framed: boolean; p
 }
 
 const TILES = Object.keys(TILE_VARIANT_COUNT) as TerrainId[];
-const SPRITES: SpriteId[] = ["defaultWarrior", "neera", "voss", "salazar", "aldric", "malrec", "defaultLancer", "soldier", "brigand", "captain", "sorcerer", "horror", "minor-horror-001", "Asherah", "pikeman", "wardog", "wardog2", "EmberedWraith", "troll", "troll2", "RoccoTheBird", "morvenian-wolf", "mordavian-wolf", "mordavian-wolf-final", "punisher", "theButcher", "birolho", "birolho2", "birolho3", "BirolhoLegs", "BirolhoLegs2", "familiar", "familiar2", "familiar3", "familiar4", "zombieDog", "zombie", "zombie2", "undeadOx", "plague-bearing-cattle", "swamp-blue-calf", "cobalt-blue-deer", "big-blue-ox-002", "ancient-golem", "lancer", "sandoval", "kaelFinal", "kaelEarly", "conjurer", "cultist-v2", "archerRecruit", "mageRecruit", "healerRecruit", "beberrao", "breadLady", "brue", "crazyLady", "mudinho", "oldHealer", "peasant1", "shadyPatron", "soupLady", "villagerF1", "woodsman", "travelingMerchant"];
+const SPRITES: SpriteId[] = ["defaultWarrior", "neera", "voss", "salazar", "aldric", "malrec", "defaultLancer", "soldier", "brigand", "captain", "sorcerer", "horror", "minor-horror-001", "Asherah", "pikeman", "wardog", "wardog2", "EmberedWraith", "troll", "troll2", "RoccoTheBird", "morvenian-wolf", "mordavian-wolf", "mordavian-wolf-final", "punisher", "theButcher", "birolho", "birolho2", "birolho3", "BirolhoLegs", "BirolhoLegs2", "familiar", "familiar2", "familiar3", "familiar4", "zombieDog", "zombie", "zombie2", "undeadOx", "plague-bearing-cattle", "swamp-blue-calf", "cobalt-blue-deer", "big-blue-ox-002", "ancient-golem", "lancer", "sandoval", "kaelFinal", "kaelEarly", "conjurer", "cultist-v2", "militia-v2", "apparition", "archerRecruit", "mageRecruit", "healerRecruit", "beberrao", "breadLady", "brue", "crazyLady", "mudinho", "oldHealer", "peasant1", "shadyPatron", "soupLady", "villagerF1", "woodsman", "travelingMerchant"];
 
 SPRITES.push(...ENCOUNTER_NPC_IDS);
 
@@ -343,6 +343,12 @@ const ATTACK_FRAMES: Partial<Record<SpriteId, { n: number; bust: string }>> = {
   kaelFinal: { n: 36, bust: "?v=kael-final-005-steady" },
   conjurer: { n: 36, bust: "?v=conjurer-complete-003" },
   "cultist-v2": { n: 36, bust: "" },
+  // Milícia V2's ATT, mirrored at cut time to face the same way as his idle (see
+  // work/militia_v2_build.py); same shared canvas and scale as his other sheets.
+  "militia-v2": { n: 36, bust: "" },
+  // Apparition's ATT (TEK cut, work/apparition/build.py): 60 frames / 5 s, longer than the usual
+  // 36 on purpose — see APPARITION_ATTACK_SECONDS in engine.ts. Faces right; mirrored for left.
+  apparition: { n: 60, bust: "" },
   // Familiar 3's primary attack cut — see ATTACK2_FRAMES below for its alternate cut,
   // which Unit.idleAlt alternates into turn to turn (same flip as Malrec's idles2).
   familiar3: { n: 36, bust: "" },
@@ -373,6 +379,8 @@ const CAST_FRAMES: Partial<Record<SpriteId, { n: number; bust: string }>> = {
   // Thrust, Sweep, ...), never for a plain attack, which stays on the ATT cut.
   aldric: { n: 36, bust: "?v=aldric-final-001" },
   "cultist-v2": { n: 36, bust: "" },
+  // Apparition: hands together, energy orb builds (TEK cut, work/apparition/build.py).
+  apparition: { n: 36, bust: "" },
   // Familiar 2's real rear-up/charge/beam-release windup — a distinct animation from its
   // ATT cut (the crouch/lunge), not a fallback.
   familiar2: { n: 36, bust: "?v=familiar2-36" },
@@ -479,6 +487,10 @@ const WALK_FRAMES: Partial<Record<SpriteId, { n: number; bust: string }>> = {
   theButcher: { n: 36, bust: "?v=the-butcher-001" },
   // Right-facing cut; see the dedicated walksLeft["cultist-v2"] load below.
   "cultist-v2": { n: 36, bust: "" },
+  // Right-facing cut (Walk Right); his authored Walk Left loads as walksLeft below.
+  "militia-v2": { n: 36, bust: "" },
+  // Apparition: one right-facing profile walk (TEK cut); the renderer mirrors it for leftward travel.
+  apparition: { n: 36, bust: "" },
   familiar3: { n: 36, bust: "" },
   // Right-facing cut, sliced from the Mordavian Puppy reference sheet's WALK RIGHT row;
   // see the dedicated walksLeft["morvenian-wolf"] load below for its own authored
@@ -501,6 +513,14 @@ const HIT_FRAMES: Partial<Record<SpriteId, { n: number; bust: string }>> = {
   undeadOx: { n: 36, bust: "?v=ox-36" },
   // 528x321, wider than its other sheets — see computeUnitVisual's zombieDogWideSheet.
   zombieDog: { n: 36, bust: "?v=zd-hit-death-36" },
+  "militia-v2": { n: 36, bust: "" },
+  // Apparition hit react 1 (TEK cut, work/apparition/build.py); her react 2 is HIT2_FRAMES below.
+  apparition: { n: 36, bust: "" },
+};
+
+// Second hit-reaction sheets: hit2-*.png, cycled hit, hit, hit2 (see GameArt.hits2).
+const HIT2_FRAMES: Partial<Record<SpriteId, { n: number; bust: string }>> = {
+  apparition: { n: 36, bust: "" },
 };
 
 // Death sheets: death-*.png, played once when the unit dies (see GameArt.deaths).
@@ -519,6 +539,8 @@ const DEATH_FRAMES: Partial<Record<SpriteId, { n: number; bust: string }>> = {
   zombieDog: { n: 36, bust: "?v=zd-hit-death-36" },
   undeadOx: { n: 36, bust: "?v=ox-36" },
   "plague-bearing-cattle": { n: 36, bust: "?v=plague-cattle-001" },
+  "militia-v2": { n: 36, bust: "" },
+  apparition: { n: 36, bust: "" },
 };
 
 // Alternate death sheets: death2-*.png, played about one death in three (see GameArt.deaths2).
@@ -540,8 +562,8 @@ const WALK2_FRAMES: Partial<Record<SpriteId, { n: number; bust: string }>> = {
   familiar3: { n: 36, bust: "" },
 };
 
-type SpritePoolKey = "hits" | "deaths" | "deaths2" | "sprites" | "attacks" | "attacks2" | "attacksShort" | "attacksLeft" | "attacks2Left" | "casts" | "castsLeft" | "counters" | "countersLeft" | "walks" | "walksLeft" | "idles" | "idles2" | "walkDirs" | "walksUp" | "walksDown" | "walks2" | "walksLeft2";
-const SPRITE_POOL_KEYS: SpritePoolKey[] = ["hits", "deaths", "deaths2", "sprites", "attacks", "attacks2", "attacksShort", "attacksLeft", "attacks2Left", "casts", "castsLeft", "counters", "countersLeft", "walks", "walksLeft", "idles", "idles2", "walkDirs", "walksUp", "walksDown", "walks2", "walksLeft2"];
+type SpritePoolKey = "hits" | "hits2" | "deaths" | "deaths2" | "sprites" | "attacks" | "attacks2" | "attacksShort" | "attacksLeft" | "attacks2Left" | "casts" | "castsLeft" | "counters" | "countersLeft" | "walks" | "walksLeft" | "idles" | "idles2" | "walkDirs" | "walksUp" | "walksDown" | "walks2" | "walksLeft2";
+const SPRITE_POOL_KEYS: SpritePoolKey[] = ["hits", "hits2", "deaths", "deaths2", "sprites", "attacks", "attacks2", "attacksShort", "attacksLeft", "attacks2Left", "casts", "castsLeft", "counters", "countersLeft", "walks", "walksLeft", "idles", "idles2", "walkDirs", "walksUp", "walksDown", "walks2", "walksLeft2"];
 
 /** Loads every pool one sprite contributes to GameArt (idle, attack, cast, walk, ...) — the
  * same files, frame counts and cache-busts loadGameArt used to load for every sprite up front. */
@@ -555,7 +577,7 @@ async function loadSpritePools(id: SpriteId): Promise<Partial<Record<SpritePoolK
       pools[key] = value;
     }));
   };
-  const n = id === "RoccoTheBird" || id === "wardog2" || id === "EmberedWraith" || id === "zombieDog" ? 36 : id === "undeadOx" || id === "plague-bearing-cattle" ? 36 : id === "minor-horror-001" ? 36 : id === "big-blue-ox-002" ? 36 : id === "carnivorous-plant-001" ? 36 : id === "sapling-001" ? 36 : id === "zombie2" ? 11 : id === "neera" || id === "conjurer" || id === "kaelFinal" || id === "aldric" || id === "cultist-v2" || id === "malrec" || id === "familiar3" || id === "familiar2" ? 36 : id === "sandoval" || id === "mordavian-wolf" ? 8 : id === "birolho2" ? 18 : id === "birolho3" ? 12 : id === "zombie" ? 32 : id === "BirolhoLegs" || id === "BirolhoLegs2" || id === "troll2" || id === "ancient-golem" || id === "familiar4" || id === "mordavian-wolf-final" ? 36 : HERO_IDLE.has(id) ? 12 : 4;
+  const n = id === "RoccoTheBird" || id === "wardog2" || id === "EmberedWraith" || id === "zombieDog" ? 36 : id === "undeadOx" || id === "plague-bearing-cattle" ? 36 : id === "minor-horror-001" ? 36 : id === "big-blue-ox-002" ? 36 : id === "carnivorous-plant-001" ? 36 : id === "sapling-001" ? 36 : id === "zombie2" ? 11 : id === "neera" || id === "conjurer" || id === "kaelFinal" || id === "aldric" || id === "cultist-v2" || id === "militia-v2" || id === "apparition" || id === "malrec" || id === "familiar3" || id === "familiar2" ? 36 : id === "sandoval" || id === "mordavian-wolf" ? 8 : id === "birolho2" ? 18 : id === "birolho3" ? 12 : id === "zombie" ? 32 : id === "BirolhoLegs" || id === "BirolhoLegs2" || id === "troll2" || id === "ancient-golem" || id === "familiar4" || id === "mordavian-wolf-final" ? 36 : HERO_IDLE.has(id) ? 12 : 4;
   const cacheBust = id === "neera" ? "?v=neera-idle-001" : id === "RoccoTheBird" || id === "wardog2" || id === "EmberedWraith" || id === "zombieDog" ? "?v=f36" : id === "undeadOx" ? "?v=ox-36-tail2" : id === "plague-bearing-cattle" ? "?v=plague-cattle-001" : id === "minor-horror-001" ? "?v=minor-horror-003" : id === "big-blue-ox-002" ? "?v=big-blue-ox-ai-006" : id === "troll" ? "?v=11" : id === "Asherah" ? "?v=3" : id === "familiar" ? "?v=6" : id === "aldric" ? "?v=aldric-final-001" : id === "defaultLancer" ? "?v=sheet2" : id === "lancer" ? "?v=3" : id === "sandoval" ? "?v=sandoval-complete-001" : id === "kaelFinal" ? "?v=kael-final-002" : id === "kaelEarly" ? "?v=kael-early" : id === "defaultWarrior" ? "?v=kael-v2" : id === "conjurer" ? "?v=conjurer-complete-003" : id === "familiar2" ? "?v=familiar2-36" : "";
   put("sprites", cut(n, (i) => (id === "conjurer" ? `talk-${i}` : `${i}`), cacheBust));
   const atk = ATTACK_FRAMES[id];
@@ -572,6 +594,8 @@ async function loadSpritePools(id: SpriteId): Promise<Partial<Record<SpritePoolK
   if (counter) put("counters", cut(counter.n, (i) => `counter-${i}`, counter.bust));
   const hit = HIT_FRAMES[id];
   if (hit) put("hits", cut(hit.n, (i) => `hit-${i}`, hit.bust));
+  const hit2 = HIT2_FRAMES[id];
+  if (hit2) put("hits2", cut(hit2.n, (i) => `hit2-${i}`, hit2.bust));
   const death = DEATH_FRAMES[id];
   if (death) put("deaths", cut(death.n, (i) => `death-${i}`, death.bust));
   const death2 = DEATH2_FRAMES[id];
@@ -592,7 +616,7 @@ async function loadSpritePools(id: SpriteId): Promise<Partial<Record<SpritePoolK
   // The Butcher, Cultist V2, Familiar 2 and Familiar 3 each have their own authored
   // left-facing walk cut (same frame count as their right-facing one) but no dedicated
   // left-facing attack cut — their attack keeps mirroring the right-facing pool.
-  if (walk && (id === "theButcher" || id === "cultist-v2" || id === "familiar2" || id === "familiar3")) put("walksLeft", cut(walk.n, (i) => `move-left-${i}`, walk.bust));
+  if (walk && (id === "theButcher" || id === "cultist-v2" || id === "militia-v2" || id === "familiar2" || id === "familiar3")) put("walksLeft", cut(walk.n, (i) => `move-left-${i}`, walk.bust));
   if (id === "cobalt-blue-deer" && walk) put("walksLeft", cut(walk.n, (i) => `move-${i}`, walk.bust));
   // Mordavian Puppy's WALK LEFT row has 7 frames vs its right-facing row's 6.
   if (id === "morvenian-wolf") put("walksLeft", cut(7, (i) => `move-left-${i}`, ""));
@@ -833,8 +857,9 @@ export async function loadGameArt(): Promise<GameArt> {
   const walkDirs: GameArt["walkDirs"] = {};
   const deaths: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
   const deaths2: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
+  const hits2: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
   const hits: Partial<Record<SpriteId, HTMLImageElement[]>> = {};
-  const art: GameArt = { tiles, decorations, sprites, attacks, attacks2, attacks2Left, attacksShort, attacksLeft, casts, castsLeft, counters, countersLeft, walks, walksLeft, idles, idles2, walkDirs, walksUp, walksDown, walks2, walksLeft2, deaths, deaths2, hits, impact, fireballCore, causticVenomCore, arrowCore, lightningCores, webfloor, backdrops };
+  const art: GameArt = { tiles, decorations, sprites, attacks, attacks2, attacks2Left, attacksShort, attacksLeft, casts, castsLeft, counters, countersLeft, walks, walksLeft, idles, idles2, walkDirs, walksUp, walksDown, walks2, walksLeft2, deaths, deaths2, hits, hits2, impact, fireballCore, causticVenomCore, arrowCore, lightningCores, webfloor, backdrops };
   await ensureSpriteArt(art, MC_SPRITES);
   try {
     localStorage.setItem(ART_TOTAL_KEY, String(artRequested));

@@ -3106,7 +3106,7 @@
     "enemySpawns": [
       {
         "name": "Guarda da Torre",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 14,
         "y": 10,
         "level": 10
@@ -3141,7 +3141,7 @@
       },
       {
         "name": "Guarda da Torre",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 22,
         "y": 18,
         "level": 10

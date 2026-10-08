@@ -86,6 +86,7 @@ export const SPELL_CLASSIFICATION: Record<SpellKind, SpellClassification> = {
   tendrilSwipe: "physical",
   burningHands: "fire",
   createFoodAndWater: "utility",
+  turnUndead: "holy",
 };
 
 export function spellElement(kind: SpellKind | null): ResistanceElement | undefined {

@@ -2983,7 +2983,7 @@
       },
       {
         "name": "Rootbound Guard",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 22,
         "y": 16,
         "level": 10

@@ -1,0 +1,6 @@
+import {execFileSync} from 'node:child_process';import {writeFileSync} from 'node:fs';
+const files=['src/game/data.ts','src/game/engine.ts','src/game/types.ts','src/game/GameApp.tsx','src/game/BattleCanvas.tsx','src/game/gfx/three/ThreeBattleRenderer.ts'];
+let patch='';for(const file of files){const diff=execFileSync('git',['diff','--',file],{encoding:'utf8'});const pieces=diff.split(/(?=^@@ )/m);const header=pieces.shift();const chosen=pieces.filter(h=>{const changes=h.split('\n').filter(l=>/^[+-]/.test(l)).join('\n');return /iceStorm|ICE_STORM|Ice Storm|progression|blizzard|Blizzard/.test(changes);});if(chosen.length)patch+=header+chosen.join('');}
+writeFileSync('work/blizzard-commit.patch',patch);execFileSync('git',['apply','--cached','--recount','work/blizzard-commit.patch'],{stdio:'inherit'});
+execFileSync('git',['add','src/game/gfx/EffectsRenderer.ts','src/game/gfx/Blizzard2D.ts','public/game/fx/blizzard-impact-reference.png','public/game/fx/blizzard-wind-reference.png','public/game/icons/ice-storm.svg','work/blizzard-new-2d.js','work/ice-storm-next.html','work/ice-storm-vite.config.mjs'],{stdio:'inherit'});
+console.log(execFileSync('git',['diff','--cached','--stat'],{encoding:'utf8'}));

@@ -1,3 +1,5 @@
+import { TURN_UNDEAD, turnUndeadPower, turnUndeadFormula, isUndeadClass } from "./data";
+import { drawTurnUndeadV4, TURN_UNDEAD_V4_DURATION } from "./gfx/TurnUndeadV4";
 import { FROST, frostPower, frostAreaTiles, frostCharges } from "./frost";
 import { drawProvokeVFX, PROVOKE_FX_DURATION } from "./gfx/ProvokeVFX";
 import { dexAccuracy, dexEscapeChance } from "./dexterity";
@@ -488,6 +490,8 @@ const OVERLAY_FADE_IN = 0.4;
 const LONG_ANIM_SECONDS = 3;
 /** Kael's 36-frame swing, start to finish — shorter than the 3s every other long sheet gets. */
 const KAEL_FINAL_ATTACK_SECONDS = 2;
+/** Apparition's 60-frame ATT (5 s of her video at real speed), longer than the usual 3 s on purpose. */
+const APPARITION_ATTACK_SECONDS = 5;
 /** Seconds into BladeSlash1Dagger.mp3 Kael's swing sound starts from (see stepCombat). */
 const KAEL_BLADE_SOUND_START = 1.12;
 /** A death sheet (GameArt.deaths) plays over this long, then the body lies still for
@@ -677,6 +681,8 @@ function pub(u: Unit, restrained: boolean, movLeft: number): UnitPublic {
     blessedHitBonusPct: u.blessedHitBonusPct,
     blessedRoundsLeft: u.blessedRoundsLeft,
     shock: u.shock ? { ...u.shock } : null,
+    fearTurns: u.fearTurns,
+    fearSourceId: u.fearSourceId,
     stunned: u.stunned,
     crippled: u.crippled,
     hungry: u.hungerPenaltyPct > 0,
@@ -1114,6 +1120,8 @@ function unitFromSnap(snap: BattleUnitSnap): Unit {
     bleedRoundsLeft: snap.bleedRoundsLeft,
     bleedRoundMarker: snap.bleedRoundMarker,
     bleedMovedThisTurn: false,
+    fearTurns: snap.fearTurns ?? 0,
+    fearSourceId: snap.fearSourceId,
     stunned: snap.stunned,
     stunTurns: snap.stunTurns,
     crippled: snap.crippled,
@@ -1397,6 +1405,8 @@ export class BattleEngine {
   private woundUp = new WeakMap<Seq, number>();
   /** Monster hit/death cues already played, per unit (see tick and audio.ts MONSTER_SFX). */
   private readonly monsterSoundCues = new WeakMap<Unit, { hitAt?: number; death?: boolean }>();
+  /** Hits taken so far, per unit, for sprites with a second hit sheet (see hitPoolFor). */
+  private readonly hitSheetCounts = new WeakMap<Unit, { hitAt: number; count: number }>();
   /** Plague Bearing Cattle death cues already played (see tick). */
   private readonly cattleDeathCued = new WeakSet<Unit>();
   /** Carnivorous Plant hit/death cues already played, per unit (see tick). */
@@ -1420,6 +1430,7 @@ export class BattleEngine {
   private lightningFxLive = 0;
   private holyFx: HolyFx[] = Array.from({ length: HOLY_FX_CAP }, blankHolyFx);
   private holyFxLive = 0;
+  private turnUndeadFx: { tiles: Point[]; t: number }[] = [];
   private provokeFx: { unitId: string; t: number }[] = [];
   private bladeFx: BladeFx[] = Array.from({ length: BLADE_FX_CAP }, blankBladeFx);
   private bladeFxLive = 0;
@@ -1883,7 +1894,7 @@ export class BattleEngine {
       spellReady:
         this.mode === "awaitSpell" &&
         !!selected &&
-        (this.spellKind === "sweep" || (!!this.hover && this.spellAimValid(selected, this.hover))),
+        (this.spellKind === "sweep" || this.spellKind === "turnUndead" || (!!this.hover && this.spellAimValid(selected, this.hover))),
       spellArmed: this.mode === "awaitSpell" && !!selected && this.spellArmed && !!this.spellAim,
       spellHitChance: (() => {
         // Weapon skills roll the same weapon hit chance as a basic attack (see the forecast above).
@@ -2071,7 +2082,9 @@ export class BattleEngine {
         bleeding: u.bleeding,
         bleedRoundsLeft: u.bleedRoundsLeft,
         bleedRoundMarker: u.bleedRoundMarker,
-        stunned: u.stunned,
+        fearTurns: u.fearTurns,
+    fearSourceId: u.fearSourceId,
+    stunned: u.stunned,
         stunTurns: u.stunTurns,
         crippled: u.crippled,
         hungerPenaltyPct: u.hungerPenaltyPct,
@@ -2412,6 +2425,7 @@ export class BattleEngine {
       }
       this.lightningFxLive = live;
     }
+    this.turnUndeadFx = this.turnUndeadFx.filter((fx) => (fx.t += actionCap) < TURN_UNDEAD_V4_DURATION);
     if (this.holyFxLive) {
       let live = 0;
       for (const h of this.holyFx) {
@@ -2467,6 +2481,7 @@ export class BattleEngine {
       this.fireballBurstFxLive > 0 ||
       this.lightningFxLive > 0 ||
       this.holyFxLive > 0 ||
+      this.turnUndeadFx.length > 0 ||
       this.provokeFx.length > 0 ||
       this.bladeFxLive > 0 ||
       this.portalFxLive > 0;
@@ -2532,7 +2547,7 @@ export class BattleEngine {
       if (actor && target) this.faceSpriteToward(actor.id, target.x, target.y);
       for (const id of targets) {
         const recipient = this.units.find(u => u.id === id);
-        if (step.type === "spell" && actor && recipient && actor.side !== recipient.side) this.faceSpriteToward(recipient.id, actor.x, actor.y);
+        if (step.type === "spell" && actor && recipient && actor.side !== recipient.side && (step.spellKind !== "turnUndead" || isUndeadClass(recipient.classId))) this.faceSpriteToward(recipient.id, actor.x, actor.y);
       }
     }
     // Fire authored casting/healing cues when the action begins. Long cast sheets can
@@ -2546,7 +2561,7 @@ export class BattleEngine {
         // arrow leaves — her shot sound is timed to that release (see sfxPlay.arrowAttack).
         if (arrowSpell) sfxPlay.arrowAttack(caster?.sprite === "neera", this.reducedMotion ? 0 : LONG_ANIM_SECONDS);
         else if (step.spellKind === "tendrilSwipe") sfxPlay.carnivorousPlantAttack();
-        else if (meleeSkill) sfxPlay.meleeAttack(!!caster && this.isBladeAttack(caster));
+        else if (meleeSkill && caster) this.playMeleeCue(caster, false, step.spellKind);
         else if (step.spellKind !== "webOfDreams" && step.spellKind !== "bless" && !meleeSkill) {
           if (caster?.sprite === "minor-horror-001") sfxPlay.minorHorrorCast();
           else if (caster?.sprite === "carnivorous-plant-001") sfxPlay.carnivorousPlantCast();
@@ -2560,7 +2575,9 @@ export class BattleEngine {
         }
       } else if (step.type === "combat") {
         const attacker = this.units.find((u) => u.id === step.att);
-        if (attacker && (attacker.classId === "brigand" || (!step.customDice && this.isArrowAttack(attacker)))) {
+        if (step.spellKind === "shieldBash") {
+          // ShieldBash.mp3 is cued at the strike, after the attack wind-up.
+        } else if (attacker && (attacker.classId === "brigand" || (!step.customDice && this.isArrowAttack(attacker)))) {
           sfxPlay.arrowAttack(attacker.sprite === "neera", this.reducedMotion ? 0 : LONG_ARROW_RELEASE_SECONDS);
         } else if (attacker && !step.customDice && this.isArcaneCaster(attacker)) {
           if (attacker.sprite === "cultist-v2") sfxPlay.cultistV2Attack();
@@ -2574,7 +2591,7 @@ export class BattleEngine {
           else if (sfxPlay.monster(attacker.sprite, "attack")) {
             // A monster's own attack cue (audio.ts MONSTER_SFX).
           }
-          else sfxPlay.meleeAttack(step.spellKind !== "shieldBash" && this.isBladeAttack(attacker, !!step.customDice));
+          else this.playMeleeCue(attacker, !!step.customDice, step.spellKind);
         }
       } else if (step.type === "heal" || step.type === "cureDisease") {
         sfxPlay.heal();
@@ -2984,11 +3001,11 @@ export class BattleEngine {
           this.emitMissileFx(actor.x, actor.y, target.x, target.y, "longShot");
         } else if (arcaneBolt) {
           this.emitMissileFx(actor.x, actor.y, target.x, target.y, "arcaneBolt");
-        } else if (actor.sprite === "kaelFinal" && !this.offHandStrike(a)) {
+        } else if (actor.sprite === "kaelFinal" && !this.offHandStrike(a) && !(a.stage === "lunge" && a.spellKind === "shieldBash")) {
           // Cued here, ~0.74 s into his 2 s sheet. BladeSlash1Dagger.mp3 has ~1.1 s of silence
           // before its swoosh, loudest at ~1.45 s — starting 1.12 s in lands that peak on
           // frame 23, the big horizontal slash (~1.07 s). Same for his counter.
-          sfxPlay.meleeAttack(a.spellKind !== "shieldBash" && this.isBladeAttack(actor), KAEL_BLADE_SOUND_START);
+          this.playMeleeCue(actor, false, a.stage === "lunge" ? a.spellKind : undefined, KAEL_BLADE_SOUND_START);
         }
         a.t = 0;
         a.stage = a.stage === "lunge" ? "hit" : "counterHit";
@@ -3002,6 +3019,7 @@ export class BattleEngine {
       const arcaneBolt = !arrowShot && this.isArcaneCaster(actor);
       const impactAt = arrowShot ? ARROW_TRAVEL : arcaneBolt ? MISSILE_TRAVEL : 0.02;
       if (a.t >= impactAt && a.t - dt < impactAt) {
+        if (a.stage === "hit" && a.spellKind === "shieldBash") sfxPlay.shieldBash();
         const attTile = tileAt(this.tiles, this.cols, actor.x, actor.y);
         const defTile = tileAt(this.tiles, this.cols, target.x, target.y);
         // customDice/dmgMul/stunChance are the attacker's own strike (off-hand weapon or
@@ -3129,7 +3147,7 @@ export class BattleEngine {
                 target.dex = Math.round(target.dex * keep);
                 target.mov = Math.max(1, Math.round(target.mov * keep));
               }
-              sfxPlay.trip(this.isBladeAttack(actor));
+              if (actor.name !== "Kael") sfxPlay.trip(this.isBladeAttack(actor));
             }
             if (a.stage === "hit" && a.spellKind === "shieldBash") {
               target.stunned = true;
@@ -3201,7 +3219,7 @@ export class BattleEngine {
             else if (sfxPlay.monster(def.sprite, "attack")) {
               // A monster's own attack cue (audio.ts MONSTER_SFX).
             }
-            else if (def.sprite !== "kaelFinal" || a.counterCustomDice) sfxPlay.meleeAttack(this.isBladeAttack(def, !!a.counterCustomDice));
+            else if (def.sprite !== "kaelFinal" || a.counterCustomDice) this.playMeleeCue(def, !!a.counterCustomDice);
             a.stage = "counterLunge";
           }
           else if (!def.alive) a.stage = "fade";
@@ -3394,6 +3412,7 @@ export class BattleEngine {
     }
     if (!a.hit && (syncFireballVfx ? a.fireballImpact === true : syncCausticVenomVfx ? a.causticVenomImpact === true : syncPhantasmalVfx ? a.phantasmalImpact === true : syncMagicMissileV2Vfx ? a.magicMissileV2Impact === true : syncBurningHandsVfx ? a.burningHandsReleased === true : a.t >= hitAt)) {
       a.hit = true;
+      if (a.spellKind === "turnUndead") this.turnUndeadFx.push({ tiles: a.tiles.map((p) => ({ ...p })), t: 0.001 });
       const usedElement = spellElement(a.spellKind);
       if (usedElement && (a.spellKind === "magicMissile" || a.spellKind === "magicMissileV2")) {
         const enemy = a.ids.map(id => this.units.find(u => u.id === id && u.alive && u.side === "enemy")).find(Boolean);
@@ -3409,7 +3428,7 @@ export class BattleEngine {
       let thrustHitIndex = 0;
       for (const id of a.ids) {
         const foe = this.units.find((u) => u.id === id && u.alive);
-        if (!foe) continue;
+        if (!foe || (a.spellKind === "turnUndead" && !isUndeadClass(foe.classId))) continue;
         const defTile = this.hexAt(foe.x, foe.y);
         if (defTile.id === "barricade") {
           this.emitParticle({
@@ -3498,6 +3517,11 @@ export class BattleEngine {
         if (element) dmg = Math.floor(elementalDamage(dmg, foe.resistances?.[element] ?? 0, this.affinityUnit(att).mag));
         if (dmg > 0 && a.spellKind) this.adjustAffinity(att, foe, -1);
         foe.hp = Math.max(0, foe.hp - dmg);
+        if (a.spellKind === "turnUndead" && foe.hp > 0) {
+          foe.fearTurns = Math.max(foe.fearTurns ?? 0, TURN_UNDEAD.fearTurns);
+          foe.fearSourceId = att.id;
+          this.pushLog(`${foe.name} fears the divine light and retreats for ${TURN_UNDEAD.fearTurns} turns.`);
+        }
         this.noteDamageEnmity(att, foe, dmg, isWeaponAbility(a.spellKind) ? "weapon" : "spell");
         foe.flash = 1;
         foe.hitAt = this.time;
@@ -3549,6 +3573,7 @@ export class BattleEngine {
           // level) — never for AoE/line spells, where only the first enemy hit grants full
           // XP and the rest grant half.
           const isAoeSpell =
+            a.spellKind === "turnUndead" ||
             a.spellKind === "fireball" ||
             a.spellKind === "cleave" ||
             a.spellKind === "piercing" ||
@@ -4469,6 +4494,17 @@ export class BattleEngine {
       burst.kind = kind;
     }
   }
+  /** Select the supplied cue for the actual weapon or Kael's Blade Skill. */
+  private playMeleeCue(unit: Unit, offHand = false, skill?: string | null, bladeStartAt = 0): void {
+    if (unit.name === "Kael" && skill && ["cleave", "sweep", "shoulderSmash", "stampede", "piercingThrust", "trip", "doubleStrike", "bullRush", "executionerStrike"].includes(skill)) {
+      sfxPlay.kaelBladeSkill();
+      return;
+    }
+    const weaponId = offHand ? unit.offHandId : unit.weaponId ?? starterWeaponFor(unit.classId);
+    if (weaponId && EQUIPMENT[weaponId]?.weaponType === "dagger") sfxPlay.daggerAttack();
+    else sfxPlay.meleeAttack(this.isBladeAttack(unit, offHand), bladeStartAt);
+  }
+
   /** Resolve the striking hand; shared class pools also contain blunt weapons. */
   private isBladeAttack(unit: Unit, offHand = false): boolean {
     if (offHand) return !!unit.offHandId && EQUIPMENT[unit.offHandId]?.kind === "weapon";
@@ -5164,6 +5200,40 @@ export class BattleEngine {
   startFrost():void {const u=this.units.find(x=>x.id===this.selectedId);if(!u||u.acted||(u.side==="player"&&u.level<FROST.unlockLevel)||this.tierRemaining(u,"frost")<=0)return;this.mode="awaitSpell";this.spellKind="frost";this.spellArmed=false;this.spellAim=null;this.hover=null;this.tip=`Frost: linha de ${frostPower(u.level).length} hexes à frente. Dano de Ice; atinge aliados também.`;}
   private queueFrost(u:Unit,origin:Point,through:Point):void {const cells=this.frostTiles(origin,through,u.level);if(!cells.length)return;const ids=this.units.filter(target=>target.alive&&target.id!==u.id&&cells.some(c=>occupies(target,c.x,c.y))).map(target=>target.id);const p=frostPower(u.level);this.spendTier(u,"frost");this.queue.push({type:"spell",att:u.id,tiles:cells,ids,dice:p.dice,faces:p.faces,bonus:0,spellMul:p.mul,label:FROST.name,spellKind:"frost"});}
   private castFrost(u:Unit,cell:Point):void {if(this.tierRemaining(u,"frost")<=0||!this.frostTiles(u,cell).length)return;this.queueFrost(u,u,cell);this.spellKind=null;this.mode="locked";this.tip=null;}
+  startTurnUndead(): void {
+    const u = this.units.find(x => x.id === this.selectedId);
+    if (!u || u.acted || rulesClass(u.classId) !== "healer" || this.tierRemaining(u, "turnUndead") <= 0) return;
+    const p = turnUndeadPower(u.level);
+    this.mode = "awaitSpell";
+    this.spellKind = "turnUndead";
+    this.spellArmed = true;
+    this.spellAim = { x: u.x, y: u.y };
+    this.hover = { x: u.x, y: u.y };
+    this.tip = `${TURN_UNDEAD.name}: radius ${p.radius} around the priest (${p.areaHexes} hexes), ${turnUndeadFormula(u.level, u.mag)} Holy damage and ${p.fearTurns} turns of fear against undead. Review the highlighted area, then confirm or cancel.`;
+  }
+
+  private turnUndeadTiles(cell: Point, level: number): Point[] {
+    return hexAreaTiles(cell, turnUndeadPower(level).radius, this.cols, this.rows)
+      .filter(p => tileAt(this.tiles, this.cols, p.x, p.y) !== "void");
+  }
+
+  private castTurnUndead(unit: Unit): void {
+    if (unit.acted || rulesClass(unit.classId) !== "healer" || this.tierRemaining(unit, "turnUndead") <= 0) return;
+    const p = turnUndeadPower(unit.level);
+    const tiles = this.turnUndeadTiles(unit, unit.level);
+    const ids = this.units.filter(target => target.alive && !target.dialog && isUndeadClass(target.classId)
+      && tiles.some(cell => occupies(target, cell.x, cell.y))).map(target => target.id);
+    this.spendTier(unit, "turnUndead");
+    this.spellKind = null;
+    this.spellArmed = false;
+    this.spellAim = null;
+    this.missileTargets = [];
+    this.tip = null;
+    this.mode = "locked";
+    this.queue.push({ type: "spell", att: unit.id, tiles, ids, dice: p.dice, faces: p.faces, bonus: 0,
+      spellMul: p.mul, label: TURN_UNDEAD.name, spellKind: "turnUndead" });
+  }
+
   startIceStorm(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || u.acted || u.level < ICE_STORM.unlockLevel || this.tierRemaining(u, "iceStorm") <= 0) return;
@@ -5684,7 +5754,7 @@ export class BattleEngine {
     this.tip = null;
     this.mode = "locked";
     this.queue.push({ type: "spell", att: u.id, tiles, ids, label: SWEEP.name, spellKind: "sweep" });
-    sfxPlay.sweep(this.isBladeAttack(u));
+    if (u.name !== "Kael") sfxPlay.sweep(this.isBladeAttack(u));
   }
 
   startTrip(): void {
@@ -5988,6 +6058,7 @@ export class BattleEngine {
   confirmSpell(): void {
     const u = this.units.find((x) => x.id === this.selectedId);
     if (!u || this.mode !== "awaitSpell" || !this.spellKind) return;
+    if (this.spellKind === "turnUndead") { this.castTurnUndead(u); return; }
     if (this.spellKind === "sweep") {
       this.confirmSweep();
       return;
@@ -7029,7 +7100,7 @@ export class BattleEngine {
     this.missileTargets = [];
     this.tip = null;
     this.mode = "locked";
-    sfxPlay.thrust(this.isBladeAttack(unit));
+    if (unit.name !== "Kael") sfxPlay.thrust(this.isBladeAttack(unit));
     this.queue.push({ type: "spell", att: unit.id, tiles: line, ids, label: PIERCING_THRUST.name, spellKind: "piercingThrust" });
   }
 
@@ -8256,6 +8327,27 @@ export class BattleEngine {
         this.activeUnitId = null; // force re-detection next tick, moving on to whoever's next
         return;
       }
+      if ((u.fearTurns ?? 0) > 0) {
+        u.fearTurns = Math.max(0, (u.fearTurns ?? 0) - 1);
+        const source = this.units.find(x => x.id === u.fearSourceId);
+        const threats = source ? [source] : this.units.filter(x => x.alive && x.side !== u.side && x.side !== "neutral");
+        this.turnRestrained = this.isWebCell(u.x, u.y);
+        const reach = computeReachable(this.effectiveUnitForReach(u), this.tiles, this.cols, this.rows, this.units, true, this.decorOverlay);
+        const paths = computeReachable(this.effectiveUnitForReach(u), this.tiles, this.cols, this.rows, this.units, false, this.decorOverlay);
+        const distance = (cell: Point) => threats.length ? Math.min(...threats.map(t => hexDist(cell, t))) : 0;
+        let destination: Point = u;
+        for (const cell of reach.values()) if (distance(cell) > distance(destination)) destination = cell;
+        if (destination !== u) {
+          const path = reconstructPath(paths, destination);
+          if (path.length > 1) this.queue.push({ type: "move", id: u.id, path });
+        }
+        u.moved = true;
+        u.acted = true;
+        this.mode = "locked";
+        this.tip = `${u.name} flees in fear and cannot attack.`;
+        if (this.queue.length === 0) this.activeUnitId = null;
+        return;
+      }
       // Decided once, off the unit's position right now (the start of its turn) — every
       // reach computation for the rest of this turn (repositioning included) uses this same
       // verdict instead of re-checking, see effectiveUnitForReach.
@@ -8942,6 +9034,10 @@ export class BattleEngine {
     }
 
     if (this.mode === "awaitSpell" && selected) {
+      if (this.spellKind === "turnUndead") {
+        this.tip = "The area is centered on the priest. Confirm to cast or cancel to keep the turn.";
+        return;
+      }
       if (this.spellKind === "sweep") {
         if (manhattan(selected, cell) <= SWEEP.radius) this.confirmSweep();
         else {
@@ -10369,6 +10465,7 @@ export class BattleEngine {
       if (!sprite) return 1;
       if (sprite === "big-blue-ox-002") seconds /= BIG_BLUE_OX_PACE;
       if (sprite === "kaelFinal") seconds = KAEL_FINAL_ATTACK_SECONDS;
+      if (sprite === "apparition") seconds = APPARITION_ATTACK_SECONDS;
       if (sprite === "minor-horror-001") seconds = MINOR_HORROR_SECONDS.attack;
       frames = (this.offHandStrike(a) ? this.art.attacksShort[sprite] : undefined) ?? (counter ? this.art.counters[sprite] : undefined) ?? this.art.attacks[sprite];
       // stepCombat's lunge + hit + recover clocks, which attackPose spreads the sheet across.
@@ -10627,7 +10724,7 @@ export class BattleEngine {
     const counterPool = faceRight ? this.art.counters[u.sprite] : (this.art.countersLeft[u.sprite] ?? this.art.counters[u.sprite]);
     // Hit reaction (GameArt.hits): plays for HIT_ANIM_SECONDS after taking damage, unless the
     // unit is attacking or walking. On a killing blow it plays first, then the death sheet.
-    const hitPool = this.art.hits[u.sprite];
+    const hitPool = this.hitPoolFor(u);
     const oxPosePace = u.classId === "bigBlueCalf" ? BIG_BLUE_OX_PACE : 1;
     // The Ox hit cut ends at source frame 75 instead of 83; retain its playback pace.
     const hitSeconds = HIT_ANIM_SECONDS / oxPosePace * (u.classId === "bigBlueCalf" ? 75 / 83 : 1);
@@ -10823,6 +10920,23 @@ export class BattleEngine {
       h = img.naturalHeight * worldPerPixel;
       w = img.naturalWidth * worldPerPixel;
     }
+    // Milícia V2: every sheet (idle/hit/death/walks) is cut by work/militia_v2_build.py onto one
+    // shared 534x762 canvas at one scale, standing body 628 px tall, feet at y 698. Same human
+    // height as Neera V2 above (1.53 cells), so he matches the other humans by default.
+    const isMiliciaV2 = u.sprite === "militia-v2";
+    const miliciaV2PerPixel = cell * 1.53 / 628;
+    if (isMiliciaV2 && img) {
+      h = img.naturalHeight * miliciaV2PerPixel;
+      w = img.naturalWidth * miliciaV2PerPixel;
+    }
+    // Apparition: idle/cast/walk/ATT share one TEK crop box (369x637, work/apparition/build.py),
+    // standing body 597 px, the same 1.53-cell human height as Neera V2 / Milícia V2. Her standing
+    // feet sit 34 px above the box bottom (room for the ATT stepping toward the camera).
+    const apparitionPerPixel = cell * 1.53 / 597;
+    if (u.sprite === "apparition" && img) {
+      h = img.naturalHeight * apparitionPerPixel;
+      w = img.naturalWidth * apparitionPerPixel;
+    }
     // The cast cut's own content also sits higher inside its canvas than idle/attack's does
     // (feet reach only ~87% of the way down vs idle's ~99%) — without this, boosting h above
     // would float the feet even further off the ground than they already subtly are. Shifts
@@ -10830,7 +10944,9 @@ export class BattleEngine {
     // Kael Final's atk sheet and Neera's atk/cast sheets each measured a smaller, consistent
     // version of the same gap (feet sitting a bit higher in their own canvas than idle's does)
     // — same fix, smaller correction.
-    const footOffset = neeraV2Sheet ? 0 : isCultistV2Casting
+    // Milícia V2's feet sit 64 px above his canvas bottom (room for the death fall); Neera V2's
+    // sit 3 px above hers with no offset, so shift him down by the 61 px difference.
+    const footOffset = neeraV2Sheet ? 0 : isMiliciaV2 ? 61 * miliciaV2PerPixel : u.sprite === "apparition" ? 34 * apparitionPerPixel : isCultistV2Casting
       ? h * 0.127
       : isKaelFinalAttacking
         ? h * 0.025
@@ -10849,7 +10965,7 @@ export class BattleEngine {
     const footY = s >= 4 ? tile * 0.9 : cell * 0.42;
     // Dedicated left/right walk+attack cuts already face the enemy, so flipping
     // them would put the spear/staff on the wrong side. Idle still flips.
-    const dirActionWalk = (u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval" || u.sprite === "theButcher" || u.sprite === "familiar2" || u.sprite === "familiar3" || u.sprite === "cultist-v2" || u.sprite === "cobalt-blue-deer" || u.sprite === "neera") && moving;
+    const dirActionWalk = (u.sprite === "aldric" || u.sprite === "defaultLancer" || u.sprite === "lancer" || u.sprite === "sandoval" || u.sprite === "theButcher" || u.sprite === "familiar2" || u.sprite === "familiar3" || u.sprite === "cultist-v2" || u.sprite === "militia-v2" || u.sprite === "cobalt-blue-deer" || u.sprite === "neera") && moving;
     // Suppress mirroring only when the frame actually came from an authored left cut.
     // Having a left ATT cut must not suppress the mirror of casts, counters or off-hand art.
     const dirActionAttack = atk != null && !!frames && (
@@ -10898,6 +11014,18 @@ export class BattleEngine {
     const scaleX = noBreathScale ? flip : flip * (1 - breath * 0.22);
     const scaleY = noBreathScale ? 1 : 1 + breath;
     return { img, w, h, footY, bob, sway, breath, lift, scaleX, scaleY, footOffset };
+  }
+
+  /** The hit sheet for the hit being played. A sprite with a second hit sheet (GameArt.hits2,
+   * e.g. the Apparition) cycles them per hit taken: hit, hit, hit2, hit, hit, hit2, ... Each new
+   * hitAt counts once, however many times a frame reads it. */
+  private hitPoolFor(u: Unit): HTMLImageElement[] | undefined {
+    const second = this.art.hits2[u.sprite];
+    if (!second || u.hitAt == null) return this.art.hits[u.sprite];
+    let seen = this.hitSheetCounts.get(u);
+    if (!seen) this.hitSheetCounts.set(u, (seen = { hitAt: u.hitAt, count: 1 }));
+    else if (seen.hitAt !== u.hitAt) { seen.hitAt = u.hitAt; seen.count += 1; }
+    return seen.count % 3 === 0 ? second : this.art.hits[u.sprite];
   }
 
   /** Public wrapper around computeUnitVisual — ThreeBattleRenderer calls this every frame to
@@ -11478,6 +11606,9 @@ export class BattleEngine {
         if (dir) push(coneSector(selected, dir, power.radius, this.cols, this.rows), this.spellKind === "poisonBreath" ? "rgba(100,200,60,0.55)" : "rgba(235,140,70,0.55)");
       }
       if(selected&&this.spellKind==="frost"){const cell=this.hover??this.spellAim;if(cell)push(this.frostTiles(selected,cell),"rgba(160,220,255,0.5)");}
+      if (selected && this.spellKind === "turnUndead") {
+        push(this.turnUndeadTiles(selected, selected.level), "rgba(255,225,145,0.45)");
+      }
       if (selected && this.spellKind === "iceStorm") {
         const power = iceStormPower(selected.level);
         push(this.healRangeTiles(selected, power.range), "rgba(125,195,245,0.38)");
@@ -11941,6 +12072,12 @@ export class BattleEngine {
             ctx.strokeText(`${u.hp}`, px, by - 1);
             ctx.fillText(`${u.hp}`, px, by - 1);
           }
+        }
+        if ((u.fearTurns ?? 0) > 0) {
+          ctx.font = `bold ${Math.max(11, cell * .18)}px sans-serif`;
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#ffe6a0";
+          ctx.fillText(`Fear ${u.fearTurns}`, px, by - bh - cell * .16);
         }
         if (u.stunned) {
           const gx = px;
@@ -12606,6 +12743,16 @@ export class BattleEngine {
 
     this.drawChargeFx(ctx, tile);
     this.drawHolyFx(ctx, tile);
+    for (const fx of this.turnUndeadFx) {
+      const cells = fx.tiles.map((p) => {
+        const { cx, cy } = this.hexCenter(p.x, p.y);
+        return { x: cx, y: cy, corners: Array.from({ length: 6 }, (_, i): [number, number] => {
+          const angle = (60 * i - 30) * Math.PI / 180;
+          return [cx + tile * Math.cos(angle), cy + tile * Math.sin(angle)];
+        }) };
+      });
+      drawTurnUndeadV4(ctx, cells, fx.t);
+    }
     this.drawBladeFx(ctx, tile);
     for (const fx of this.provokeFx) {
       const target = this.units.find(u => u.id === fx.unitId && u.alive);

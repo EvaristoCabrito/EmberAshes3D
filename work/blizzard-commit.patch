@@ -1,0 +1,51 @@
+diff --git a/src/game/engine.ts b/src/game/engine.ts
+index dddc815..b7d19f3 100644
+--- a/src/game/engine.ts
++++ b/src/game/engine.ts
+@@ -127,7 +127,6 @@ export const ZOOM_RADII = [22, 34, 50, 72];
+  * see EffectsRenderer.spawnEffect's `duration` option. Only spells with a clear elemental
+  * theme are listed; anything absent here (melee skills, arrows, heals, ...) queues no FX. */
+ const SPELL_ELEMENT_FX: Partial<Record<SpellKind, { kind: ElementKind; duration: number }>> = {
+-  iceStorm: { kind: "ice", duration: 1.4 },
+   causticVenom: { kind: "acid", duration: 1.3 },
+   minorVenom: { kind: "acid", duration: 1.3 },
+   divineBolt: { kind: "holy", duration: 1.15 },
+@@ -255,7 +254,7 @@ interface MissileFx {
+   max: number;
+   hue: number;
+   neeraArrow: boolean;
+-  kind: "magicMissile" | "phantasmalForce" | "fantomForce" | "fireball" | "iceStorm" | "causticVenom" | "minorVenom" | "longShot" | "arcaneBolt" | "webOfDreams";
++  kind: "magicMissile" | "phantasmalForce" | "fantomForce" | "fireball" | "causticVenom" | "minorVenom" | "longShot" | "arcaneBolt" | "webOfDreams";
+   seed: number;
+ }
+ 
+@@ -4344,7 +4363,7 @@ export class BattleEngine {
+   }
+ 
+   /** One glowing bolt per target, hex-to-hex — see MissileFx. */
+-  private emitMissileFx(fromX: number, fromY: number, toX: number, toY: number, kind: "magicMissile" | "phantasmalForce" | "fantomForce" | "fireball" | "iceStorm" | "causticVenom" | "minorVenom" | "longShot" | "arcaneBolt" | "webOfDreams"): void {
++  private emitMissileFx(fromX: number, fromY: number, toX: number, toY: number, kind: "magicMissile" | "phantasmalForce" | "fantomForce" | "fireball" | "causticVenom" | "minorVenom" | "longShot" | "arcaneBolt" | "webOfDreams"): void {
+     // The arrow-release cue lands the instant the arrow leaves the bow (the draw cue played when the pull began).
+     if (kind === "longShot") sfxPlay.arrowRelease(this.units.find((u) => u.x === Math.round(fromX) && u.y === Math.round(fromY) && u.alive)?.sprite === "neera");
+     if (this.reducedMotion) return;
+@@ -4365,10 +4384,10 @@ export class BattleEngine {
+     slot.toX = toX;
+     slot.toY = toY;
+     slot.t = 0;
+-    slot.travel = kind === "longShot" ? ARROW_TRAVEL : kind === "webOfDreams" ? WEB_SHOT_TRAVEL : kind === "fantomForce" ? FANTOM_FORCE_TRAVEL : kind === "phantasmalForce" ? PHANTASMAL_FORCE_TRAVEL : kind === "magicMissile" || kind === "fireball" || kind === "iceStorm" || kind === "causticVenom" || kind === "minorVenom" ? SPELL_TRAVEL : MISSILE_TRAVEL;
++    slot.travel = kind === "longShot" ? ARROW_TRAVEL : kind === "webOfDreams" ? WEB_SHOT_TRAVEL : kind === "fantomForce" ? FANTOM_FORCE_TRAVEL : kind === "phantasmalForce" ? PHANTASMAL_FORCE_TRAVEL : kind === "magicMissile" || kind === "fireball" || kind === "causticVenom" || kind === "minorVenom" ? SPELL_TRAVEL : MISSILE_TRAVEL;
+     slot.max = slot.travel + MISSILE_AFTERGLOW;
+     // Phantom System uses the original purple 2D bolt; only Phantasmal Force is a blue apparition.
+-    slot.hue = kind === "fireball" ? 22 : kind === "iceStorm" ? 190 : kind === "causticVenom" || kind === "minorVenom" ? 104 : kind === "longShot" ? 205 : kind === "arcaneBolt" ? 2 : kind === "webOfDreams" ? 276 : kind === "phantasmalForce" ? 202 : 268;
++    slot.hue = kind === "fireball" ? 22 : kind === "causticVenom" || kind === "minorVenom" ? 104 : kind === "longShot" ? 205 : kind === "arcaneBolt" ? 2 : kind === "webOfDreams" ? 276 : kind === "phantasmalForce" ? 202 : 268;
+     slot.neeraArrow = kind === "longShot" && this.units.some((u) => u.alive && u.sprite === "neera" && u.x === Math.round(fromX) && u.y === Math.round(fromY));
+     slot.kind = kind;
+     slot.seed = this.rng() * Math.PI * 2;
+@@ -8941,7 +9013,6 @@ export class BattleEngine {
+     this.mode = "locked";
+     this.tip = `${unit.name} conjura ${ICE_STORM.name}: área de ${power.areaHexes} hexes, ${power.durationRounds} rodadas.`;
+     this.pushLog(`${unit.name} conjura ${ICE_STORM.name}.`);
+-    this.emitMissileFx(unit.x, unit.y, click.x, click.y, "iceStorm");
+     this.queue.push({ type: "spell", att: unit.id, tiles: [click], ids: [], label: ICE_STORM.name, spellKind: "iceStorm" });
+   }
+ 

@@ -993,14 +993,14 @@
     "enemySpawns": [
       {
         "name": "Soldado",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 2,
         "y": 0,
         "level": 1
       },
       {
         "name": "Soldado",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 14,
         "y": 0,
         "level": 1
@@ -1042,7 +1042,7 @@
       },
       {
         "name": "Inimigo 8",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 14,
         "y": 1,
         "level": 1

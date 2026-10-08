@@ -1,0 +1,105 @@
+{
+  "options": [
+    {
+      "value": "flame",
+      "label": "Emissor de fogo estacionário"
+    },
+    {
+      "value": "pixel-frost",
+      "label": "Procedural Pixel Frost · estacionário"
+    },
+    {
+      "value": "pixel-lightning",
+      "label": "Procedural Pixel Lightning · estacionário"
+    },
+    {
+      "value": "pixel-poison",
+      "label": "Procedural Pixel Poison · estacionário"
+    },
+    {
+      "value": "pixel-arcane",
+      "label": "Procedural Pixel Arcane · estacionário"
+    },
+    {
+      "value": "pixel-holy",
+      "label": "Procedural Pixel Holy · estacionário"
+    },
+    {
+      "value": "pixel-shadow",
+      "label": "Procedural Pixel Shadow · estacionário"
+    },
+    {
+      "value": "pixel-ember",
+      "label": "Procedural Pixel Ember · estacionário"
+    },
+    {
+      "value": "pixel-v2-fire",
+      "label": "Procedural Pixel Fire V2 · estacionário"
+    },
+    {
+      "value": "pixel-v2-frost",
+      "label": "Procedural Pixel Frost V2 · estacionário"
+    },
+    {
+      "value": "pixel-v2-lightning",
+      "label": "Procedural Pixel Lightning V2 · estacionário"
+    },
+    {
+      "value": "pixel-v2-poison",
+      "label": "Procedural Pixel Poison V2 · estacionário"
+    },
+    {
+      "value": "pixel-v2-arcane",
+      "label": "Procedural Pixel Arcane V2 · estacionário"
+    },
+    {
+      "value": "pixel-v2-holy",
+      "label": "Procedural Pixel Holy V2 · estacionário"
+    },
+    {
+      "value": "pixel-v2-shadow",
+      "label": "Procedural Pixel Shadow V2 · estacionário"
+    },
+    {
+      "value": "pixel-v2-ember",
+      "label": "Procedural Pixel Ember V2 · estacionário"
+    },
+    {
+      "value": "impact",
+      "label": "Explosão de impacto Fireball · original"
+    },
+    {
+      "value": "phantasmal",
+      "label": "Força Fantasmal · 3D compressão espectral"
+    },
+    {
+      "value": "bless",
+      "label": "Bless · onda dourada 3D e luz real"
+    },
+    {
+      "value": "magic-missile-v2",
+      "label": "Míssil Mágico V2 · projétil arcano 3D"
+    },
+    {
+      "value": "web-of-dreams",
+      "label": "Web of Dreams · rede 3D persistente"
+    },
+    {
+      "value": "burning-hands-v2",
+      "label": "Burning Hands V2 · leque de fogo 3D"
+    },
+    {
+      "value": "burning-hands-v3",
+      "label": "Burning Hands V3 · leque de fogo 3D"
+    },
+    {
+      "value": "varredura-v2",
+      "label": "Varredura V2 · onda de choque circular"
+    },
+    {
+      "value": "cleave-sweep-v2",
+      "label": "Cleave · varredura da lança 3D"
+    }
+  ],
+  "errors": []
+}

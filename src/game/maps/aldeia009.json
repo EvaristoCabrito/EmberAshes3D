@@ -1321,7 +1321,7 @@
       },
       {
         "name": "Soldado",
-        "classId": "soldier",
+        "classId": "miliciaV2",
         "x": 10,
         "y": 4,
         "level": 2

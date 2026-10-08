@@ -1,0 +1,25 @@
+﻿Kael level / Provoke on hotbar: 15 ["/game/icons/provoke.png"]
+{
+ "foe": "Soldado@4,9",
+ "before": null,
+ "afterHavoc": "Voss",
+ "armed": true,
+ "afterProvoke": "Kael",
+ "kaelActed": true,
+ "provokedAll": [
+  "Soldado@4,9"
+ ],
+ "log": [
+  "Kael usa Provoke: Soldado volta-se contra Kael."
+ ],
+ "snapRows": 1,
+ "plan": [
+  "move to 4,10",
+  "delay"
+ ],
+ "distToKaelBefore": 3,
+ "distToKaelAfterPlan": 2,
+ "distToVossAfterPlan": 5
+}
+PASS
+errors []

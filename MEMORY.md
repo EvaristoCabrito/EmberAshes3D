@@ -24,3 +24,21 @@ Ice Storm has NO clouds, now or in future versions. Do not create, reuse, or sug
 Use only the game's existing normal 2D WebGL FX style for spell effects: animated energy, particles, glow, and light rendered through its WebGL effect system. Do not substitute 3D effects, sprite animations, image apparitions, or polygon/cartoon illustrations. Spell icons remain separate artwork. Preview new effects before combat integration.
 
 Provoke FX: NO SKULL in the effect. Use energy, sparks, and glow only. The supplied skull image is the icon only.
+
+
+## Local preview servers and ports — user instruction, 2026-10-07
+
+Do not use ports 8080 or 8087 again. Do not start local game/preview servers unless the user explicitly asks. This preference follows the user asking to free the ports and then saying "never use it again".
+
+
+## Turn Undead FX — user instruction, 2026-10-07
+
+Turn Undead is a brief flash of divine light at impact, then disappears completely. It does not stay on the map. Use the existing healing, potion, lightning/lighting, and Birolho venom 2D FX as the visual reference. The V1 cage/line effect was rejected and must not be integrated. New versions still require preview acceptance before combat integration.
+
+Turn Undead is centered on the priest, with no target selection. Selecting it must preview the affected area, then let the player confirm or cancel. Never cast immediately or spend a charge before confirmation. The Tier 3 radius must be substantial and grow through level 22; the rejected maximum radius of 3 was too small.
+
+The user accepted Turn Undead V4 for combat integration to finish the task and move on, while explicitly saying the effect is unsatisfactory. Do not treat this acceptance as praise or as a preferred visual reference for future effects.
+
+## Apparition lightning ATT — user instruction, 2026-10-07
+
+Apparition's ATT is magical lightning, not physical. Blue lightning leaves her hands sideways, expanding along a straight line through exactly two hexes in front of her. Match the original five-second ATT animation's charge and hand release. New FX must be previewed before combat integration.
