@@ -2917,7 +2917,9 @@ export class BattleEngine {
       const k = Math.min(1, a.t / dur);
       unit.drawX = from.x + (to.x - from.x) * k;
       unit.drawY = from.y + (to.y - from.y) * k;
-      if (unit.side === "player" && this.activeTurnUnit()?.id === unit.id) {
+      // The camera follows the walk of whoever's turn it is: a hero, or the enemy taking its own
+      // turn (activeUnitId stays on it while its queued moves play) — the same follow for both.
+      if ((unit.side === "player" && this.activeTurnUnit()?.id === unit.id) || (unit.side !== "player" && this.activeUnitId === unit.id)) {
         const cx = fromScreen.cx + (toScreen.cx - fromScreen.cx) * k;
         const cy = fromScreen.cy + (toScreen.cy - fromScreen.cy) * k;
         this.centerOnPoint(cx, cy);
@@ -8373,10 +8375,10 @@ export class BattleEngine {
       this.centerOn(u.x, u.y);
     } else {
       this.mode = "locked";
-      // Bring the acting enemy into view before its queued actions start — movement already
-      // nudges the camera per step (see stepActive's "move" branch), but a unit that attacks
-      // or casts without moving first would otherwise act wherever the camera was last left.
-      this.ensureVisible(u.x, u.y);
+      // Same camera as a hero's turn (per direct request — enemies acting at the screen edge
+      // were barely visible and read as moving too fast): centre on the acting enemy before
+      // its queued actions start, and follow its walk (see stepActive's "move" branch).
+      this.centerOn(u.x, u.y);
       this.runAiFor(u);
     }
   }
@@ -10416,6 +10418,9 @@ export class BattleEngine {
     // Neera V2 Idle atlas: 36 frames, 98 ms per frame.
     if (u.sprite === "neera") return Math.floor(u.bob / 0.098) % n;
     const moving = this.active?.type === "move" && this.active.id === u.id;
+    // Milícia V2 Idle sheet: 36 frames at its authored 119 ms per frame (its sheet's JSON), played
+    // forward — the sheet loops seamlessly. The generic 3 s pass below ran it ~1.4x too fast.
+    if (u.sprite === "militia-v2" && !moving) return Math.floor(u.bob / 0.119) % n;
     if (u.sprite === "minor-horror-001") return Math.floor(u.bob * n / MINOR_HORROR_SECONDS.idle) % n;
     if (u.sprite === "big-blue-ox-002") return Math.floor(u.bob * (moving ? 8 * BIG_BLUE_OX_PACE : n / 5.5)) % n;
     if (u.classId === "familiar" || u.classId === "familiar2") {

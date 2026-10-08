@@ -283,6 +283,10 @@ export const DECOR_ART_SCALE = 1.2;
 export const HOUSE_ART_SCALE = 1.35;
 
 const NEW_DECOR_2026: Record<string, DecorationDef> = {
+  // Reusable alpha-cut cave borders; collision follows their actual hex bases.
+  "cave-slate-shelf-001": { id: "cave-slate-shelf-001", name: "Caverna — Escarpa de Ardósia", footprint: [{ dx: 0, dy: 0 }, { dx: 1, dy: 0 }, { dx: 2, dy: 0 }], artScale: 1.1 },
+  "cave-fractured-boulders-001": { id: "cave-fractured-boulders-001", name: "Caverna — Blocos de Calcário Fraturado", footprint: DECO_PAIR, artScale: 1.05 },
+  "cave-limestone-spires-001": { id: "cave-limestone-spires-001", name: "Caverna — Agulhas de Calcário", footprint: DECO_ONE, heightScale: 1.25 },
   // Light props (CandleTorchBrazier2Fireplace.png) — each emits environmental light, see lighting.ts.
   "light-candle": { id: "light-candle", name: "Vela", footprint: DECO_ONE, artScale: 0.5 },
   "light-wall-torch": { id: "light-wall-torch", name: "Tocha de Parede", footprint: DECO_ONE },
@@ -721,6 +725,7 @@ export const SOLID_CART_DECOR_IDS = new Set([
 /** Low props: "Bloquear caminho" stops walking through them, but arrows and sight pass over (a well is knee-high). */
 export const LOW_BLOCKER_DECOR_IDS = new Set<string>(["well", "wilds-wishing-well", "tombstones"]);
 export const SOLID_ROCK_DECOR_IDS = new Set([
+  "cave-slate-shelf-001", "cave-fractured-boulders-001", "cave-limestone-spires-001",
   "rocks-3d-grey-outcrop", "rocks-3d-outcrop", "spike-rocks", "rocky-outcrop", "boulder-pile", "twin-spires",
   "large-boulder", "spike-rocks-2", "mossy-rocks", "mossy-boulder", "boulder-mound", "spike-crown",
 ]);
@@ -1100,7 +1105,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     mag: 0,
     def: 4,
     dex: 2,
-    mov: 3,
+    mov: 4,
     minRange: 1,
     maxRange: 1,
     sprite: "militia-v2",

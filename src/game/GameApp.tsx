@@ -4558,7 +4558,7 @@ const VARIANT_LABEL: Partial<Record<TerrainId, string[]>> = {
   ember: ["Brasa", "Brasa 2", "Antiga", "Cinzas", "Brasa viva", "Brasa · Solo contínuo 001"],
   hill: ["Platô rochoso", "Trilha elevada", "Ruínas elevadas", "Platô musgoso", "Colina · Solo contínuo 001"],
   flame: ["Chama", "Antiga", "Fogo", "Chama · Solo contínuo 001"],
-  nave: ["Laje", "Laje Negra", "Laje · Solo contínuo 001", "Templo antigo · Calcário contínuo 001", "Templo antigo · Basalto contínuo 001", "Masmorra · Lajes contínuas 001", "Masmorra · Tijolos contínuos 001", "Caverna · Solo contínuo 001", "Caverna com cristais · Solo contínuo 001", "Caverna · Cristais marcantes 002"],
+  nave: ["Laje", "Laje Negra", "Laje · Solo contínuo 001", "Templo antigo · Calcário contínuo 001", "Templo antigo · Basalto contínuo 001", "Masmorra · Lajes contínuas 001", "Masmorra · Tijolos contínuos 001", "Caverna · Solo contínuo 001", "Caverna com cristais · Solo contínuo 001", "Caverna · Cristais marcantes 002", "Caverna · Ardósia contínua 003", "Caverna · Cascalho contínuo 003"],
   column: ["Coluna", "Antiga", "Coluna · Solo contínuo 001"],
   snow: [
     "Neve Rasa 4", "Neve Rasa 5", "Neve Funda 2",

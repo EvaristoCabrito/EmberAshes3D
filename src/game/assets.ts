@@ -15,7 +15,7 @@ export const TILE_VARIANT_COUNT: Record<TerrainId, number> = {
   hill: 5,
   flame: 4,
   column: 3,
-  nave: 10,
+  nave: 12,
   barricade: 1,
   door: 1,
   void: 1,
@@ -42,6 +42,8 @@ export const HEX_GROUND_001: Partial<Record<TerrainId, { variant: number; file: 
  * Two variants of the same terrain differ only in art, so this is the only way to tell
  * from a painted map which of them a cell is actually using. */
 export function tileVariantName(id: TerrainId, variant: number): string {
+  if (id === "nave" && variant === 10) return "hex-ground-003-cave-slate";
+  if (id === "nave" && variant === 11) return "hex-ground-003-cave-scree";
   if (id === "nave" && variant === 9) return "hex-ground-002-cave-crystals";
   if (id === "nave" && variant >= 3 && variant <= 8) {
     return `hex-ground-001-${["temple-limestone", "temple-basalt", "dungeon-flagstone", "dungeon-brick", "cave", "cave-crystals"][variant - 3]}`;
@@ -87,7 +89,7 @@ export function tileVariantName(id: TerrainId, variant: number): string {
 }
 
 export function isHexGroundVariant(id: TerrainId, variant: number): boolean {
-  return id !== "column" && (HEX_GROUND_001[id]?.variant === variant || (id === "plains" && variant >= 39 && variant <= 42) || (id === "snow" && (variant === 16 || variant === 17)) || (id === "nave" && variant >= 3 && variant <= 9));
+  return id !== "column" && (HEX_GROUND_001[id]?.variant === variant || (id === "plains" && variant >= 39 && variant <= 42) || (id === "snow" && (variant === 16 || variant === 17)) || (id === "nave" && variant >= 3 && variant <= 11));
 }
 
 export function tileVariantSrc(id: TerrainId, variant: number): string {
